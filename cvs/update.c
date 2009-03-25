@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.157 2009/02/21 14:50:53 joris Exp $	*/
+/*	$OpenBSD: update.c,v 1.160 2009/03/24 17:03:32 joris Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -246,6 +246,12 @@ cvs_update_leavedir(struct cvs_file *cf)
 	if (cvs_server_active == 1 && !strcmp(cf->file_name, "."))
 		return;
 
+	entlist = cvs_ent_open(cf->file_path);
+	if (!TAILQ_EMPTY(&(entlist->cef_ent))) {
+		isempty = 0;
+		goto prune_it;
+	}
+
 	if (fstat(cf->fd, &st) == -1)
 		fatal("cvs_update_leavedir: %s", strerror(errno));
 
@@ -276,13 +282,8 @@ cvs_update_leavedir(struct cvs_file *cf)
 				continue;
 			}
 
-			if (!strcmp(dp->d_name, CVS_PATH_CVSDIR)) {
-				entlist = cvs_ent_open(cf->file_path);
-				if (!TAILQ_EMPTY(&(entlist->cef_ent)))
-					isempty = 0;
-			} else {
+			if (strcmp(dp->d_name, CVS_PATH_CVSDIR)) 
 				isempty = 0;
-			}
 
 			if (isempty == 0)
 				break;
@@ -296,6 +297,7 @@ cvs_update_leavedir(struct cvs_file *cf)
 
 	xfree(buf);
 
+prune_it:
 	if ((isempty == 1 && prune_dirs == 1) ||
 	    (cvs_server_active == 1 && cvs_cmdop == CVS_OP_CHECKOUT)) {
 		/* XXX */
@@ -326,7 +328,7 @@ cvs_update_local(struct cvs_file *cf)
 
 		if (cf->file_status != FILE_UNKNOWN &&
 		    verbosity > 1)
-			cvs_log(LP_NOTICE, "Updating %s", cf->file_path);
+			cvs_log(LP_ERR, "Updating %s", cf->file_path);
 		return;
 	}
 
@@ -448,12 +450,13 @@ cvs_update_local(struct cvs_file *cf)
 		break;
 	case FILE_UNLINK:
 		(void)unlink(cf->file_path);
-		if (cvs_server_active == 1)
-			cvs_checkout_file(cf, cf->file_rcsrev, tag, CO_REMOVE);
 	case FILE_REMOVE_ENTRY:
 		entlist = cvs_ent_open(cf->file_wd);
 		cvs_ent_remove(entlist, cf->file_name);
 		cvs_history_add(CVS_HISTORY_UPDATE_REMOVE, cf, NULL);
+
+		if (cvs_server_active == 1)
+			cvs_checkout_file(cf, cf->file_rcsrev, tag, CO_REMOVE);
 		break;
 	case FILE_UPTODATE:
 		if (cvs_cmdop != CVS_OP_UPDATE)
