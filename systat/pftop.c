@@ -1,4 +1,4 @@
-/* $Id: pftop.c,v 1.8 2009/01/01 22:50:39 mcbride Exp $	 */
+/* $Id: pftop.c,v 1.10 2009/04/06 12:08:26 henning Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -861,7 +861,7 @@ print_state(struct pfsync_state * s, struct sc_ent * ent)
 	print_fld_rate(FLD_SA, (s->creation) ?
 		       ((double)sz/ntohl((double)s->creation)) : -1);
 
-	print_fld_uint(FLD_RULE, s->rule);
+	print_fld_uint(FLD_RULE, ntohl(s->rule));
 	if (cachestates && ent != NULL) {
 		print_fld_rate(FLD_SI, ent->rate);
 		print_fld_rate(FLD_SP, ent->peak);
@@ -1410,23 +1410,7 @@ print_rule(struct pf_rule *pr)
 	if (pr->allow_opts)
 		tbprintf("allow-opts ");
 
-	if (pr->action == PF_SCRUB) {
-#ifdef PFRULE_REASSEMBLE_TCP
-		if (pr->rule_flag & PFRULE_REASSEMBLE_TCP)
-			tbprintf("reassemble tcp ");
-#endif
-#ifdef PFRULE_FRAGDROP
-		if (pr->rule_flag & PFRULE_FRAGDROP)
-			tbprintf("fragment drop-ovl ");
-		else
-#endif
-#ifdef PFRULE_FRAGCROP
-		if (pr->rule_flag & PFRULE_FRAGCROP)
-			tbprintf("fragment crop ");
-		else
-#endif
-			tbprintf("fragment reassemble ");
-	}
+	/* XXX more missing */
 
 	if (pr->qname[0] && pr->pqname[0])
 		tbprintf("queue(%s, %s) ", pr->qname, pr->pqname);
