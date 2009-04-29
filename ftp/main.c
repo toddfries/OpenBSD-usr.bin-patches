@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.73 2009/04/26 21:26:03 martynas Exp $	*/
+/*	$OpenBSD: main.c,v 1.76 2009/04/27 22:51:51 martynas Exp $	*/
 /*	$NetBSD: main.c,v 1.24 1997/08/18 10:20:26 lukem Exp $	*/
 
 /*
@@ -58,16 +58,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1985, 1989, 1993, 1994\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#if !defined(lint) && !defined(SMALL)
-static const char rcsid[] = "$OpenBSD: main.c,v 1.73 2009/04/26 21:26:03 martynas Exp $";
-#endif /* not lint and not SMALL */
 
 /*
  * FTP User Program -- Command Interface.
@@ -344,7 +334,9 @@ main(volatile int argc, char *argv[])
 				if (!retry_connect)
 					break;
 				if (!connected) {
+#ifndef SMALL
 					macnum = 0;
+#endif /* !SMALL */
 					fputs("Retrying...\n", ttyout);
 					sleep(retry_connect);
 				}
@@ -770,8 +762,7 @@ usage(void)
 #ifndef SMALL
 	    "d"
 #endif /* !SMALL */
-	    "EegimnptVv] [-k seconds] [-P port] [-r seconds]\n"
-	    "           [host [port]]\n"
+	    "EegimnptVv] [-k seconds] [-P port] [-r seconds] [host [port]]\n"
 	    "       %s "
 #ifndef SMALL
 	    "[-C] "

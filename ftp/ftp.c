@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftp.c,v 1.75 2009/04/26 21:26:03 martynas Exp $	*/
+/*	$OpenBSD: ftp.c,v 1.78 2009/04/27 23:20:48 martynas Exp $	*/
 /*	$NetBSD: ftp.c,v 1.27 1997/08/18 10:20:23 lukem Exp $	*/
 
 /*
@@ -58,10 +58,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#if !defined(lint) && !defined(SMALL)
-static const char rcsid[] = "$OpenBSD: ftp.c,v 1.75 2009/04/26 21:26:03 martynas Exp $";
-#endif /* not lint and not SMALL */
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -193,7 +189,7 @@ hookup(char *host, char *port)
 		}
 		if (error) {
 			/* this "if" clause is to prevent print warning twice */
-			if (res->ai_next) {
+			if (verbose && res->ai_next) {
 				if (getnameinfo(res->ai_addr, res->ai_addrlen,
 				    hbuf, sizeof(hbuf), NULL, 0,
 				    NI_NUMERICHOST) != 0)
@@ -528,6 +524,7 @@ getreply(int expecteof)
 	}
 }
 
+#ifndef SMALL
 jmp_buf	sendabort;
 
 /* ARGSUSED */
@@ -826,6 +823,7 @@ abort:
 	if (bytes > 0)
 		ptransfer(0);
 }
+#endif /* !SMALL */
 
 jmp_buf	recvabort;
 
