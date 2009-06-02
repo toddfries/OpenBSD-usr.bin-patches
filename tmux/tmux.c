@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.4 2009/06/02 16:53:20 sobrado Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -60,8 +60,9 @@ char 		*makesockpath(const char *);
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-28dqUuVv] [-f file] "
-	    "[-L socket-name] [-S socket-path] [command [flags]]\n",
+	fprintf(stderr,
+	    "usage: %s [-28dqUuv] [-f file] [-L socket-name] [-S socket-path]\n"
+	    "            [command [flags]]\n",
 	    __progname);
 	exit(1);
 }
@@ -227,6 +228,8 @@ main(int argc, char **argv)
 			flags &= ~IDENTIFY_256COLOURS;
 			break;
 		case 'f':
+			if (cfg_file)
+				xfree(cfg_file);
 			cfg_file = xstrdup(optarg);
 			break;
 		case 'L':
@@ -367,7 +370,7 @@ main(int argc, char **argv)
 			shell = _PATH_BSHELL;
 	}
 	options_set_string(
-	    &global_options, "default-command", "exec %s", shell);
+	    &global_options, "default-command", "exec %s -l", shell);
 
 	if (getcwd(cwd, sizeof cwd) == NULL) {
 		log_warn("getcwd");
