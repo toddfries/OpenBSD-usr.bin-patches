@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.109 2008/06/04 21:12:49 deraadt Exp $
+#	$OpenBSD: Makefile,v 1.112 2009/06/02 05:19:03 deraadt Exp $
 
 .include <bsd.own.mk>
 
@@ -19,12 +19,12 @@ SUBDIR= apply apropos ar arch asa asn1_compile at aucat audioctl awk banner \
 	pmdb pr printenv printf quota radioctl ranlib rcs rdist rdistd \
 	readlink renice rev rpcgen rpcinfo rs rsh rup ruptime rusers rwall \
 	rwho sdiff script sectok sed sendbug shar showmount skey \
-	skeyaudit skeyinfo skeyinit sort spell split ssh stat su sup systat \
+	skeyaudit skeyinfo skeyinit sort spell split ssh stat su systat \
 	sudo tail talk tcopy tcpbench tee telnet tftp tic time tip tn3270 \
-	top touch tput tr true tset tsort tty usbhidaction usbhidctl ul uname \
-	unexpand unifdef uniq units \
+	tmux top touch tput tr true tset tsort tty usbhidaction usbhidctl \
+	ul uname unexpand unifdef uniq units \
 	unvis users uudecode uuencode vacation vgrind vi vis vmstat w wall wc \
-	what whatis which who whois window write x99token xargs xinstall xlint \
+	what whatis which who whois write x99token xargs xinstall xlint \
 	xstr yacc yes
 
 .if (${YP:L} == "yes")

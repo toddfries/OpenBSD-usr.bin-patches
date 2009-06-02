@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.209 2009/02/12 03:00:56 djm Exp $ */
+/* $OpenBSD: clientloop.c,v 1.212 2009/05/28 16:50:16 andreas Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -101,6 +101,7 @@
 #include "misc.h"
 #include "match.h"
 #include "msg.h"
+#include "roaming.h"
 
 /* import options */
 extern Options options;
@@ -483,13 +484,13 @@ client_global_request_reply(int type, u_int32_t seq, void *ctxt)
 		xfree(gc);
 	}
 
-	keep_alive_timeouts = 0;
+	packet_set_alive_timeouts(0);
 }
 
 static void
 server_alive_check(void)
 {
-	if (++keep_alive_timeouts > options.server_alive_count_max) {
+	if (packet_inc_alive_timeouts() > options.server_alive_count_max) {
 		logit("Timeout, server not responding.");
 		cleanup_exit(255);
 	}
@@ -626,7 +627,7 @@ client_suspend_self(Buffer *bin, Buffer *bout, Buffer *berr)
 static void
 client_process_net_input(fd_set *readset)
 {
-	int len;
+	int len, cont = 0;
 	char buf[8192];
 
 	/*
@@ -635,8 +636,8 @@ client_process_net_input(fd_set *readset)
 	 */
 	if (FD_ISSET(connection_in, readset)) {
 		/* Read as much as possible. */
-		len = read(connection_in, buf, sizeof(buf));
-		if (len == 0) {
+		len = roaming_read(connection_in, buf, sizeof(buf), &cont);
+		if (len == 0 && cont == 0) {
 			/*
 			 * Received EOF.  The remote host has closed the
 			 * connection.
@@ -1463,6 +1464,12 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 
 	/* Stop watching for window change. */
 	signal(SIGWINCH, SIG_DFL);
+
+	packet_start(SSH2_MSG_DISCONNECT);
+	packet_put_int(SSH2_DISCONNECT_BY_APPLICATION);
+	packet_put_cstring("disconnected by user");
+	packet_send();
+	packet_write_wait();
 
 	channel_free_all();
 
