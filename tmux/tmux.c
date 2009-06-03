@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.4 2009/06/02 16:53:20 sobrado Exp $ */
+/* $OpenBSD: tmux.c,v 1.6 2009/06/03 17:04:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -287,7 +287,7 @@ main(int argc, char **argv)
 	options_set_number(&global_options, "prefix", '\002');
 	options_set_number(&global_options, "repeat-time", 500);
 	options_set_number(&global_options, "set-remain-on-exit", 0);
-	options_set_number(&global_options, "set-titles", 1);
+	options_set_number(&global_options, "set-titles", 0);
 	options_set_number(&global_options, "status", 1);
 	options_set_number(&global_options, "status-attr", GRID_ATTR_REVERSE);
 	options_set_number(&global_options, "status-bg", 2);
@@ -299,6 +299,7 @@ main(int argc, char **argv)
 	options_set_string(&global_options, "status-left", "[#S]");
 	options_set_string(
 	    &global_options, "status-right", "\"#24T\" %%H:%%M %%d-%%b-%%y");
+	options_set_number(&global_options, "status-utf8", 0);
 
 	options_init(&global_window_options, NULL);
 	options_set_number(&global_window_options, "aggressive-resize", 0);
