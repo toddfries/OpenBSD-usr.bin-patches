@@ -132,7 +132,7 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 		ARG="${files[$i]}"
 		NAME="$i.${ARG##*/}"
 		echo "TMPDEP+= $DIR/${NAME}.dep\n$DIR/${NAME}.dep: $ARG"
-		echo "\t${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
+		echo "\t@${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
 		let i=i+1
 	done
 	echo depend: \${TMPDEP}
