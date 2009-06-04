@@ -33,6 +33,8 @@
 #	@(#)mkdep.gcc.sh	8.1 (Berkeley) 6/6/93
 #
 
+echo "...mkdep... $@"
+
 #
 # Scan for a -o option in the arguments and record the filename given.
 # This is needed, since "cc -M -o out" writes to the file "out", not to
@@ -45,10 +47,21 @@ scanfordasho() {
 			file="$2"; shift; shift ;;
 		-o*)
 			file="${1#-o}"; shift ;;
+		-*)
+			commonargs="$commonargs $1"; shift ;;
 		*)
-			shift ;;
+			 argv[${#argv[*]}]="$1"; shift;;
 		esac
 	done
+	if [ "$MAKEFLAGS" ]; then
+		set -- $MAKEFLAGS
+		while [ "$1" ]; do case "$1" in
+			-j)	concurrence="$2"; shift; shift;;
+			-j*)	concurrence="${1#-j}"; shift ;;
+			*) shift;;
+			esac
+		done
+	fi
 }
 
 D=.depend			# default dependency file is .depend
@@ -56,7 +69,8 @@ append=0
 pflag=
 
 while :
-	do case "$1" in
+do
+	case "$1" in
 		# -a appends to the depend file
 		-a)
 			append=1
@@ -72,6 +86,11 @@ while :
 		-p)
 			pflag=p
 			shift ;;
+		# the -j flag mimics make's -j flag, sets concurrency
+		-j)
+			concurrence="$2"; shift; shift;;
+		-j*)
+			concurrence="${1#-j}"; shift ;;
 		*)
 			break ;;
 	esac
@@ -84,42 +103,61 @@ fi
 
 scanfordasho "$@"
 
-TMP=`mktemp /tmp/mkdep.XXXXXXXXXX` || exit 1
 
-trap 'rm -f $TMP ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
-if [ "x$file" = x ]; then
-	${CC:-cc} -M "$@"
+DIR=`mktemp -d /tmp/mkdep.XXXXXXXXXX` || exit 1
+
+trap 'rm -f $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
+
+if [ x$concurrence = x ]; then
+	if [ "x$file" = x ]; then
+		${CC:-cc} -M "$@"
+	else
+		${CC:-cc} -M "$@" && cat "$file"
+	fi |
+	if [ x$pflag = x ]; then
+		sed -e 's; \./; ;g' > $DIR/depend
+	else
+		sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g' > $DIR/depend
+	fi
 else
-	${CC:-cc} -M "$@" && cat "$file"
-fi |
-if [ x$pflag = x ]; then
-	sed -e 's; \./; ;g' > $TMP
-else
-	sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g' > $TMP
+	echo default:: depend > $DIR/Makefile
+	i=0
+	while [ i -lt ${#argv[*]} ]
+	do
+		ARG="${argv[$i]}"
+		NAME="$i.${ARG##*/}"
+		echo SRCS+= $DIR/${NAME}.dep
+		echo $DIR/${NAME}.dep: $ARG
+		echo "\t${CC:-cc} -M $commonargs $ARG > $DIR/${NAME}.dep"
+		let i=i+1
+	done >> $DIR/Makefile
+	echo depend: \${SRCS} >> $DIR/Makefile
+	echo "\tcat \${.ALLSRC} > $DIR/depend" >> $DIR/Makefile
+	make -f $DIR/Makefile || { echo $DIR/Makefile; exit 1; }
 fi
 
 if [ $? != 0 ]; then
 	echo 'mkdep: compile failed.'
-	rm -f $TMP
+	rm -rf $DIR
 	exit 1
 fi
 
 if [ $append = 1 ]; then
-	cat $TMP >> $D
+	cat $DIR/depend >> $D
 	if [ $? != 0 ]; then
 		echo 'mkdep: append failed.'
-		rm -f $TMP
+		rm -rf $DIR
 		exit 1
 	fi
 else
-	mv -f $TMP $D
+	mv -f $DIR/depend $D
 	if [ $? != 0 ]; then
 		echo 'mkdep: rename failed.'
-		rm -f $TMP
+		rm -rf $DIR
 		exit 1
 	fi
 fi
 
-rm -f $TMP
+rm -rf $DIR
 exit 0
