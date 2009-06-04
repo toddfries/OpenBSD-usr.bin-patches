@@ -48,10 +48,12 @@ scanfordasho() {
 			file="${1#-o}"; shift ;;
 		-x)
 			echo "debug: -x blah = $1 $2"
-			cargs[${#cargs[*]}]="$1"
-			cargs[${#cargs[*]}]="$2"; shift; shift ;;
+			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
+			cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
+			shift; shift ;;
 		-*)
-			cargs[${#cargs[*]}]="$1"; let ca=ca+1; shift ;;
+			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
+			let ca=ca+1; shift ;;
 		*)
 			files[${#files[*]}]="$1"; shift;;
 		esac
@@ -140,13 +142,13 @@ trap '$rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	fi
 
 	echo default:: depend
-	echo "CCDEP="
 	i=0
 	while [ i -lt ${#cargs[*]} ]
 	do
-		echo -n "\"${cargs[$i]}\" "
+		echo "CCDEP+=\"${cargs[$i]}\""
+		let i=i+1
 	done
-	echo
+
 	i=0
 	while [ i -lt ${#files[*]} ]
 	do
@@ -164,7 +166,6 @@ trap '$rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 		echo "\t${at}\${SUBST} \${.ALLSRC} >  $D"
 	fi
 } > $DIR/Makefile
-#} | sed 's/"/\\"/g' > $DIR/Makefile
 
 if ! make -f $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
