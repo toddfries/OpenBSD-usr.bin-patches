@@ -120,15 +120,17 @@ fi
 if [ debug -gt 0 ]; then
 	at=""
 	echo "# DEBUG: mkdep $args"
+	rm=":"
 else
 	at="@"
+	rm="rm"
 fi
 
 scanfordasho "$@"
 
 DIR=`mktemp -d /tmp/mkdep.XXXXXXXXXX` || exit 1
 
-trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
+trap '$rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
 {
 	if [ x$pflag = x ]; then
@@ -138,14 +140,21 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	fi
 
 	echo default:: depend
-	echo "CCDEP=${cargs[@]}"
+	echo "CCDEP="
+	i=0
+	while [ i -lt ${#cargs[*]} ]
+	do
+		echo -n "\"${cargs[$i]}\" "
+	done
+	echo
 	i=0
 	while [ i -lt ${#files[*]} ]
 	do
 		ARG="${files[$i]}"
 		NAME="$i.${ARG##*/}"
 		echo "TMPDEP+= $DIR/${NAME}.dep\n$DIR/${NAME}.dep: $ARG"
-		echo "\t${at}${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
+		echo -n "\t${at}${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
+		echo " || : > $DIR/${NAME}.dep"
 		let i=i+1
 	done
 	echo depend: \${TMPDEP}
@@ -154,13 +163,14 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	else
 		echo "\t${at}\${SUBST} \${.ALLSRC} >  $D"
 	fi
-} | sed 's/"/\\"/g' > $DIR/Makefile
+} > $DIR/Makefile
+#} | sed 's/"/\\"/g' > $DIR/Makefile
 
 if ! make -f $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
-	rm -rf $DIR $D
+	$rm -rf $DIR $D
 	exit 1
 fi
 
-rm -rf $DIR
+$rm -rf $DIR
 exit 0
