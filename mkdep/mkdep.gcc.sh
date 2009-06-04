@@ -47,6 +47,8 @@ scanfordasho() {
 			file="$2"; shift; shift ;;
 		-o*)
 			file="${1#-o}"; shift ;;
+		-x)
+			commonargs="$commonargs $1 $2"; shift; shift ;;
 		-*)
 			commonargs="$commonargs $1"; shift ;;
 		*)
