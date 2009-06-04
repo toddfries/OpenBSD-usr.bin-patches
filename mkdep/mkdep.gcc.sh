@@ -33,8 +33,6 @@
 #	@(#)mkdep.gcc.sh	8.1 (Berkeley) 6/6/93
 #
 
-echo "...mkdep... $@"
-
 #
 # Scan for a -o option in the arguments and record the filename given.
 # This is needed, since "cc -M -o out" writes to the file "out", not to
