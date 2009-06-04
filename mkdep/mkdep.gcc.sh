@@ -113,12 +113,13 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
 {
 	if [ x$pflag = x ]; then
-		echo "SUBST=	sed -e 's; \./; ;g'"
+		echo "SUBST=	@sed -e 's; \./; ;g'"
 	else
-		echo "SUBST=	sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
+		echo "SUBST=	@sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
 	fi
 
 	echo default:: depend
+	echo "CCDEP=$commonargs"
 	i=0
 	while [ i -lt ${#argv[*]} ]
 	do
@@ -126,7 +127,7 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 		NAME="$i.${ARG##*/}"
 		echo TMPDEP+= $DIR/${NAME}.dep
 		echo $DIR/${NAME}.dep: $ARG
-		echo "\t@${CC:-cc} -M $commonargs $ARG > $DIR/${NAME}.dep"
+		echo "\t@${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
 		let i=i+1
 	done
 	echo depend: \${TMPDEP}
