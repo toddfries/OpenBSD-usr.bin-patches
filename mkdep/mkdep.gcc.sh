@@ -38,6 +38,8 @@
 # This is needed, since "cc -M -o out" writes to the file "out", not to
 # stdout.
 #
+ca=0
+set -A cargs
 scanfordasho() {
 	while [ $# != 0 ]
 	do case "$1" in
@@ -46,21 +48,25 @@ scanfordasho() {
 		-o*)
 			file="${1#-o}"; shift ;;
 		-x)
-			commonargs="$commonargs $1 $2"; shift; shift ;;
+			cargs[$ca]="$1"; let ca=ca+1
+			cargs[$ca]="$2"; shift; shift ;;
 		-*)
-			commonargs="$commonargs $1"; shift ;;
+			cargs[$ca]="$1"; let ca=ca+1; shift ;;
 		*)
-			 argv[${#argv[*]}]="$1"; shift;;
+			files[${#files[*]}]="$1"; shift;;
 		esac
 	done
 }
 checkflags() {
 	if [ "$MAKEFLAGS" ]; then
-		set -- $MAKEFLAGS
-		while [ "$1" ]; do case "$1" in
-			-j)	concurrence="$2"; shift; shift;;
-			-j*)	concurrence="${1#-j}"; shift ;;
-			*) shift;;
+		set -- "$MAKEFLAGS"
+		while [ $# != 0 ]; do case "$1" in
+			-j)
+				concurrence="$2"; shift; shift ;;
+			-j*)
+				concurrence="${1#-j}"; shift ;;
+			*)
+				shift ;;
 			esac
 		done
 	fi
@@ -119,24 +125,24 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	fi
 
 	echo default:: depend
-	echo "CCDEP=$commonargs"
+	echo "CCDEP=\"""${cargs[@]}""\""
 	i=0
-	while [ i -lt ${#argv[*]} ]
+	while [ i -lt ${#files[*]} ]
 	do
-		ARG="${argv[$i]}"
+		ARG="${files[$i]}"
 		NAME="$i.${ARG##*/}"
-		echo TMPDEP+= $DIR/${NAME}.dep
-		echo $DIR/${NAME}.dep: $ARG
-		echo "\t@${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
+		echo "TMPDEP+= $DIR/${NAME}.dep\n$DIR/${NAME}.dep: $ARG"
+		echo "\t${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
 		let i=i+1
 	done
 	echo depend: \${TMPDEP}
 	if [ $append = 1 ]; then
-		echo "\t\${SUBST} \${.ALLSRC} >> $D"
+		echo "\t@\${SUBST} \${.ALLSRC} >> $D"
 	else
-		echo "\t\${SUBST} \${.ALLSRC} >  $D"
+		echo "\t@\${SUBST} \${.ALLSRC} >  $D"
 	fi
 } > $DIR/Makefile
+#} | sed 's/"/\\"/g' > $DIR/Makefile
 
 if ! make -f $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
