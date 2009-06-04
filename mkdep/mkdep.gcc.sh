@@ -53,6 +53,8 @@ scanfordasho() {
 			 argv[${#argv[*]}]="$1"; shift;;
 		esac
 	done
+}
+checkflags() {
 	if [ "$MAKEFLAGS" ]; then
 		set -- $MAKEFLAGS
 		while [ "$1" ]; do case "$1" in
@@ -67,6 +69,8 @@ scanfordasho() {
 D=.depend			# default dependency file is .depend
 append=0
 pflag=
+
+checkflags
 
 while :
 do
@@ -103,60 +107,40 @@ fi
 
 scanfordasho "$@"
 
-
-
 DIR=`mktemp -d /tmp/mkdep.XXXXXXXXXX` || exit 1
 
-trap 'rm -f $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
+trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
-if [ x$concurrence = x ]; then
-	if [ "x$file" = x ]; then
-		${CC:-cc} -M "$@"
-	else
-		${CC:-cc} -M "$@" && cat "$file"
-	fi |
+{
 	if [ x$pflag = x ]; then
-		sed -e 's; \./; ;g' > $DIR/depend
+		echo "SUBST=	sed -e 's; \./; ;g'"
 	else
-		sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g' > $DIR/depend
+		echo "SUBST=	sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
 	fi
-else
-	echo default:: depend > $DIR/Makefile
+
+	echo default:: depend
 	i=0
 	while [ i -lt ${#argv[*]} ]
 	do
 		ARG="${argv[$i]}"
 		NAME="$i.${ARG##*/}"
-		echo SRCS+= $DIR/${NAME}.dep
+		echo TMPDEP+= $DIR/${NAME}.dep
 		echo $DIR/${NAME}.dep: $ARG
-		echo "\t${CC:-cc} -M $commonargs $ARG > $DIR/${NAME}.dep"
+		echo "\t@${CC:-cc} -M $commonargs $ARG > $DIR/${NAME}.dep"
 		let i=i+1
-	done >> $DIR/Makefile
-	echo depend: \${SRCS} >> $DIR/Makefile
-	echo "\tcat \${.ALLSRC} > $DIR/depend" >> $DIR/Makefile
-	make -f $DIR/Makefile || { echo $DIR/Makefile; exit 1; }
-fi
+	done
+	echo depend: \${TMPDEP}
+	if [ $append = 1 ]; then
+		echo "\t\${SUBST} \${.ALLSRC} >> $D"
+	else
+		echo "\t\${SUBST} \${.ALLSRC} >  $D"
+	fi
+} > $DIR/Makefile
 
-if [ $? != 0 ]; then
+if ! make -f $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
-	rm -rf $DIR
+	rm -rf $DIR $D
 	exit 1
-fi
-
-if [ $append = 1 ]; then
-	cat $DIR/depend >> $D
-	if [ $? != 0 ]; then
-		echo 'mkdep: append failed.'
-		rm -rf $DIR
-		exit 1
-	fi
-else
-	mv -f $DIR/depend $D
-	if [ $? != 0 ]; then
-		echo 'mkdep: rename failed.'
-		rm -rf $DIR
-		exit 1
-	fi
 fi
 
 rm -rf $DIR
