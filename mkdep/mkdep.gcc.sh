@@ -125,7 +125,7 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	fi
 
 	echo default:: depend
-	echo "CCDEP=\"""${cargs[@]}""\""
+	echo "CCDEP=${cargs[@]}"
 	i=0
 	while [ i -lt ${#files[*]} ]
 	do
@@ -141,8 +141,7 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	else
 		echo "\t@\${SUBST} \${.ALLSRC} >  $D"
 	fi
-} > $DIR/Makefile
-#} | sed 's/"/\\"/g' > $DIR/Makefile
+} | sed 's/"/\\"/g' > $DIR/Makefile
 
 if ! make -f $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
