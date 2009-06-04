@@ -38,7 +38,6 @@
 # This is needed, since "cc -M -o out" writes to the file "out", not to
 # stdout.
 #
-ca=0
 set -A cargs
 scanfordasho() {
 	while [ $# != 0 ]
@@ -48,10 +47,11 @@ scanfordasho() {
 		-o*)
 			file="${1#-o}"; shift ;;
 		-x)
-			cargs[$ca]="$1"; let ca=ca+1
-			cargs[$ca]="$2"; shift; shift ;;
+			echo "debug: -x blah = $1 $2"
+			cargs[${#cargs[*]}]="$1"
+			cargs[${#cargs[*]}]="$2"; shift; shift ;;
 		-*)
-			cargs[$ca]="$1"; let ca=ca+1; shift ;;
+			cargs[${#cargs[*]}]="$1"; let ca=ca+1; shift ;;
 		*)
 			files[${#files[*]}]="$1"; shift;;
 		esac
@@ -74,7 +74,9 @@ checkflags() {
 
 D=.depend			# default dependency file is .depend
 append=0
+debug=0
 pflag=
+args="$@"
 
 checkflags
 
@@ -86,6 +88,11 @@ do
 			append=1
 			shift ;;
 
+		# debug mode
+		-d)
+			debug=1
+			shift ;;
+	
 		# -f allows you to select a makefile name
 		-f)
 			D=$2
@@ -110,6 +117,12 @@ if [ $# = 0 ] ; then
 	echo 'usage: mkdep [-ap] [-f file] [flags] file ...'
 	exit 1
 fi
+if [ debug -gt 0 ]; then
+	at=""
+	echo "# DEBUG: mkdep $args"
+else
+	at="@"
+fi
 
 scanfordasho "$@"
 
@@ -119,9 +132,9 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
 {
 	if [ x$pflag = x ]; then
-		echo "SUBST=	@sed -e 's; \./; ;g'"
+		echo "SUBST=	${at}sed -e 's; \./; ;g'"
 	else
-		echo "SUBST=	@sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
+		echo "SUBST=	${at}sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
 	fi
 
 	echo default:: depend
@@ -132,14 +145,14 @@ trap 'rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 		ARG="${files[$i]}"
 		NAME="$i.${ARG##*/}"
 		echo "TMPDEP+= $DIR/${NAME}.dep\n$DIR/${NAME}.dep: $ARG"
-		echo "\t@${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
+		echo "\t${at}${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
 		let i=i+1
 	done
 	echo depend: \${TMPDEP}
 	if [ $append = 1 ]; then
-		echo "\t@\${SUBST} \${.ALLSRC} >> $D"
+		echo "\t${at}\${SUBST} \${.ALLSRC} >> $D"
 	else
-		echo "\t@\${SUBST} \${.ALLSRC} >  $D"
+		echo "\t${at}\${SUBST} \${.ALLSRC} >  $D"
 	fi
 } | sed 's/"/\\"/g' > $DIR/Makefile
 
