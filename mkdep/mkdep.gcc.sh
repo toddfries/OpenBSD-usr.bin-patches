@@ -47,7 +47,6 @@ scanfordasho() {
 		-o*)
 			file="${1#-o}"; shift ;;
 		-x)
-			echo "debug: -x blah = $1 $2"
 			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
 			cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
 			shift; shift ;;
@@ -64,9 +63,9 @@ checkflags() {
 		set -- "$MAKEFLAGS"
 		while [ $# != 0 ]; do case "$1" in
 			-j)
-				concurrence="$2"; shift; shift ;;
+				concurrence="-j$2"; shift; shift ;;
 			-j*)
-				concurrence="${1#-j}"; shift ;;
+				concurrence="$1"; shift ;;
 			*)
 				shift ;;
 			esac
@@ -80,7 +79,18 @@ debug=0
 pflag=
 args="$@"
 
-checkflags
+# if nothing else, fallback on hw.ncpu
+# use cmdline -j# if provided
+# permit MAKEFLAGS to over-ride all
+ncpu=$(sysctl -n hw.ncpu)
+# Per Kettenis, set max default upper bounds at 16, so we do not run out of
+# processes
+[ ncpu -gt 16 ] && ncpu=16
+if [ ncpu -gt 1 ]; then
+	concurrence="-j$ncpu"
+else
+	concurrence=""
+fi
 
 while :
 do
@@ -107,13 +117,16 @@ do
 			shift ;;
 		# the -j flag mimics make's -j flag, sets concurrency
 		-j)
-			concurrence="$2"; shift; shift;;
+			concurrence="-j$2"; shift; shift;;
 		-j*)
-			concurrence="${1#-j}"; shift ;;
+			concurrence="-j$1"; shift ;;
 		*)
 			break ;;
 	esac
 done
+
+checkflags
+
 
 if [ $# = 0 ] ; then
 	echo 'usage: mkdep [-ap] [-f file] [flags] file ...'
@@ -167,7 +180,7 @@ trap '$rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
 	fi
 } > $DIR/Makefile
 
-if ! make -f $DIR/Makefile; then
+if ! make $concurrence -rf $DIR/Makefile; then
 	echo 'mkdep: compile failed.'
 	$rm -rf $DIR $D
 	exit 1
