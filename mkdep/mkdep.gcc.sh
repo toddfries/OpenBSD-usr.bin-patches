@@ -69,7 +69,7 @@ scanfordasho() {
 }
 checkflags() {
 	if [ "$MAKEFLAGS" ]; then
-		set -- "$MAKEFLAGS"
+		set -- $MAKEFLAGS
 		while [ $# != 0 ]; do case "$1" in
 			-j)
 				concurrence="-j$2"; shift; shift ;;
@@ -135,7 +135,6 @@ do
 done
 
 checkflags
-
 
 if [ $# = 0 ] ; then
 	echo 'usage: mkdep [-ap] [-f file] [flags] file ...'
