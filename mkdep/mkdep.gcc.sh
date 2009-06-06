@@ -42,17 +42,26 @@ set -A cargs
 scanfordasho() {
 	while [ $# != 0 ]
 	do case "$1" in
-		-o)	
+		-o|--output)	
 			file="$2"; shift; shift ;;
 		-o*)
 			file="${1#-o}"; shift ;;
-		-x)
+		# List options that take files, filled in at build time
+		%ARGLIST%)
 			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
 			cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
 			shift; shift ;;
+
+		# Any options single or double that don't take files
 		-*)
 			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
-			let ca=ca+1; shift ;;
+
+			# If a non file and not a -* then its a flag arg
+			if ! [ -f "$2" -a "${2}" = "${2#-*}" ]; then
+				cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
+				shift
+			fi
+			shift ;;
 		*)
 			files[${#files[*]}]="$1"; shift;;
 		esac
