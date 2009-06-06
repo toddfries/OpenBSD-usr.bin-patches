@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.4 2009/06/03 16:54:26 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.6 2009/06/04 18:48:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,6 +26,7 @@
 #include <sys/queue.h>
 #include <sys/tree.h>
 
+#include <bitstring.h>
 #include <getopt.h>
 #include <limits.h>
 #include <poll.h>
@@ -279,6 +280,7 @@ struct tty_term_code_entry {
 
 /* Output commands. */
 enum tty_cmd {
+	TTY_ALIGNMENTTEST,
 	TTY_CELL,
 	TTY_CLEARENDOFLINE,
 	TTY_CLEARENDOFSCREEN,
@@ -505,6 +507,8 @@ struct screen {
 	u_int		 old_rlower;
 
 	int		 mode;
+
+	bitstr_t      	*tabs;
 
 	struct screen_sel sel;
 };
@@ -1363,6 +1367,7 @@ void	 screen_write_cursorup(struct screen_write_ctx *, u_int);
 void	 screen_write_cursordown(struct screen_write_ctx *, u_int);
 void	 screen_write_cursorright(struct screen_write_ctx *, u_int);
 void	 screen_write_cursorleft(struct screen_write_ctx *, u_int);
+void	 screen_write_alignmenttest(struct screen_write_ctx *);
 void	 screen_write_insertcharacter(struct screen_write_ctx *, u_int);
 void	 screen_write_deletecharacter(struct screen_write_ctx *, u_int);
 void	 screen_write_insertline(struct screen_write_ctx *, u_int);
@@ -1395,6 +1400,7 @@ void	 screen_redraw_status(struct client *);
 void	 screen_init(struct screen *, u_int, u_int, u_int);
 void	 screen_reinit(struct screen *);
 void	 screen_free(struct screen *);
+void	 screen_reset_tabs(struct screen *);
 void	 screen_set_title(struct screen *, const char *);
 void	 screen_resize(struct screen *, u_int, u_int);
 void	 screen_set_selection(

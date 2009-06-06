@@ -1,4 +1,4 @@
-/*	$OpenBSD: dired.c,v 1.43 2007/09/11 15:47:17 gilles Exp $	*/
+/*	$OpenBSD: dired.c,v 1.45 2009/06/04 23:39:37 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -225,7 +225,7 @@ d_otherwindow(int f, int n)
 		return (FALSE);
 	if ((bp = dired_(bufp)) == NULL)
 		return (FALSE);
-	if ((wp = popbuf(bp)) == NULL)
+	if ((wp = popbuf(bp, WNONE)) == NULL)
 		return (FALSE);
 	curbp = bp;
 	curwp = wp;
@@ -244,7 +244,7 @@ d_del(int f, int n)
 		if (lforw(curwp->w_dotp) != curbp->b_headp)
 			curwp->w_dotp = lforw(curwp->w_dotp);
 	}
-	curwp->w_flag |= WFEDIT | WFMOVE;
+	curwp->w_rflag |= WFEDIT | WFMOVE;
 	curwp->w_doto = 0;
 	return (TRUE);
 }
@@ -261,7 +261,7 @@ d_undel(int f, int n)
 		if (lforw(curwp->w_dotp) != curbp->b_headp)
 			curwp->w_dotp = lforw(curwp->w_dotp);
 	}
-	curwp->w_flag |= WFEDIT | WFMOVE;
+	curwp->w_rflag |= WFEDIT | WFMOVE;
 	curwp->w_doto = 0;
 	return (TRUE);
 }
@@ -279,7 +279,7 @@ d_undelbak(int f, int n)
 			curwp->w_dotp = lback(curwp->w_dotp);
 	}
 	curwp->w_doto = 0;
-	curwp->w_flag |= WFEDIT | WFMOVE;
+	curwp->w_rflag |= WFEDIT | WFMOVE;
 	return (TRUE);
 }
 
@@ -320,7 +320,7 @@ d_ffotherwindow(int f, int n)
 		return (FALSE);
 	if ((bp = (s ? dired_(fname) : findbuffer(fname))) == NULL)
 		return (FALSE);
-	if ((wp = popbuf(bp)) == NULL)
+	if ((wp = popbuf(bp, WNONE)) == NULL)
 		return (FALSE);
 	curbp = bp;
 	curwp = wp;
@@ -360,7 +360,7 @@ d_expunge(int f, int n)
 			}
 			lfree(lp);
 			curwp->w_bufp->b_lines--;
-			curwp->w_flag |= WFFULL;
+			curwp->w_rflag |= WFFULL;
 		}
 	}
 	return (TRUE);
@@ -519,7 +519,7 @@ d_shell_command(int f, int n)
 		close(fds[0]);
 		break;
 	}
-	wp = popbuf(bp);
+	wp = popbuf(bp, WNONE);
 	if (wp == NULL)
 		return (ABORT);	/* XXX - free the buffer?? */
 	curwp = wp;

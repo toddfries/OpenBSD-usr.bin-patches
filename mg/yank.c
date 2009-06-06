@@ -1,4 +1,4 @@
-/*	$OpenBSD: yank.c,v 1.7 2008/09/15 16:13:35 kjell Exp $	*/
+/*	$OpenBSD: yank.c,v 1.9 2009/06/05 18:02:06 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -119,20 +119,19 @@ kchunk(char *cp1, RSIZE chunk, int kflag)
 	if (kused == kstart)
 		kflag = KFORW;
 
-	if (kflag == KFORW) {
+	if (kflag & KFORW) {
 		while (ksize - kused < chunk)
 			if (kgrow(kflag) == FALSE)
 				return (FALSE);
 		bcopy(cp1, &(kbufp[kused]), (int)chunk);
 		kused += chunk;
-	} else if (kflag == KBACK) {
+	} else if (kflag & KBACK) {
 		while (kstart < chunk)
 			if (kgrow(kflag) == FALSE)
 				return (FALSE);
 		bcopy(cp1, &(kbufp[kstart - chunk]), (int)chunk);
 		kstart -= chunk;
-	} else if (kflag != KNONE)
-		panic("broken ldelete call");
+	}
 
 	return (TRUE);
 }
@@ -188,7 +187,7 @@ killline(int f, int n)
 			if (lback(curwp->w_dotp) == curbp->b_headp)
 				break;
 			curwp->w_dotp = lback(curwp->w_dotp);
-			curwp->w_flag |= WFMOVE;
+			curwp->w_rflag |= WFMOVE;
 			chunk += llength(curwp->w_dotp) + 1;
 		}
 	}
@@ -248,7 +247,7 @@ yank(int f, int n)
 			lp = lback(lp);
 		/* adjust framing */
 		curwp->w_linep = lp;
-		curwp->w_flag |= WFFULL;
+		curwp->w_rflag |= WFFULL;
 	}
 	undo_boundary_enable(FFRAND, 1);
 	return (TRUE);

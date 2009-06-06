@@ -1,4 +1,4 @@
-/* $OpenBSD: server-msg.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: server-msg.c,v 1.3 2009/06/05 11:14:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -196,6 +196,7 @@ server_msg_fn_identify(struct hdr *hdr, struct client *c)
 	c->tty.sy = data.sy;
 
 	c->cwd = NULL;
+	data.cwd[(sizeof data.cwd) - 1] = '\0';
 	if (*data.cwd != '\0')
 		c->cwd = xstrdup(data.cwd);
 
@@ -278,12 +279,13 @@ server_msg_fn_unlock(struct hdr *hdr, struct client *c)
 	if (server_unlock(pass) != 0) {
 #define MSG "bad password"
 		server_write_client(c, MSG_ERROR, MSG, (sizeof MSG) - 1);
-		server_write_client(c, MSG_EXIT, NULL, 0);
-		return (0);
 #undef MSG
 	}
 
 	server_write_client(c, MSG_EXIT, NULL, 0);
+
+	memset(pass, 0, strlen(pass));
+	xfree(pass);
 
 	return (0);
 }

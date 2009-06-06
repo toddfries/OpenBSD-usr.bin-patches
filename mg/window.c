@@ -1,4 +1,4 @@
-/*	$OpenBSD: window.c,v 1.25 2006/07/25 08:22:32 kjell Exp $	*/
+/*	$OpenBSD: window.c,v 1.27 2009/06/04 23:39:37 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -22,7 +22,7 @@ new_window(struct buffer *bp)
 	wp->w_doto = 0;
 	wp->w_markp = NULL;
 	wp->w_marko = 0;
-	wp->w_flag = 0;
+	wp->w_rflag = 0;
 	wp->w_frame = 0;
 	wp->w_wrapline = NULL;
 	wp->w_dotline = wp->w_markline = 1;
@@ -48,7 +48,7 @@ reposition(int f, int n)
 #else /* !GOSREC */
 	curwp->w_frame = n;
 #endif /* !GOSREC */
-	curwp->w_flag |= WFFRAME;
+	curwp->w_rflag |= WFFRAME;
 	sgarbf = TRUE;
 	return (TRUE);
 }
@@ -192,7 +192,7 @@ onlywind(int f, int n)
 	/* 2 = mode, echo */
 	curwp->w_ntrows = nrow - 2;
 	curwp->w_linep = lp;
-	curwp->w_flag |= WFMODE | WFFULL;
+	curwp->w_rflag |= WFMODE | WFFULL;
 	return (TRUE);
 }
 
@@ -200,6 +200,7 @@ onlywind(int f, int n)
  * Split the current window.  A window smaller than 3 lines cannot be split.
  * The only other error that is possible is a "malloc" failure allocating the
  * structure for the new window.
+ * If called with a FFOTHARG, flags on the new window are set to 'n'.
  */
 /* ARGSUSED */
 int
@@ -275,8 +276,12 @@ splitwind(int f, int n)
 	curwp->w_linep = lp;
 	wp->w_linep = lp;
 
-	curwp->w_flag |= WFMODE | WFFULL;
-	wp->w_flag |= WFMODE | WFFULL;
+	curwp->w_rflag |= WFMODE | WFFULL;
+	wp->w_rflag |= WFMODE | WFFULL;
+	/* if FFOTHARG, set flags) */
+	if (f & FFOTHARG)
+		wp->w_flag = n;
+		
 	return (TRUE);
 }
 
@@ -327,8 +332,8 @@ enlargewind(int f, int n)
 	}
 	curwp->w_ntrows += n;
 	adjwp->w_ntrows -= n;
-	curwp->w_flag |= WFMODE | WFFULL;
-	adjwp->w_flag |= WFMODE | WFFULL;
+	curwp->w_rflag |= WFMODE | WFFULL;
+	adjwp->w_rflag |= WFMODE | WFFULL;
 	return (TRUE);
 }
 
@@ -380,8 +385,8 @@ shrinkwind(int f, int n)
 	}
 	curwp->w_ntrows -= n;
 	adjwp->w_ntrows += n;
-	curwp->w_flag |= WFMODE | WFFULL;
-	adjwp->w_flag |= WFMODE | WFFULL;
+	curwp->w_rflag |= WFMODE | WFFULL;
+	adjwp->w_rflag |= WFMODE | WFFULL;
 	return (TRUE);
 }
 
@@ -420,26 +425,4 @@ delwind(int f, int n)
 		}
 	free(wp);
 	return (TRUE);
-}
-
-/*
- * Pick a window for a pop-up.  Split the screen if there is only one window.
- * Pick the uppermost window that isn't the current window. An LRU algorithm
- * might be better. Return a pointer, or NULL on error.
- */
-struct mgwin *
-wpopup(void)
-{
-	struct mgwin	*wp;
-
-	if (wheadp->w_wndp == NULL &&
-	    splitwind(FFRAND, 0) == FALSE)
-		return (NULL);
-
-	/* find a window to use */
-	wp = wheadp;
-
-	while (wp != NULL && wp == curwp)
-		wp = wp->w_wndp;
-	return (wp);
 }

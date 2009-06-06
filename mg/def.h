@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.108 2008/09/15 16:13:35 kjell Exp $	*/
+/*	$OpenBSD: def.h,v 1.112 2009/06/05 18:02:06 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -104,9 +104,10 @@ typedef int	(*PF)(int, int);	/* generally useful type */
 /*
  * Direction of insert into kill ring
  */
-#define KNONE	0
-#define KFORW	1
-#define KBACK	2
+#define KNONE	0x00
+#define KFORW	0x01		/* forward insert into kill ring */
+#define KBACK	0x02		/* Backwards insert into kill ring */
+#define KREG	0x04		/* This is a region-based kill */
 
 /*
  * This structure holds the starting position
@@ -117,6 +118,7 @@ typedef int	(*PF)(int, int);	/* generally useful type */
 struct region {
 	struct line	*r_linep;	/* Origin line address.		 */
 	int		 r_offset;	/* Origin line offset.		 */
+	int		 r_lineno;	/* Origin line number		 */
 	RSIZE		 r_size;	/* Length in characters.	 */
 };
 
@@ -201,6 +203,7 @@ struct mgwin {
 	char		 w_toprow;	/* Origin 0 top row of window	*/
 	char		 w_ntrows;	/* # of rows of text in window	*/
 	char		 w_frame;	/* #lines to reframe by.	*/
+	char		 w_rflag;	/* Redisplay Flags.		*/
 	char		 w_flag;	/* Flags.			*/
 	struct line	*w_wrapline;
 	int		 w_dotline;	/* current line number of dot	*/
@@ -210,7 +213,7 @@ struct mgwin {
 #define w_name	w_list.l_name
 
 /*
- * Window flags are set by command processors to
+ * Window redisplay flags are set by command processors to
  * tell the display system what has happened to the buffer
  * mapped by the window. Setting "WFFULL" is always a safe thing
  * to do, but it may do more work than is necessary. Always try
@@ -223,6 +226,12 @@ struct mgwin {
 #define WFEDIT	0x04			/* Editing within a line.	 */
 #define WFFULL	0x08			/* Do a full display.		 */
 #define WFMODE	0x10			/* Update mode line.		 */
+
+/*
+ * Window flags
+ */
+#define WNONE  0x00 			/* No special window options.	*/
+#define WEPHEM 0x01 			/* Window is ephemeral.	 	*/
 
 struct undo_rec;
 
@@ -283,7 +292,8 @@ struct undo_rec {
 		INSERT = 1,
 		DELETE,
 		BOUNDARY,
-		MODIFIED
+		MODIFIED,
+		DELREG
 	} type;
 	struct region	 region;
 	int		 pos;
@@ -383,7 +393,6 @@ int		 splitwind(int, int);
 int		 enlargewind(int, int);
 int		 shrinkwind(int, int);
 int		 delwind(int, int);
-struct mgwin   *wpopup(void);
 
 /* buffer.c */
 int		 togglereadonly(int, int);
@@ -399,11 +408,11 @@ int		 anycb(int);
 int		 bclear(struct buffer *);
 int		 showbuffer(struct buffer *, struct mgwin *, int);
 int		 augbname(char *, const char *, size_t);
-struct mgwin    *popbuf(struct buffer *);
+struct mgwin    *popbuf(struct buffer *, int);
 int		 bufferinsert(int, int);
 int		 usebuffer(int, int);
 int		 notmodified(int, int);
-int		 popbuftop(struct buffer *);
+int		 popbuftop(struct buffer *, int);
 int		 getbufcwd(char *, size_t);
 int		 checkdirty(struct buffer *);
 
@@ -613,7 +622,7 @@ int		 undo_enable(int, int);
 int		 undo_add_boundary(int, int);
 void		 undo_add_modified(void);
 int		 undo_add_insert(struct line *, int, int);
-int		 undo_add_delete(struct line *, int, int);
+int		 undo_add_delete(struct line *, int, int, int);
 int		 undo_boundary_enable(int, int);
 int		 undo_add_change(struct line *, int, int);
 int		 undo(int, int);

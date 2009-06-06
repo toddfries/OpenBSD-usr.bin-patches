@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.8 2009/06/04 21:02:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -67,6 +67,7 @@ void	 input_handle_sequence_cud(struct input_ctx *);
 void	 input_handle_sequence_cuf(struct input_ctx *);
 void	 input_handle_sequence_cub(struct input_ctx *);
 void	 input_handle_sequence_dch(struct input_ctx *);
+void	 input_handle_sequence_cbt(struct input_ctx *);
 void	 input_handle_sequence_dl(struct input_ctx *);
 void	 input_handle_sequence_ich(struct input_ctx *);
 void	 input_handle_sequence_il(struct input_ctx *);
@@ -74,6 +75,7 @@ void	 input_handle_sequence_vpa(struct input_ctx *);
 void	 input_handle_sequence_hpa(struct input_ctx *);
 void	 input_handle_sequence_cup(struct input_ctx *);
 void	 input_handle_sequence_cup(struct input_ctx *);
+void	 input_handle_sequence_tbc(struct input_ctx *);
 void	 input_handle_sequence_ed(struct input_ctx *);
 void	 input_handle_sequence_el(struct input_ctx *);
 void	 input_handle_sequence_sm(struct input_ctx *);
@@ -101,8 +103,10 @@ const struct input_sequence_entry input_sequence_table[] = {
 	{ 'L', input_handle_sequence_il },
 	{ 'M', input_handle_sequence_dl },
 	{ 'P', input_handle_sequence_dch },
+	{ 'Z', input_handle_sequence_cbt },
 	{ 'd', input_handle_sequence_vpa },
 	{ 'f', input_handle_sequence_cup },
+	{ 'g', input_handle_sequence_tbc },
 	{ 'h', input_handle_sequence_sm },
 	{ 'l', input_handle_sequence_rm },
 	{ 'm', input_handle_sequence_sgr },
@@ -394,15 +398,34 @@ input_state_sequence_first(u_char ch, struct input_ctx *ictx)
 	ictx->private = '\0';
 	ARRAY_CLEAR(&ictx->args);
 
-	input_state(ictx, input_state_sequence_next);
-
-	if (INPUT_PARAMETER(ch)) {
-		input_new_argument(ictx);
-		if (ch >= 0x3c && ch <= 0x3f) {
-			/* Private control sequence. */
-			ictx->private = ch;
+	/* Most C0 control are accepted within CSI. */
+	if (INPUT_C0CONTROL(ch)) {
+		if (ch == 0x1b) {			/* ESC */
+			/* Abort sequence and begin with new. */
+			input_state(ictx, input_state_escape);
+			return;
+		} else if (ch == 0x18 || ch == 0x1a) {	/* CAN and SUB */
+			/* Abort sequence. */
+			input_state(ictx, input_state_first);
 			return;
 		}
+
+		/* Handle C0 immediately. */
+		input_handle_c0_control(ch, ictx);
+
+		/*
+		 * Just come back to this state, in case the next character
+		 * is the start of a private sequence.
+		 */
+		return;
+	}
+
+	input_state(ictx, input_state_sequence_next);
+
+	/* Private sequence: always the first character. */
+	if (ch >= 0x3c && ch <= 0x3f) {
+		ictx->private = ch;
+		return;
 	}
 
 	/* Pass character on directly. */
@@ -423,6 +446,9 @@ input_state_sequence_next(u_char ch, struct input_ctx *ictx)
 	}
 
 	if (INPUT_PARAMETER(ch)) {
+		if (ARRAY_EMPTY(&ictx->args))
+			input_new_argument(ictx);
+
 		if (ch == ';') {
 			if (input_add_argument(ictx, '\0') != 0)
 				input_state(ictx, input_state_first);
@@ -440,6 +466,24 @@ input_state_sequence_next(u_char ch, struct input_ctx *ictx)
 			input_state(ictx, input_state_first);
 			input_handle_sequence(ch, ictx);
 		}
+		return;
+	}
+
+	/* Most C0 control are accepted within CSI. */
+	if (INPUT_C0CONTROL(ch)) {
+		if (ch == 0x1b) {			/* ESC */
+			/* Abort sequence and begin with new. */
+			input_state(ictx, input_state_escape);
+			return;
+		} else if (ch == 0x18 || ch == 0x1a) {	/* CAN and SUB */
+			/* Abort sequence. */
+			input_state(ictx, input_state_first);
+			return;
+		}
+
+		/* Handle C0 immediately. */
+		input_handle_c0_control(ch, ictx);
+
 		return;
 	}
 
@@ -475,7 +519,7 @@ input_state_string_next(u_char ch, struct input_ctx *ictx)
 		return;
 	}
 
-	if (ch >= 0x20 && ch != 0x7f) {
+	if (ch >= 0x20) {
 		if (input_add_string(ictx, ch) != 0)
 			input_state(ictx, input_state_first);
 		return;
@@ -605,12 +649,19 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 		screen_write_cursorleft(&ictx->ctx, 1);
 		break;
 	case '\011': 	/* TAB */
-		s->cx = ((s->cx / 8) * 8) + 8;
-		if (s->cx > screen_size_x(s) - 1) {
-			s->cx = 0;
-			screen_write_cursordown(&ictx->ctx, 1);
-		}
-		screen_write_cursormove(&ictx->ctx, s->cx, s->cy);
+		/* Don't tab beyond the end of the line. */
+		if (s->cx >= screen_size_x(s) - 1)
+			break;
+
+		/* Find the next tab point, or use the last column if none. */
+		do {
+			s->cx++;
+			if (bit_test(s->tabs, s->cx))
+				break;
+		} while (s->cx < screen_size_x(s) - 1);
+		break;
+	case '\013':	/* VT */
+		screen_write_linefeed(&ictx->ctx);
 		break;
 	case '\016':	/* SO */
 		ictx->cell.attr |= GRID_ATTR_CHARSET;
@@ -627,12 +678,21 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 void
 input_handle_c1_control(u_char ch, struct input_ctx *ictx)
 {
+	struct screen  *s = ictx->ctx.s;
+
 	log_debug2("-- c1 %zu: %hhu (%c)", ictx->off, ch, ch);
 
 	switch (ch) {
+	case 'D':	/* IND */
+		screen_write_linefeed(&ictx->ctx);
+		break;
 	case 'E': 	/* NEL */
 		screen_write_carriagereturn(&ictx->ctx);
 		screen_write_linefeed(&ictx->ctx);
+		break;
+	case 'H':	/* HTS */
+		if (s->cx < screen_size_x(s))
+			bit_set(s->tabs, s->cx);
 		break;
 	case 'M':	/* RI */
 		screen_write_reverseindex(&ictx->ctx);
@@ -652,7 +712,7 @@ input_handle_private_two(u_char ch, struct input_ctx *ictx)
 	    "-- p2 %zu: %hhu (%c) %hhu", ictx->off, ch, ch, ictx->intermediate);
 
 	switch (ch) {
-	case '0':	/* Dscs (graphics) */
+	case '0':	/* SCS */
 		/*
 		 * Not really supported, but fake it up enough for those that
 		 * use it to switch character sets (by redefining G0 to
@@ -665,22 +725,36 @@ input_handle_private_two(u_char ch, struct input_ctx *ictx)
 		}
 		break;
 	case '=':	/* DECKPAM */
+		if (ictx->intermediate != '\0')
+			break;
 		screen_write_kkeypadmode(&ictx->ctx, 1);
 		log_debug("kkeypad on (application mode)");
 		break;
 	case '>':	/* DECKPNM */
+		if (ictx->intermediate != '\0')
+			break;
 		screen_write_kkeypadmode(&ictx->ctx, 0);
 		log_debug("kkeypad off (number mode)");
 		break;
 	case '7':	/* DECSC */
+		if (ictx->intermediate != '\0')
+			break;
 		memcpy(&ictx->saved_cell, &ictx->cell, sizeof ictx->saved_cell);
 		ictx->saved_cx = s->cx;
 		ictx->saved_cy = s->cy;
 		break;
-	case '8':	/* DECRC */
-		memcpy(&ictx->cell, &ictx->saved_cell, sizeof ictx->cell);
-		screen_write_cursormove(
-		    &ictx->ctx, ictx->saved_cx, ictx->saved_cy);
+	case '8':
+		switch (ictx->intermediate) {
+		case '\0':	/* DECRC */
+			memcpy(
+			    &ictx->cell, &ictx->saved_cell, sizeof ictx->cell);
+			screen_write_cursormove(
+			    &ictx->ctx, ictx->saved_cx, ictx->saved_cy);
+			break;
+		case '#':	/* DECALN */
+			screen_write_alignmenttest(&ictx->ctx);
+			break;
+		}
 		break;
 	default:
 		log_debug("unknown p2: %hhu", ch);
@@ -695,7 +769,7 @@ input_handle_standard_two(u_char ch, struct input_ctx *ictx)
 	    "-- s2 %zu: %hhu (%c) %hhu", ictx->off, ch, ch, ictx->intermediate);
 
 	switch (ch) {
-	case 'B':	/* Dscs (ASCII) */
+	case 'B':	/* SCS */
 		/*
 		 * Not really supported, but fake it up enough for those that
 		 * use it to switch character sets (by redefining G0 to
@@ -713,6 +787,8 @@ input_handle_standard_two(u_char ch, struct input_ctx *ictx)
 		memcpy(&ictx->saved_cell, &ictx->cell, sizeof ictx->saved_cell);
 		ictx->saved_cx = 0;
 		ictx->saved_cy = 0;
+
+		screen_reset_tabs(ictx->ctx.s);
 
 		screen_write_scrollregion(
 		    &ictx->ctx, 0, screen_size_y(ictx->ctx.s) - 1);
@@ -854,6 +930,30 @@ input_handle_sequence_dch(struct input_ctx *ictx)
 }
 
 void
+input_handle_sequence_cbt(struct input_ctx *ictx)
+{
+	struct screen  *s = ictx->ctx.s;
+	uint16_t	n;
+
+	if (ictx->private != '\0')
+		return;
+
+	if (ARRAY_LENGTH(&ictx->args) > 1)
+		return;
+	if (input_get_argument(ictx, 0, &n, 1) != 0)
+		return;
+	if (n == 0)
+		n = 1;
+
+	/* Find the previous tab point, n times. */
+	while (s->cx > 0 && n-- > 0) {
+		do
+			s->cx--;
+		while (s->cx > 0 && !bit_test(s->tabs, s->cx));
+	}
+}
+
+void
 input_handle_sequence_dl(struct input_ctx *ictx)
 {
 	uint16_t	n;
@@ -965,6 +1065,31 @@ input_handle_sequence_cup(struct input_ctx *ictx)
 		m = 1;
 
 	screen_write_cursormove(&ictx->ctx, m - 1, n - 1);
+}
+
+void
+input_handle_sequence_tbc(struct input_ctx *ictx)
+{
+	struct screen  *s = ictx->ctx.s;
+	uint16_t	n;
+
+	if (ictx->private != '\0')
+		return;
+
+	if (ARRAY_LENGTH(&ictx->args) > 1)
+		return;
+	if (input_get_argument(ictx, 0, &n, 1) != 0)
+		return;
+
+	switch (n) {
+	case 0:
+		if (s->cx < screen_size_x(s))
+			bit_clear(s->tabs, s->cx);
+		break;
+	case 3:
+		bit_nclear(s->tabs, 0, screen_size_x(s) - 1);
+		break;
+	}
 }
 
 void

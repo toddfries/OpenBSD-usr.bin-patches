@@ -1,4 +1,4 @@
-/*	$OpenBSD: echo.c,v 1.47 2009/06/02 17:57:30 kjell Exp $	*/
+/*	$OpenBSD: echo.c,v 1.49 2009/06/04 23:39:37 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -472,9 +472,13 @@ done:
 	if (cwin == TRUE) {
 		/* blow away cpltion window */
 		bp = bfind("*Completions*", TRUE);
-		if ((wp = popbuf(bp)) != NULL) {
-			curwp = wp;
-			delwind(FFRAND, 1);
+		if ((wp = popbuf(bp, WEPHEM)) != NULL) {
+			if (wp->w_flag & WEPHEM) {
+				curwp = wp;
+				delwind(FFRAND, 1);
+			} else {
+				killbuffer(bp);
+			}
 		}
 	}
 	return (ret);
@@ -729,7 +733,7 @@ complt_list(int flags, char *buf, int cpos)
 	 * the buffer list, obviously we don't want it freed.
 	 */
 	free_file_list(wholelist);
-	popbuftop(bp);		/* split the screen and put up the help
+	popbuftop(bp, WEPHEM);	/* split the screen and put up the help
 				 * buffer */
 	update();		/* needed to make the new stuff actually
 				 * appear */
@@ -793,9 +797,15 @@ ewprintf(const char *fmt, ...)
  * Printf style formatting. This is called by both "ewprintf" and "ereply"
  * to provide formatting services to their clients.  The move to the start
  * of the echo line, and the erase to the end of the echo line, is done by
- * the caller.
- * Note: %c works, and prints the "name" of the character.
- * %k prints the name of a key (and takes no arguments).
+ * the caller. 
+ * %c prints the "name" of the supplied character.
+ * %k prints the name of the current key (and takes no arguments).
+ * %d prints a decimal integer
+ * %o prints an octal integer
+ * %p prints a pointer
+ * %s prints a string
+ * %ld prints a long word
+ * Anything else is echoed verbatim
  */
 static void
 eformat(const char *fp, va_list ap)
@@ -810,7 +820,8 @@ eformat(const char *fp, va_list ap)
 			c = *fp++;
 			switch (c) {
 			case 'c':
-				getkeyname(kname, sizeof(kname), va_arg(ap, int));
+				getkeyname(kname, sizeof(kname),
+				    va_arg(ap, int));
 				eputs(kname);
 				break;
 
