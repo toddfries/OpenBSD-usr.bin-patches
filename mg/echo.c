@@ -1,4 +1,4 @@
-/*	$OpenBSD: echo.c,v 1.46 2006/04/02 17:18:58 kjell Exp $	*/
+/*	$OpenBSD: echo.c,v 1.49 2009/06/04 23:39:37 kjell Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -156,6 +156,8 @@ veread(const char *fp, char *buf, size_t nbuf, int flag, va_list ap)
 	int	 cc, rr;		/* saved ttcol, ttrow */
 	char	*ret;			/* return value */
 
+	static char emptyval[] = "";	/* XXX hackish way to return err msg*/
+
 #ifndef NO_MACRO
 	if (inmacro) {
 		if (dynbuf) {
@@ -288,9 +290,13 @@ veread(const char *fp, char *buf, size_t nbuf, int flag, va_list ap)
 					size_t newsize = epos + epos + 16;
 					if ((newp = realloc(buf, newsize))
 					    == NULL)
-						goto fail;
+						goto memfail;
 					buf = newp;
 					nbuf = newsize;
+				}
+				if (!dynbuf && epos + 1 >= nbuf) {
+					ewprintf("Line too long");
+					return (emptyval);
 				}
 				for (t = epos; t > cpos; t--)
 					buf[t] = buf[t - 1];
@@ -342,13 +348,8 @@ veread(const char *fp, char *buf, size_t nbuf, int flag, va_list ap)
 			if (macrodef) {
 				struct line	*lp;
 
-				if ((lp = lalloc(cpos)) == NULL) {
-					static char falseval[] = "";
-					/* XXX hackish */
-					if (dynbuf && buf != NULL)
-						free(buf);
-					return (falseval);
-				}
+				if ((lp = lalloc(cpos)) == NULL)
+					goto memfail;
 				lp->l_fp = maclcur->l_fp;
 				maclcur->l_fp = lp;
 				lp->l_bp = maclcur;
@@ -446,9 +447,13 @@ veread(const char *fp, char *buf, size_t nbuf, int flag, va_list ap)
 				void *newp;
 				size_t newsize = epos + epos + 16;
 				if ((newp = realloc(buf, newsize)) == NULL)
-					goto fail;
+					goto memfail;
 				buf = newp;
 				nbuf = newsize;
+			}
+			if (!dynbuf && epos + 1 >= nbuf) {
+				ewprintf("Line too long");
+				return (emptyval);
 			}
 			for (i = epos; i > cpos; i--)
 				buf[i] = buf[i - 1];
@@ -467,16 +472,21 @@ done:
 	if (cwin == TRUE) {
 		/* blow away cpltion window */
 		bp = bfind("*Completions*", TRUE);
-		if ((wp = popbuf(bp)) != NULL) {
-			curwp = wp;
-			delwind(FFRAND, 1);
+		if ((wp = popbuf(bp, WEPHEM)) != NULL) {
+			if (wp->w_flag & WEPHEM) {
+				curwp = wp;
+				delwind(FFRAND, 1);
+			} else {
+				killbuffer(bp);
+			}
 		}
 	}
 	return (ret);
-fail:
+memfail:
+	if (dynbuf && buf)
+		free(buf);
 	ewprintf("Out of memory");
-	free(buf);
-	return (NULL);
+	return (emptyval);
 }
 
 /*
@@ -723,7 +733,7 @@ complt_list(int flags, char *buf, int cpos)
 	 * the buffer list, obviously we don't want it freed.
 	 */
 	free_file_list(wholelist);
-	popbuftop(bp);		/* split the screen and put up the help
+	popbuftop(bp, WEPHEM);	/* split the screen and put up the help
 				 * buffer */
 	update();		/* needed to make the new stuff actually
 				 * appear */
@@ -787,9 +797,15 @@ ewprintf(const char *fmt, ...)
  * Printf style formatting. This is called by both "ewprintf" and "ereply"
  * to provide formatting services to their clients.  The move to the start
  * of the echo line, and the erase to the end of the echo line, is done by
- * the caller.
- * Note: %c works, and prints the "name" of the character.
- * %k prints the name of a key (and takes no arguments).
+ * the caller. 
+ * %c prints the "name" of the supplied character.
+ * %k prints the name of the current key (and takes no arguments).
+ * %d prints a decimal integer
+ * %o prints an octal integer
+ * %p prints a pointer
+ * %s prints a string
+ * %ld prints a long word
+ * Anything else is echoed verbatim
  */
 static void
 eformat(const char *fp, va_list ap)
@@ -804,7 +820,8 @@ eformat(const char *fp, va_list ap)
 			c = *fp++;
 			switch (c) {
 			case 'c':
-				getkeyname(kname, sizeof(kname), va_arg(ap, int));
+				getkeyname(kname, sizeof(kname),
+				    va_arg(ap, int));
 				eputs(kname);
 				break;
 

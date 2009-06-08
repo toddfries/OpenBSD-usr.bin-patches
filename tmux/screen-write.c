@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.7 2009/06/05 03:13:16 ray Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -52,20 +52,126 @@ screen_write_putc(
 	screen_write_cell(ctx, gc, NULL);
 }
 
-/* Write string. */
-void printflike3
-screen_write_puts(
-    struct screen_write_ctx *ctx, struct grid_cell *gc, const char *fmt, ...)
+/* Calculate string length. */
+size_t printflike2
+screen_write_strlen(int utf8flag, const char *fmt, ...)
 {
 	va_list	ap;
-	char   *msg, *ptr;
+	char   *msg;
+	u_char *ptr, utf8buf[4];
+	size_t	left, size = 0;
 
 	va_start(ap, fmt);
 	xvasprintf(&msg, fmt, ap);
 	va_end(ap);
 
-	for (ptr = msg; *ptr != '\0'; ptr++)
-		screen_write_putc(ctx, gc, (u_char) *ptr);
+	ptr = msg;
+	while (*ptr != '\0') {
+		if (utf8flag && *ptr > 0x7f) {
+			memset(utf8buf, 0xff, sizeof utf8buf);
+
+			left = strlen(ptr);
+			if (*ptr >= 0xc2 && *ptr <= 0xdf && left >= 2) {
+				memcpy(utf8buf, ptr, 2);
+				ptr += 2;
+			} else if (*ptr >= 0xe0 && *ptr <= 0xef && left >= 3) {
+				memcpy(utf8buf, ptr, 3);
+				ptr += 3;
+			} else if (*ptr >= 0xf0 && *ptr <= 0xf4 && left >= 4) {
+				memcpy(utf8buf, ptr, 4);
+				ptr += 4;
+			} else {
+				*utf8buf = *ptr;
+				ptr++;
+			}
+			size += utf8_width(utf8buf);
+		} else {
+			size++;
+			ptr++;
+		}
+	}
+
+	return (size);
+}
+
+/* Write simple string (no UTF-8 or maximum length). */
+void printflike3
+screen_write_puts(
+    struct screen_write_ctx *ctx, struct grid_cell *gc, const char *fmt, ...)
+{
+	va_list	ap;
+
+	va_start(ap, fmt);
+	screen_write_vnputs(ctx, -1, gc, 0, fmt, ap);
+	va_end(ap);
+}
+
+/* Write string with length limit (-1 for unlimited). */
+void printflike5
+screen_write_nputs(struct screen_write_ctx *ctx,
+    ssize_t maxlen, struct grid_cell *gc, int utf8flag, const char *fmt, ...)
+{
+	va_list	ap;
+
+	va_start(ap, fmt);
+	screen_write_vnputs(ctx, maxlen, gc, utf8flag, fmt, ap);
+	va_end(ap);
+}
+
+void
+screen_write_vnputs(struct screen_write_ctx *ctx, ssize_t maxlen,
+    struct grid_cell *gc, int utf8flag, const char *fmt, va_list ap)
+{
+	char   *msg;
+	u_char *ptr, utf8buf[4];
+	size_t	left, size = 0;
+	int	width;
+
+	xvasprintf(&msg, fmt, ap);
+
+	ptr = msg;
+	while (*ptr != '\0') {
+		if (utf8flag && *ptr > 0x7f) {
+			memset(utf8buf, 0xff, sizeof utf8buf);
+
+			left = strlen(ptr);
+			if (*ptr >= 0xc2 && *ptr <= 0xdf && left >= 2) {
+				memcpy(utf8buf, ptr, 2);
+				ptr += 2;
+			} else if (*ptr >= 0xe0 && *ptr <= 0xef && left >= 3) {
+				memcpy(utf8buf, ptr, 3);
+				ptr += 3;
+			} else if (*ptr >= 0xf0 && *ptr <= 0xf4 && left >= 4) {
+				memcpy(utf8buf, ptr, 4);
+				ptr += 4;
+			} else {
+				*utf8buf = *ptr;
+				ptr++;
+			}
+
+			width = utf8_width(utf8buf);
+			if (maxlen > 0 && size + width > (size_t) maxlen) {
+				while (size < (size_t) maxlen) {
+					screen_write_putc(ctx, gc, ' ');
+					size++;
+				}
+				break;
+			}
+			size += width;
+
+			gc->flags |= GRID_FLAG_UTF8;
+			screen_write_cell(ctx, gc, utf8buf);
+			gc->flags &= ~GRID_FLAG_UTF8;
+
+		} else {
+			if (maxlen > 0 && size > (size_t) maxlen)
+				break;
+
+			size++;
+			screen_write_putc(ctx, gc, *ptr);
+			ptr++;
+		}
+	}
 
 	xfree(msg);
 }
@@ -183,6 +289,31 @@ screen_write_cursorleft(struct screen_write_ctx *ctx, u_int nx)
 		return;
 
 	s->cx -= nx;
+}
+
+/* VT100 alignment test. */
+void
+screen_write_alignmenttest(struct screen_write_ctx *ctx)
+{
+	struct screen		*s = ctx->s;
+	struct grid_cell       	 gc;
+	u_int			 xx, yy;
+
+	memcpy(&gc, &grid_default_cell, sizeof gc);
+	gc.data = 'E';
+
+	for (yy = 0; yy < screen_size_y(s); yy++) {
+		for (xx = 0; xx < screen_size_x(s); xx++)
+			grid_view_set_cell(s->grid, xx, yy, &gc);
+	}
+
+	s->cx = 0;
+	s->cy = 0;
+
+	s->rupper = 0;
+	s->rlower = screen_size_y(s) - 1;
+
+	tty_write_cmd(ctx->wp, TTY_ALIGNMENTTEST);
 }
 
 /* Insert nx characters. */
@@ -499,11 +630,11 @@ screen_write_clearstartofscreen(struct screen_write_ctx *ctx)
 	sx = screen_size_x(s);
 
 	if (s->cy > 0)
-		grid_view_clear(s->grid, 0, 0, sx, s->cy - 1);
+		grid_view_clear(s->grid, 0, 0, sx, s->cy);
 	if (s->cx > sx - 1)
 		grid_view_clear(s->grid, 0, s->cy, sx, 1);
 	else
-		grid_view_clear(s->grid, 0, s->cy, s->cx, 1);
+		grid_view_clear(s->grid, 0, s->cy, s->cx + 1, 1);
 
 	tty_write_cmd(ctx->wp, TTY_CLEARSTARTOFSCREEN);
 }
@@ -532,6 +663,7 @@ screen_write_cell(
 	u_int		 	 width, xx, i;
 	struct grid_cell 	 tmp_gc, *tmp_gc2;
 	size_t			 size;
+	int			 insert = 0;
 
 	/* Ignore padding. */
 	if (gc->flags & GRID_FLAG_PADDING)
@@ -583,6 +715,13 @@ screen_write_cell(
 		gc = &tmp_gc;
 	}
 
+	/* If in insert mode, make space for the cells. */
+	if (s->mode & MODE_INSERT && s->cx <= screen_size_x(s) - width) {
+		xx = screen_size_x(s) - s->cx - width;
+		grid_move_cells(s->grid, s->cx + width, s->cx, s->cy, xx);
+		insert = 1;
+	}
+
 	/* Check this will fit on the current line; scroll if not. */
 	if (s->cx > screen_size_x(s) - width) {
 		screen_write_carriagereturn(ctx);
@@ -616,6 +755,8 @@ screen_write_cell(
 	s->cx += width;
 
 	/* Draw to the screen if necessary. */
+	if (insert)
+		tty_write_cmd(ctx->wp, TTY_INSERTCHARACTER, width);
 	if (screen_check_selection(s, s->cx - width, s->cy)) {
 		s->sel.cell.data = gc->data;
 		tty_write_cmd(ctx->wp, TTY_CELL, &s->sel.cell, &gu);

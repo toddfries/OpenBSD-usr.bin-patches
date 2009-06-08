@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.8 2009/06/05 07:22:23 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -60,8 +60,9 @@ char 		*makesockpath(const char *);
 __dead void
 usage(void)
 {
-	fprintf(stderr, "usage: %s [-28dqUuVv] [-f file] "
-	    "[-L socket-name] [-S socket-path] [command [flags]]\n",
+	fprintf(stderr,
+	    "usage: %s [-28dqUuv] [-f file] [-L socket-name] [-S socket-path]\n"
+	    "            [command [flags]]\n",
 	    __progname);
 	exit(1);
 }
@@ -227,6 +228,8 @@ main(int argc, char **argv)
 			flags &= ~IDENTIFY_256COLOURS;
 			break;
 		case 'f':
+			if (cfg_file)
+				xfree(cfg_file);
 			cfg_file = xstrdup(optarg);
 			break;
 		case 'L':
@@ -284,7 +287,7 @@ main(int argc, char **argv)
 	options_set_number(&global_options, "prefix", '\002');
 	options_set_number(&global_options, "repeat-time", 500);
 	options_set_number(&global_options, "set-remain-on-exit", 0);
-	options_set_number(&global_options, "set-titles", 1);
+	options_set_number(&global_options, "set-titles", 0);
 	options_set_number(&global_options, "status", 1);
 	options_set_number(&global_options, "status-attr", GRID_ATTR_REVERSE);
 	options_set_number(&global_options, "status-bg", 2);
@@ -296,6 +299,7 @@ main(int argc, char **argv)
 	options_set_string(&global_options, "status-left", "[#S]");
 	options_set_string(
 	    &global_options, "status-right", "\"#24T\" %%H:%%M %%d-%%b-%%y");
+	options_set_number(&global_options, "status-utf8", 0);
 
 	options_init(&global_window_options, NULL);
 	options_set_number(&global_window_options, "aggressive-resize", 0);
@@ -322,12 +326,17 @@ main(int argc, char **argv)
 
 	if (!(flags & IDENTIFY_UTF8)) {
 		/*
-		 * If the user has set LANG to contain UTF-8, it is a safe
+		 * If the user has set whichever of LC_ALL, LC_CTYPE or LANG
+		 * exist (in that order) to contain UTF-8, it is a safe
 		 * assumption that either they are using a UTF-8 terminal, or
 		 * if not they know that output from UTF-8-capable programs may
 		 * be wrong.
 		 */
-		if ((s = getenv("LANG")) != NULL && strstr(s, "UTF-8") != NULL)
+		if ((s = getenv("LC_CTYPE")) == NULL) {
+			if ((s = getenv("LC_ALL")) == NULL)
+				s = getenv("LANG");
+		}
+		if (s != NULL && strcasestr(s, "UTF-8") != NULL)
 			flags |= IDENTIFY_UTF8;
 	}
 
@@ -367,7 +376,7 @@ main(int argc, char **argv)
 			shell = _PATH_BSHELL;
 	}
 	options_set_string(
-	    &global_options, "default-command", "exec %s", shell);
+	    &global_options, "default-command", "exec %s -l", shell);
 
 	if (getcwd(cwd, sizeof cwd) == NULL) {
 		log_warn("getcwd");
@@ -417,6 +426,7 @@ main(int argc, char **argv)
 	b = buffer_create(BUFSIZ);
 	if (unlock) {
 		cmd_send_string(b, pass);
+		memset(pass, 0, strlen(pass));
 		client_write_server(
 		    &cctx, MSG_UNLOCK, BUFFER_OUT(b), BUFFER_USED(b));
 	} else {

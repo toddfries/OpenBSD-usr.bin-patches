@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.6 2009/06/04 18:48:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,6 +26,7 @@
 #include <sys/queue.h>
 #include <sys/tree.h>
 
+#include <bitstring.h>
 #include <getopt.h>
 #include <limits.h>
 #include <poll.h>
@@ -69,6 +70,7 @@ extern const char    *__progname;
 #define printflike2 __attribute__ ((format (printf, 2, 3)))
 #define printflike3 __attribute__ ((format (printf, 3, 4)))
 #define printflike4 __attribute__ ((format (printf, 4, 5)))
+#define printflike5 __attribute__ ((format (printf, 5, 6)))
 
 /* Number of items in array. */
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
@@ -278,6 +280,7 @@ struct tty_term_code_entry {
 
 /* Output commands. */
 enum tty_cmd {
+	TTY_ALIGNMENTTEST,
 	TTY_CELL,
 	TTY_CLEARENDOFLINE,
 	TTY_CLEARENDOFSCREEN,
@@ -505,6 +508,8 @@ struct screen {
 
 	int		 mode;
 
+	bitstr_t      	*tabs;
+
 	struct screen_sel sel;
 };
 
@@ -589,8 +594,7 @@ struct window_pane {
 
 	int		 flags;
 #define PANE_HIDDEN 0x1
-#define PANE_RESTART 0x2
-#define PANE_REDRAW 0x4
+#define PANE_REDRAW 0x2
 
 	char		*cmd;
 	char		*cwd;
@@ -929,7 +933,7 @@ struct set_option_entry {
 };
 extern const struct set_option_entry set_option_table[];
 extern const struct set_option_entry set_window_option_table[];
-#define NSETOPTION 24
+#define NSETOPTION 25
 #define NSETWINDOWOPTION 19
 
 /* tmux.c */
@@ -1348,8 +1352,13 @@ void	 grid_view_delete_cells(struct grid *, u_int, u_int, u_int);
 void	 screen_write_start(
     	     struct screen_write_ctx *, struct window_pane *, struct screen *);
 void	 screen_write_stop(struct screen_write_ctx *);
-void printflike3 screen_write_puts(
-	     struct screen_write_ctx *, struct grid_cell *, const char *, ...);
+size_t printflike2 screen_write_strlen(int, const char *, ...);
+void printflike3 screen_write_puts(struct screen_write_ctx *,
+    	     struct grid_cell *, const char *, ...);
+void printflike5 screen_write_nputs(struct screen_write_ctx *,
+    ssize_t, struct grid_cell *, int, const char *, ...);
+void	 screen_write_vnputs(struct screen_write_ctx *,
+	     ssize_t, struct grid_cell *, int, const char *, va_list);
 void	 screen_write_putc(
     	     struct screen_write_ctx *, struct grid_cell *, u_char);
 void	 screen_write_copy(struct screen_write_ctx *,
@@ -1358,6 +1367,7 @@ void	 screen_write_cursorup(struct screen_write_ctx *, u_int);
 void	 screen_write_cursordown(struct screen_write_ctx *, u_int);
 void	 screen_write_cursorright(struct screen_write_ctx *, u_int);
 void	 screen_write_cursorleft(struct screen_write_ctx *, u_int);
+void	 screen_write_alignmenttest(struct screen_write_ctx *);
 void	 screen_write_insertcharacter(struct screen_write_ctx *, u_int);
 void	 screen_write_deletecharacter(struct screen_write_ctx *, u_int);
 void	 screen_write_insertline(struct screen_write_ctx *, u_int);
@@ -1390,6 +1400,7 @@ void	 screen_redraw_status(struct client *);
 void	 screen_init(struct screen *, u_int, u_int, u_int);
 void	 screen_reinit(struct screen *);
 void	 screen_free(struct screen *);
+void	 screen_reset_tabs(struct screen *);
 void	 screen_set_title(struct screen *, const char *);
 void	 screen_resize(struct screen *, u_int, u_int);
 void	 screen_set_selection(

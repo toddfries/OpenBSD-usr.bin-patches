@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.4 2009/06/04 21:43:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -47,10 +47,10 @@ status_redraw(struct client *c)
 	struct window_pane	       *wp;
 	struct screen		       *sc = NULL, old_status;
 	char		 	       *left, *right, *text, *ptr;
-	size_t				llen, rlen, offset, xx, yy, sy;
-	size_t				size, start, width;
+	size_t				llen, llen2, rlen, rlen2, offset;
+	size_t				xx, yy, sy, size, start, width;
 	struct grid_cell	        stdgc, gc;
-	int				larrow, rarrow;
+	int				larrow, rarrow, utf8flag;
 
 	left = right = NULL;
 
@@ -74,19 +74,23 @@ status_redraw(struct client *c)
 	if (yy == 0)
 		goto blank;
 
+	/* Caring about UTF-8 in status line? */
+	utf8flag = options_get_number(&s->options, "status-utf8");
+
 	/* Work out the left and right strings. */
 	left = status_replace(s, options_get_string(
 	    &s->options, "status-left"), c->status_timer.tv_sec);
 	llen = options_get_number(&s->options, "status-left-length");
-	if (strlen(left) < llen)
-		llen = strlen(left);
-	left[llen] = '\0';
+	llen2 = screen_write_strlen(utf8flag, "%s", left);
+	if (llen2 < llen)
+		llen = llen2;
 
 	right = status_replace(s, options_get_string(
 	    &s->options, "status-right"), c->status_timer.tv_sec);
 	rlen = options_get_number(&s->options, "status-right-length");
-	if (strlen(right) < rlen)
-		rlen = strlen(right);
+	rlen2 = screen_write_strlen(utf8flag, "%s", right);
+	if (rlen2 < rlen)
+		rlen = rlen2;
 	right[rlen] = '\0';
 
 	/*
@@ -163,7 +167,8 @@ draw:
 	screen_write_start(&ctx, NULL, &c->status);
 	if (llen != 0) {
  		screen_write_cursormove(&ctx, 0, yy);
-		screen_write_puts(&ctx, &stdgc, "%s ", left);
+		screen_write_nputs(
+		    &ctx, llen + 1, &stdgc, utf8flag, "%s ", left);
 		if (larrow)
 			screen_write_putc(&ctx, &stdgc, ' ');
 	} else {
@@ -220,7 +225,8 @@ draw:
 	/* Draw the last item. */
 	if (rlen != 0) {
 		screen_write_cursormove(&ctx, c->tty.sx - rlen - 1, yy);
-		screen_write_puts(&ctx, &stdgc, " %s", right);
+		screen_write_nputs(
+		    &ctx, rlen + 1, &stdgc, utf8flag, " %s", right);
 	}
 
 	/* Draw the arrows. */
@@ -591,6 +597,8 @@ status_prompt_clear(struct client *c)
 	xfree(c->prompt_string);
 	c->prompt_string = NULL;
 
+	if (c->prompt_flags & PROMPT_HIDDEN)
+		memset(c->prompt_buffer, 0, strlen(c->prompt_buffer));
 	xfree(c->prompt_buffer);
 	c->prompt_buffer = NULL;
 
@@ -788,6 +796,8 @@ status_prompt_key(struct client *c, int key)
 
 		if (ARRAY_LENGTH(&c->prompt_hdata) == 0)
 			break;
+		if (c->prompt_flags & PROMPT_HIDDEN)
+			memset(c->prompt_buffer, 0, strlen(c->prompt_buffer));
 	       	xfree(c->prompt_buffer);
 
 		c->prompt_buffer = xstrdup(ARRAY_ITEM(&c->prompt_hdata,
@@ -802,6 +812,8 @@ status_prompt_key(struct client *c, int key)
 		if (server_locked)
 			break;
 
+		if (c->prompt_flags & PROMPT_HIDDEN)
+			memset(c->prompt_buffer, 0, strlen(c->prompt_buffer));
 		xfree(c->prompt_buffer);
 
 		if (c->prompt_hindex != 0) {
