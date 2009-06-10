@@ -57,9 +57,11 @@ scanfordasho() {
 			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
 
 			# If a non file and not a -* then its a flag arg
-			if ! [ -f "$2" -a "${2}" = "${2#-*}" ]; then
-				cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
-				shift
+			if ! [ -f "$2" ]; then
+				if [ "${2}" = "${2#-*}" ]; then
+					cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
+					shift
+				fi
 			fi
 			shift ;;
 		*)
