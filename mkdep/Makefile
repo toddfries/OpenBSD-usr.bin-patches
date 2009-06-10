@@ -7,7 +7,11 @@ all: mkdep.gcc
 
 mkdep.gcc: mkdep.gcc.sh
 		sed 's/%ARGLIST%/'"$$(echo $$(${CC} -v --help 2>&1 | \
-		sed -n '/-[a-zA-Z]* <file>/{s/^[ ]*\(-[a-zA-Z0-9-]*\) <file> .*$$/\1/;p;}'|\
+		sed -n \
+		    -e '/^[ ]*-[-]*[a-zA-Z]*[ ][ ]*<file>[, ]/{s/^[ ]*\(-[-]*[a-zA-Z0-9-]*\)[ ][ ]*<file>[, ].*$$/\1/;p;}' \
+		    -e '/^[ ]*-[-]*[a-zA-Z]*[ ][ ]*FILE[, ]/{s/^[ ]*\(-[-]*[a-zA-Z0-9-]*\)[ ][ ]*FILE[, ].*$$/\1/;p;}' \
+		    -e '/,[ ]*-[-]*[a-zA-Z]*[ ][ ]*<file>[, ]/{s/^.*,[ ]*\(-[-]*[a-zA-Z0-9-]*\)[ ][ ]*<file>[, ].*$$/\1/;p;}' \
+		    -e '/,[ ]*-[-]*[a-zA-Z]*[ ][ ]*FILE[, ]/{s/^.*,[ ]*\(-[-]*[a-zA-Z0-9-]*\)[ ][ ]*FILE[, ].*$$/\1/;p;}' |\
 		sort -u) | \
 		sed 's/ /|/g')"'/' ${.CURDIR}/mkdep.gcc.sh > mkdep.gcc
 	
