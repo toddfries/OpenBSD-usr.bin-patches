@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdiff.c,v 1.23 2007/09/02 15:19:34 deraadt Exp $ */
+/*	$OpenBSD: sdiff.c,v 1.28 2009/06/07 13:29:50 ray Exp $ */
 
 /*
  * Written by Raymond Lai <ray@cyth.net>.
@@ -65,7 +65,7 @@ size_t	 file1ln, file2ln;	/* line number of file1 and file2 */
 int	 Iflag = 0;	/* ignore sets matching regexp */
 int	 lflag;		/* print only left column for identical lines */
 int	 sflag;		/* skip identical lines */
-FILE	*outfile;	/* file to save changes to */
+FILE	*outfp;		/* file to save changes to */
 const char *tmpdir;	/* TMPDIR or /tmp */
 
 static struct option longopts[] = {
@@ -109,8 +109,10 @@ mktmpcpy(const char *source_file)
 			err(2, "error getting file status from %s", source_file);
 
 		/* Regular file. */
-		if (S_ISREG(sb.st_mode))
+		if (S_ISREG(sb.st_mode)) {
+			close(ifd);
 			return (NULL);
+		}
 	} else {
 		/* If ``-'' does not exist the user meant stdin. */
 		if (errno == ENOENT && strcmp(source_file, "-") == 0)
@@ -158,6 +160,7 @@ main(int argc, char **argv)
 	size_t diffargc = 0, wflag = WIDTH;
 	int ch, fd[2], status;
 	pid_t pid;
+	const char *outfile = NULL;
 	char **diffargv, *diffprog = "diff", *filename1, *filename2,
 	    *tmp1, *tmp2, *s1, *s2;
 
@@ -216,8 +219,7 @@ main(int argc, char **argv)
 			lflag = 1;
 			break;
 		case 'o':
-			if ((outfile = fopen(optarg, "w")) == NULL)
-				err(2, "could not open: %s", optarg);
+			outfile = optarg;
 			break;
 		case 'S':
 			diffargv[diffargc++] = "--strip-trailing-cr";
@@ -248,7 +250,10 @@ main(int argc, char **argv)
 	if (argc != 2)
 		usage();
 
-	if ((tmpdir = getenv("TMPDIR")) == NULL)                       
+	if (outfile && (outfp = fopen(outfile, "w")) == NULL)
+		err(2, "could not open: %s", optarg);
+
+	if ((tmpdir = getenv("TMPDIR")) == NULL || *tmpdir == '\0')                       
 		tmpdir = _PATH_TMP;
 
 	filename1 = argv[0];
@@ -283,7 +288,7 @@ main(int argc, char **argv)
 	/* Subtract column divider and divide by two. */
 	width = (wflag - 3) / 2;
 	/* Make sure line_width can fit in size_t. */
-	if (width > (SIZE_T_MAX - 3) / 2)
+	if (width > (SIZE_MAX - 3) / 2)
 		errx(2, "width is too large: %zu", width);
 	line_width = width * 2 + 3;
 
@@ -373,7 +378,6 @@ main(int argc, char **argv)
 static void
 printcol(const char *s, size_t *col, const size_t col_max)
 {
-
 	for (; *s && *col < col_max; ++s) {
 		size_t new_col;
 
@@ -383,7 +387,7 @@ printcol(const char *s, size_t *col, const size_t col_max)
 			 * If rounding to next multiple of eight causes
 			 * an integer overflow, just return.
 			 */
-			if (*col > SIZE_T_MAX - 8)
+			if (*col > SIZE_MAX - 8)
 				return;
 
 			/* Round to next multiple of eight. */
@@ -439,7 +443,7 @@ prompt(const char *s1, const char *s2)
 		case '1':
 			/* Choose left column as-is. */
 			if (s1 != NULL)
-				fprintf(outfile, "%s\n", s1);
+				fprintf(outfp, "%s\n", s1);
 
 			/* End of command parsing. */
 			break;
@@ -451,7 +455,7 @@ prompt(const char *s1, const char *s2)
 		case '2':
 			/* Choose right column as-is. */
 			if (s2 != NULL)
-				fprintf(outfile, "%s\n", s2);
+				fprintf(outfp, "%s\n", s2);
 
 			/* End of command parsing. */
 			break;
@@ -484,7 +488,7 @@ PROMPT:
 	 * should quit.
 	 */
 QUIT:
-	fclose(outfile);
+	fclose(outfp);
 	exit(0);
 }
 
@@ -644,7 +648,7 @@ parsecmd(FILE *diffpipe, FILE *file1, FILE *file2)
 		if (file1start != file1end)
 			errx(2, "append cannot have a file1 range: %s",
 			    line);
-		if (file1start == SIZE_T_MAX)
+		if (file1start == SIZE_MAX)
 			errx(2, "file1 line range too high: %s", line);
 		file1start = ++file1end;
 	}
@@ -656,7 +660,7 @@ parsecmd(FILE *diffpipe, FILE *file1, FILE *file2)
 		if (file2start != file2end)
 			errx(2, "delete cannot have a file2 range: %s",
 			    line);
-		if (file2start == SIZE_T_MAX)
+		if (file2start == SIZE_MAX)
 			errx(2, "file2 line range too high: %s", line);
 		file2start = ++file2end;
 	}
@@ -884,11 +888,11 @@ processq(void)
 		freediff(diffp);
 	}
 
-	/* Write to outfile, prompting user if lines are different. */
-	if (outfile)
+	/* Write to outfp, prompting user if lines are different. */
+	if (outfp)
 		switch (divc) {
 		case ' ': case '(': case ')':
-			fprintf(outfile, "%s\n", left);
+			fprintf(outfp, "%s\n", left);
 			break;
 		case '|': case '<': case '>':
 			prompt(left, right);
@@ -1003,7 +1007,6 @@ printd(FILE *file1, size_t file1end)
 
 	/* Print out lines file1ln to line2. */
 	for (; file1ln <= file1end; ++file1ln) {
-		/* XXX - Why can't this handle stdin? */
 		if (!(line1 = xfgets(file1)))
 			errx(2, "file1 ended early in delete");
 		enqueue(line1, '<', NULL);
