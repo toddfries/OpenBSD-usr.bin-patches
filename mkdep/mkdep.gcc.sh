@@ -44,8 +44,10 @@ scanfordasho() {
 	do case "$1" in
 		-o|--output)	
 			file="$2"; shift; shift ;;
-		-o*)
-			file="${1#-o}"; shift ;;
+		-o*|--output*)
+			file="${1#-o}"
+			file="${file#--output}"
+			shift ;;
 		# List options that take files, filled in at build time
 		%ARGLIST%)
 			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
