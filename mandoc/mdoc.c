@@ -1,20 +1,18 @@
-/* $Id: mdoc.c,v 1.2 2009/04/15 20:10:20 miod Exp $ */
+/*	$Id: mdoc.c,v 1.5 2009/06/15 18:41:13 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <assert.h>
 #include <ctype.h>
@@ -261,7 +259,8 @@ mdoc_vmsg(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
 
 
 int
-mdoc_verr(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
+mdoc_verr(struct mdoc *mdoc, int ln, int pos, 
+		const char *fmt, ...)
 {
 	char		 buf[256];
 	va_list		 ap;
@@ -613,7 +612,8 @@ mdoc_block_alloc(struct mdoc *mdoc, int line, int pos,
 	p = node_alloc(mdoc, line, pos, tok, MDOC_BLOCK);
 	if (NULL == p)
 		return(0);
-	if ((p->args = args))
+	p->args = args;
+	if (p->args)
 		(args->refcnt)++;
 	return(node_append(mdoc, p));
 }
@@ -628,7 +628,8 @@ mdoc_elem_alloc(struct mdoc *mdoc, int line, int pos,
 	p = node_alloc(mdoc, line, pos, tok, MDOC_ELEM);
 	if (NULL == p)
 		return(0);
-	if ((p->args = args))
+	p->args = args;
+	if (p->args)
 		(args->refcnt)++;
 	return(node_append(mdoc, p));
 }

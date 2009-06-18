@@ -1,20 +1,18 @@
-/* $Id: term.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: term.c,v 1.3 2009/06/15 00:57:06 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <assert.h>
 #include <err.h>
@@ -274,11 +272,13 @@ term_flushln(struct termp *p)
 			vis = p->rmargin - p->offset;
 		}
 
-		/* 
-		 * Write out the word and a trailing space.  Omit the
-		 * space if we're the last word in the line or beyond
-		 * our breakpoint.
+		/*
+		 * Prepend a space if we're not already at the beginning
+		 * of the line, then the word.
 		 */
+
+		if (0 < vis++)
+			putchar(' ');
 
 		for ( ; i < (int)p->col; i++) {
 			if (' ' == p->buf[i])
@@ -286,10 +286,6 @@ term_flushln(struct termp *p)
 			putchar(p->buf[i]);
 		}
 		vis += vsz;
-		if (i < (int)p->col && vis <= bp) {
-			putchar(' ');
-			vis++;
-		}
 	}
 
 	/*
@@ -297,7 +293,7 @@ term_flushln(struct termp *p)
 	 * cause a newline and offset at the right margin.
 	 */
 
-	if ((TERMP_NOBREAK & p->flags) && vis >= maxvis) {
+	if ((TERMP_NOBREAK & p->flags) && vis > maxvis) {
 		if ( ! (TERMP_NONOBREAK & p->flags)) {
 			putchar('\n');
 			for (i = 0; i < (int)p->rmargin; i++)
@@ -314,7 +310,7 @@ term_flushln(struct termp *p)
 
 	if (p->flags & TERMP_NOBREAK) {
 		if ( ! (TERMP_NONOBREAK & p->flags))
-			for ( ; vis < maxvis; vis++)
+			for ( ; vis <= maxvis; vis++)
 				putchar(' ');
 	} else
 		putchar('\n');

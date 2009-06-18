@@ -1,20 +1,18 @@
-/* $Id: mdoc_validate.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc_validate.c,v 1.3 2009/06/17 23:18:06 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
 
@@ -79,7 +77,6 @@ struct	valids {
 
 static	int	pwarn(struct mdoc *, int, int, enum mwarn);
 static	int	perr(struct mdoc *, int, int, enum merr);
-static	int	printwarn(struct mdoc *, int, int);
 static	int	check_parent(PRE_ARGS, int, enum mdoc_type);
 static	int	check_msec(PRE_ARGS, ...);
 static	int	check_sec(PRE_ARGS, ...);
@@ -97,6 +94,7 @@ static	int	warn_child_gt(struct mdoc *, const char *, int);
 static	int	err_child_eq(struct mdoc *, const char *, int);
 static	int	warn_child_eq(struct mdoc *, const char *, int);
 static	int	count_child(struct mdoc *);
+static	int	warn_print(struct mdoc *, int, int);
 static	int	warn_count(struct mdoc *, const char *, 
 			int, const char *, int);
 static	int	err_count(struct mdoc *, const char *, 
@@ -497,6 +495,14 @@ pwarn(struct mdoc *m, int line, int pos, enum mwarn type)
 }
 
 
+static int
+warn_print(struct mdoc *m, int ln, int pos)
+{
+	if (MDOC_IGN_CHARS & m->pflags)
+		return(pwarn(m, ln, pos, WPRINT));
+	return(perr(m, ln, pos, EPRINT));
+}
+
 
 static inline int
 warn_count(struct mdoc *m, const char *k, 
@@ -690,15 +696,6 @@ check_argv(struct mdoc *m, const struct mdoc_node *n,
 
 
 static int
-printwarn(struct mdoc *m, int ln, int pos)
-{
-	if (MDOC_IGN_CHARS & m->pflags)
-		return(pwarn(m, ln, pos, WPRINT));
-	return(perr(m, ln, pos, EPRINT));
-}
-
-
-static int
 check_text(struct mdoc *mdoc, int line, int pos, const char *p)
 {
 	size_t		 c;
@@ -708,10 +705,10 @@ check_text(struct mdoc *mdoc, int line, int pos, const char *p)
 	for ( ; *p; p++) {
 		if ('\t' == *p) {
 			if ( ! (MDOC_LITERAL & mdoc->flags))
-				if ( ! printwarn(mdoc, line, pos))
+				if ( ! warn_print(mdoc, line, pos))
 					return(0);
 		} else if ( ! isprint((u_char)*p))
-			if ( ! printwarn(mdoc, line, pos))
+			if ( ! warn_print(mdoc, line, pos))
 				return(0);
 
 		if ('\\' != *p)

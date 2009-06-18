@@ -1,20 +1,18 @@
-/* $Id: mdoc_term.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc_term.c,v 1.5 2009/06/17 22:27:34 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
 
@@ -88,10 +86,10 @@ struct	termpair {
 	struct termpair	 *ppair;
 	int		  type;
 #define	TERMPAIR_FLAG	 (1 << 0)
-	int	  	  flag;
-	size_t	  	  offset;
-	size_t	  	  rmargin;
-	int		  count;
+	int	  	  flag;		/* Whether being used. */
+	size_t	  	  offset;	/* Left margin. */
+	size_t	  	  rmargin;	/* Right margin. */
+	int		  count;	/* Enum count. */
 };
 
 #define	TERMPAIR_SETFLAG(termp, p, fl) \
@@ -322,12 +320,15 @@ static	void	  print_head(struct termp *,
 static	void	  print_body(DECL_ARGS);
 static	void	  print_foot(struct termp *, 
 			const struct mdoc_meta *);
-static	void	  sanity(const struct mdoc_node *);
 
 
 int
 mdoc_run(struct termp *p, const struct mdoc *m)
 {
+	/*
+	 * Main output function.  When this is called, assume that the
+	 * tree is properly formed.
+	 */
 
 	print_head(p, mdoc_meta(m));
 	print_body(p, NULL, mdoc_meta(m), mdoc_node(m));
@@ -352,10 +353,6 @@ print_node(DECL_ARGS)
 {
 	int		 dochild;
 	struct termpair	 npair;
-
-	/* Some quick sanity-checking. */
-
-	sanity(node);
 
 	/* Pre-processing. */
 
@@ -405,7 +402,7 @@ print_foot(struct termp *p, const struct mdoc_meta *meta)
 
 	tm = localtime(&meta->date);
 
-	if (NULL == strftime(buf, p->rmargin, "%B %d, %Y", tm))
+	if (0 == strftime(buf, p->rmargin, "%B %d, %Y", tm))
 		err(1, "strftime");
 
 	(void)strlcpy(os, meta->os, p->rmargin);
@@ -505,119 +502,6 @@ print_head(struct termp *p, const struct mdoc_meta *meta)
 
 	free(title);
 	free(buf);
-}
-
-
-static void
-sanity(const struct mdoc_node *n)
-{
-	char		*p;
-
-	p = "regular form violated";
-
-	switch (n->type) {
-	case (MDOC_TEXT):
-		if (n->child) 
-			errx(1, p);
-		if (NULL == n->parent) 
-			errx(1, p);
-		if (NULL == n->string)
-			errx(1, p);
-		switch (n->parent->type) {
-		case (MDOC_TEXT):
-			/* FALLTHROUGH */
-		case (MDOC_ROOT):
-			errx(1, p);
-			/* NOTREACHED */
-		default:
-			break;
-		}
-		break;
-	case (MDOC_ELEM):
-		if (NULL == n->parent)
-			errx(1, p);
-		switch (n->parent->type) {
-		case (MDOC_TAIL):
-			/* FALLTHROUGH */
-		case (MDOC_BODY):
-			/* FALLTHROUGH */
-		case (MDOC_HEAD):
-			break;
-		default:
-			errx(1, p);
-			/* NOTREACHED */
-		}
-		if (n->child) switch (n->child->type) {
-		case (MDOC_TEXT):
-			break;
-		default:
-			errx(1, p);
-			/* NOTREACHED */
-		}
-		break;
-	case (MDOC_HEAD):
-		/* FALLTHROUGH */
-	case (MDOC_BODY):
-		/* FALLTHROUGH */
-	case (MDOC_TAIL):
-		if (NULL == n->parent)
-			errx(1, p);
-		if (MDOC_BLOCK != n->parent->type)
-			errx(1, p);
-		if (n->child) switch (n->child->type) {
-		case (MDOC_BLOCK):
-			/* FALLTHROUGH */
-		case (MDOC_ELEM):
-			/* FALLTHROUGH */
-		case (MDOC_TEXT):
-			break;
-		default:
-			errx(1, p);
-			/* NOTREACHED */
-		}
-		break;
-	case (MDOC_BLOCK):
-		if (NULL == n->parent)
-			errx(1, p);
-		if (NULL == n->child)
-			errx(1, p);
-		switch (n->parent->type) {
-		case (MDOC_ROOT):
-			/* FALLTHROUGH */
-		case (MDOC_HEAD):
-			/* FALLTHROUGH */
-		case (MDOC_BODY):
-			/* FALLTHROUGH */
-		case (MDOC_TAIL):
-			break;
-		default:
-			errx(1, p);
-			/* NOTREACHED */
-		}
-		switch (n->child->type) {
-		case (MDOC_ROOT):
-			/* FALLTHROUGH */
-		case (MDOC_ELEM):
-			errx(1, p);
-			/* NOTREACHED */
-		default:
-			break;
-		}
-		break;
-	case (MDOC_ROOT):
-		if (n->parent)
-			errx(1, p);
-		if (NULL == n->child)
-			errx(1, p);
-		switch (n->child->type) {
-		case (MDOC_BLOCK):
-			break;
-		default:
-			errx(1, p);
-			/* NOTREACHED */
-		}
-		break;
-	}
 }
 
 
@@ -1836,7 +1720,7 @@ termp_ss_pre(DECL_ARGS)
 		break;
 	case (MDOC_HEAD):
 		TERMPAIR_SETFLAG(p, pair, ttypes[TTYPE_SSECTION]);
-		p->offset = INDENT / 2;
+		p->offset = HALFINDENT;
 		break;
 	default:
 		break;
