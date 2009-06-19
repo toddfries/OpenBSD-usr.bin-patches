@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.6 2009/06/18 01:19:02 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.11 2009/06/18 23:34:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -183,7 +183,7 @@ struct	termact {
 };
 
 static const struct termact termacts[MDOC_MAX] = {
-	{ NULL, NULL }, /* \" */
+	{ termp_ap_pre, NULL }, /* Ap */
 	{ NULL, NULL }, /* Dd */
 	{ NULL, NULL }, /* Dt */
 	{ NULL, NULL }, /* Os */
@@ -290,7 +290,6 @@ static const struct termact termacts[MDOC_MAX] = {
 	{ NULL, NULL }, /* Fr */
 	{ termp_ud_pre, NULL }, /* Ud */
 	{ termp_lb_pre, termp_lb_post }, /* Lb */
-	{ termp_ap_pre, NULL }, /* Lb */
 	{ termp_pp_pre, NULL }, /* Pp */ 
 	{ termp_lk_pre, NULL }, /* Lk */ 
 	{ termp_mt_pre, NULL }, /* Mt */ 
@@ -395,6 +394,14 @@ print_foot(struct termp *p, const struct mdoc_meta *meta)
 	struct tm	*tm;
 	char		*buf, *os;
 
+	/* 
+	 * Output the footer in new-groff style, that is, three columns
+	 * with the middle being the manual date and flanking columns
+	 * being the operating system:
+	 *
+	 * SYSTEM                  DATE                    SYSTEM
+	 */
+
 	if (NULL == (buf = malloc(p->rmargin)))
 		err(1, "malloc");
 	if (NULL == (os = malloc(p->rmargin)))
@@ -407,29 +414,33 @@ print_foot(struct termp *p, const struct mdoc_meta *meta)
 
 	(void)strlcpy(os, meta->os, p->rmargin);
 
-	/*
-	 * This is /slightly/ different from regular groff output
-	 * because we don't have page numbers.  Print the following:
-	 *
-	 * OS                                            MDOCDATE
-	 */
-
 	term_vspace(p);
 
-	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
-	p->rmargin = p->maxrmargin - strlen(buf);
 	p->offset = 0;
+	p->rmargin = (p->maxrmargin - strlen(buf) + 1) / 2;
+	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
 
 	term_word(p, os);
 	term_flushln(p);
 
-	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 	p->offset = p->rmargin;
-	p->rmargin = p->maxrmargin;
-	p->flags &= ~TERMP_NOBREAK;
+	p->rmargin = p->maxrmargin - strlen(os);
+	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 
 	term_word(p, buf);
 	term_flushln(p);
+
+	p->offset = p->rmargin;
+	p->rmargin = p->maxrmargin;
+	p->flags &= ~TERMP_NOBREAK;
+	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
+
+	term_word(p, os);
+	term_flushln(p);
+
+	p->offset = 0;
+	p->rmargin = p->maxrmargin;
+	p->flags = 0;
 
 	free(buf);
 	free(os);
@@ -475,15 +486,15 @@ print_head(struct termp *p, const struct mdoc_meta *meta)
 			meta->title, meta->msec);
 
 	p->offset = 0;
-	p->rmargin = (p->maxrmargin - strlen(buf)) / 2;
+	p->rmargin = (p->maxrmargin - strlen(buf) + 1) / 2;
 	p->flags |= TERMP_NOBREAK | TERMP_NOSPACE;
 
 	term_word(p, title);
 	term_flushln(p);
 
-	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 	p->offset = p->rmargin;
 	p->rmargin = p->maxrmargin - strlen(title);
+	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 
 	term_word(p, buf);
 	term_flushln(p);
@@ -496,8 +507,8 @@ print_head(struct termp *p, const struct mdoc_meta *meta)
 	term_word(p, title);
 	term_flushln(p);
 
-	p->rmargin = p->maxrmargin;
 	p->offset = 0;
+	p->rmargin = p->maxrmargin;
 	p->flags &= ~TERMP_NOSPACE;
 
 	free(title);
@@ -571,6 +582,8 @@ arg_listtype(const struct mdoc_node *n)
 			break;
 		}
 
+	/* FIXME: mandated by parser. */
+
 	errx(1, "list type not supported");
 	/* NOTREACHED */
 }
@@ -581,10 +594,15 @@ arg_offset(const struct mdoc_argv *arg)
 {
 
 	assert(*arg->value);
+	if (0 == strcmp(*arg->value, "left"))
+		return(0);
 	if (0 == strcmp(*arg->value, "indent"))
 		return(INDENT);
 	if (0 == strcmp(*arg->value, "indent-two"))
 		return(INDENT * 2);
+
+	/* FIXME: needs to support field-widths (10n, etc.). */
+
 	return(strlen(*arg->value));
 }
 
@@ -1046,6 +1064,8 @@ termp_rv_pre(DECL_ARGS)
 {
 	int		 i;
 
+	/* FIXME: mandated by parser. */
+
 	if (-1 == (i = arg_getattr(MDOC_Std, node)))
 		errx(1, "expected -std argument");
 	if (1 != node->args->argv[i].sz)
@@ -1078,6 +1098,8 @@ static int
 termp_ex_pre(DECL_ARGS)
 {
 	int		 i;
+
+	/* FIXME: mandated by parser? */
 
 	if (-1 == (i = arg_getattr(MDOC_Std, node)))
 		errx(1, "expected -std argument");
@@ -1132,8 +1154,9 @@ termp_xr_pre(DECL_ARGS)
 {
 	const struct mdoc_node *n;
 
-	if (NULL == (n = node->child))
-		errx(1, "expected text line argument");
+	assert(node->child && MDOC_TEXT == node->child->type);
+	n = node->child;
+
 	term_word(p, n->string);
 	if (NULL == (n = n->next)) 
 		return(0);
@@ -1267,8 +1290,7 @@ termp_lb_pre(DECL_ARGS)
 {
 	const char	*lb;
 
-	if (NULL == node->child)
-		errx(1, "expected text line argument");
+	assert(node->child && MDOC_TEXT == node->child->type);
 	if ((lb = mdoc_a2lib(node->child->string))) {
 		term_word(p, lb);
 		return(0);
@@ -1376,8 +1398,7 @@ termp_fn_pre(DECL_ARGS)
 {
 	const struct mdoc_node *n;
 
-	if (NULL == node->child)
-		errx(1, "expected text line arguments");
+	assert(node->child && MDOC_TEXT == node->child->type);
 
 	/* FIXME: can be "type funcname" "type varname"... */
 
@@ -1483,6 +1504,8 @@ termp_bd_pre(DECL_ARGS)
 		return(fmt_block_vspace(p, node, node));
 	else if (MDOC_BODY != node->type)
 		return(1);
+
+	/* FIXME: display type should be mandated by parser. */
 
 	if (NULL == node->parent->args)
 		errx(1, "missing display type");
@@ -1607,9 +1630,6 @@ termp_bx_post(DECL_ARGS)
 		p->flags |= TERMP_NOSPACE;
 	term_word(p, "BSD");
 }
-
-
-/* FIXME: consolidate the following into termp_system. */
 
 
 /* ARGSUSED */
@@ -1935,8 +1955,7 @@ termp_fo_pre(DECL_ARGS)
 
 	p->flags |= ttypes[TTYPE_FUNC_NAME];
 	for (n = node->child; n; n = n->next) {
-		if (MDOC_TEXT != n->type)
-			errx(1, "expected text line argument");
+		assert(MDOC_TEXT == n->type);
 		term_word(p, n->string);
 	}
 	p->flags &= ~ttypes[TTYPE_FUNC_NAME];
@@ -1980,9 +1999,7 @@ termp_bf_pre(DECL_ARGS)
 		return(1);
 	} 
 
-	if (MDOC_TEXT != n->type)
-		errx(1, "expected text line arguments");
-
+	assert(MDOC_TEXT == n->type);
 	if (0 == strcmp("Em", n->string))
 		TERMPAIR_SETFLAG(p, pair, ttypes[TTYPE_EMPH]);
 	else if (0 == strcmp("Sy", n->string))
@@ -2018,9 +2035,7 @@ static int
 termp_sm_pre(DECL_ARGS)
 {
 
-	if (NULL == node->child || MDOC_TEXT != node->child->type)
-		errx(1, "expected boolean line argument");
-
+	assert(node->child && MDOC_TEXT == node->child->type);
 	if (0 == strcmp("on", node->child->string)) {
 		p->flags &= ~TERMP_NONOSPACE;
 		p->flags &= ~TERMP_NOSPACE;
