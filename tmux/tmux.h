@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.6 2009/06/04 18:48:24 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.8 2009/06/24 16:01:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -994,6 +994,7 @@ void		 tty_putcode1(struct tty *, enum tty_code_code, int);
 void		 tty_putcode2(struct tty *, enum tty_code_code, int, int);
 void		 tty_puts(struct tty *, const char *);
 void		 tty_putc(struct tty *, u_char);
+void		 tty_pututf8(struct tty *, const struct grid_utf8 *);
 void		 tty_init(struct tty *, char *, char *);
 void		 tty_start_tty(struct tty *);
 void		 tty_stop_tty(struct tty *);
@@ -1521,7 +1522,7 @@ int		 session_last(struct session *);
 
 /* utf8.c */
 void	utf8_build(void);
-int	utf8_width(u_char *);
+int	utf8_width(const u_char *);
 
 /* util.c */
 char   *section_string(char *, size_t, size_t, size_t);

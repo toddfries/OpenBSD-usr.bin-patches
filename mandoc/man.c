@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.3 2009/06/18 23:34:53 schwarze Exp $ */
+/*	$Id: man.c,v 1.5 2009/06/23 22:31:26 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -182,6 +182,8 @@ man_node_append(struct man *man, struct man_node *p)
 		abort();
 		/* NOTREACHED */
 	}
+	
+	p->parent->nchild++;
 
 	man->last = p;
 
@@ -250,6 +252,8 @@ man_node_free(struct man_node *p)
 
 	if (p->string)
 		free(p->string);
+	if (p->parent)
+		p->parent->nchild--;
 	free(p);
 }
 
@@ -263,6 +267,7 @@ man_node_freelist(struct man_node *p)
 	if (p->next)
 		man_node_freelist(p->next);
 
+	assert(0 == p->nchild);
 	man_node_free(p);
 }
 
@@ -432,3 +437,46 @@ man_vwarn(struct man *man, int ln, int pos, const char *fmt, ...)
 }
 
 
+int
+man_err(struct man *m, int line, int pos, 
+		int iserr, enum merr type)
+{
+	const char	 *p;
+	
+	p = NULL;
+	switch (type) {
+	case (WNPRINT):
+		p = "invalid character";
+		break;
+	case (WNMEM):
+		p = "memory exhausted";
+		break;
+	case (WMSEC):
+		p = "invalid manual section";
+		break;
+	case (WDATE):
+		p = "invalid date format";
+		break;
+	case (WLNSCOPE):
+		p = "scope of prior line violated";
+		break;
+	case (WTSPACE):
+		p = "trailing whitespace at end of line";
+		break;
+	case (WTQUOTE):
+		p = "unterminated quotation";
+		break;
+	case (WNODATA):
+		p = "document has no data";
+		break;
+	case (WNOTITLE):
+		p = "document has no title/section";
+		break;
+	}
+	assert(p);
+
+	if (iserr)
+		return(man_verr(m, line, pos, p));
+
+	return(man_vwarn(m, line, pos, p));
+}
