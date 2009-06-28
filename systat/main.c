@@ -1,4 +1,4 @@
-/* $Id: main.c,v 1.52 2009/06/19 07:48:45 jasper Exp $	 */
+/* $Id: main.c,v 1.54 2009/06/25 20:45:43 deraadt Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier

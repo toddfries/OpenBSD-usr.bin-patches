@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.13 2009/04/03 20:29:21 deraadt Exp $ */
+/*	$OpenBSD: if.c,v 1.15 2009/06/26 06:39:47 jasper Exp $ */
 /*
  * Copyright (c) 2004 Markus Friedl <markus@openbsd.org>
  *
@@ -14,6 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -22,9 +23,11 @@
 #include <net/if_dl.h>
 #include <net/route.h>
 #include <sys/sockio.h>
+#include <sys/ioctl.h>
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "systat.h"
 
@@ -221,8 +224,9 @@ fetchifstat(void)
 	lim = buf + need;
 	for (next = buf; next < lim; next += ifm.ifm_msglen) {
 		bcopy(next, &ifm, sizeof ifm);
-		if (ifm.ifm_type != RTM_IFINFO ||
-		   !(ifm.ifm_addrs & RTA_IFP))
+		if (ifm.ifm_version != RTM_VERSION ||
+		    ifm.ifm_type != RTM_IFINFO ||
+		    !(ifm.ifm_addrs & RTA_IFP))
 			continue;
 		if (ifm.ifm_index >= nifs) {
 			if ((newstats = realloc(ifstats, (ifm.ifm_index + 4)

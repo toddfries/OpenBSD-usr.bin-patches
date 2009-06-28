@@ -1,4 +1,4 @@
-/* $OpenBSD: window-more.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: window-more.c,v 1.3 2009/06/25 06:15:04 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -73,16 +73,6 @@ window_more_vadd(struct window_pane *wp, const char *fmt, va_list ap)
 	} else
 		window_more_write_line(wp, &ctx, 0);
 	screen_write_stop(&ctx);
-}
-
-void printflike2
-window_more_add(struct window_pane *wp, const char *fmt, ...)
-{
-	va_list	ap;
-
-	va_start(ap, fmt);
-	window_more_vadd(wp, fmt, ap);
-	va_end(ap);
 }
 
 struct screen *
@@ -175,7 +165,9 @@ window_more_write_line(
 	struct grid_cell		 gc;
 	char   				*msg, hdr[32];
 	size_t	 			 size;
+ 	int				 utf8flag;
 
+	utf8flag = options_get_number(&wp->window->options, "utf8");
 	memcpy(&gc, &grid_default_cell, sizeof gc);
 
 	if (py == 0) {
@@ -193,8 +185,8 @@ window_more_write_line(
 	screen_write_cursormove(ctx, 0, py);
 	if (data->top + py  < ARRAY_LENGTH(&data->list)) {
 		msg = ARRAY_ITEM(&data->list, data->top + py);
-		screen_write_puts(
-		    ctx, &gc, "%.*s", (int) (screen_size_x(s) - size), msg);
+		screen_write_nputs(
+		    ctx, screen_size_x(s) - 1 - size, &gc, utf8flag, "%s", msg);
 	}
 	while (s->cx < screen_size_x(s) - size)
 		screen_write_putc(ctx, &gc, ' ');

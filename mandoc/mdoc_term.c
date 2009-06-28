@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.13 2009/06/21 20:49:33 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.19 2009/06/27 13:03:51 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -540,13 +540,14 @@ arg_width(const struct mdoc_argv *arg, int pos)
 			break;
 
 	if (i == len - 1) {
-		if ('n' == arg->value[pos][len - 1]) {
+		if ('n' == arg->value[pos][len - 1] ||
+				'm' == arg->value[pos][len - 1]) {
 			v = (size_t)atoi(arg->value[pos]);
-			return(v);
+			return(v + 2);
 		}
 
 	}
-	return(strlen(arg->value[pos]) + 1);
+	return(strlen(arg->value[pos]) + 2);
 }
 
 
@@ -600,7 +601,7 @@ arg_offset(const struct mdoc_argv *arg)
 	if (0 == strcmp(*arg->value, "left"))
 		return(0);
 	if (0 == strcmp(*arg->value, "indent"))
-		return(INDENT);
+		return(INDENT + 1);
 	if (0 == strcmp(*arg->value, "indent-two"))
 		return(INDENT * 2);
 
@@ -770,11 +771,13 @@ termp_it_pre(DECL_ARGS)
 		/* FALLTHROUGH */
 	case (MDOC_Dash):
 		/* FALLTHROUGH */
-	case (MDOC_Enum):
-		/* FALLTHROUGH */
 	case (MDOC_Hyphen):
 		if (width < 4)
 			width = 4;
+		break;
+	case (MDOC_Enum):
+		if (width < 5)
+			width = 5;
 		break;
 	case (MDOC_Tag):
 		if (0 == width)
@@ -785,11 +788,13 @@ termp_it_pre(DECL_ARGS)
 	}
 
 	/* 
-	 * Whitespace control.  Inset bodies need an initial space.
+	 * Whitespace control.  Inset bodies need an initial space,
+	 * while diagonal bodies need two.
 	 */
 
 	switch (type) {
 	case (MDOC_Diag):
+		term_word(p, "\\ ");
 		/* FALLTHROUGH */
 	case (MDOC_Inset):
 		if (MDOC_BODY == node->type) 
@@ -1299,7 +1304,8 @@ termp_lb_pre(DECL_ARGS)
 	const char	*lb;
 
 	assert(node->child && MDOC_TEXT == node->child->type);
-	if ((lb = mdoc_a2lib(node->child->string))) {
+	lb = mdoc_a2lib(node->child->string);
+	if (lb) {
 		term_word(p, lb);
 		return(0);
 	}
@@ -1335,7 +1341,8 @@ termp_d1_pre(DECL_ARGS)
 	if (MDOC_BLOCK != node->type)
 		return(1);
 	term_newln(p);
-	p->offset += (pair->offset = INDENT);
+	pair->offset = INDENT + 1;
+	p->offset += pair->offset;
 	return(1);
 }
 

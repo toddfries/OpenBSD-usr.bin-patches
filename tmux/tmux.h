@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.8 2009/06/24 16:01:02 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.15 2009/06/26 19:44:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -73,7 +73,9 @@ extern const char    *__progname;
 #define printflike5 __attribute__ ((format (printf, 5, 6)))
 
 /* Number of items in array. */
+#ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
+#endif
 
 /* Buffer macros. */
 #define BUFFER_USED(b) ((b)->size)
@@ -1007,8 +1009,6 @@ void		 tty_redraw_region(struct tty *, struct window_pane *);
 int		 tty_open(struct tty *, char **);
 void		 tty_close(struct tty *, int);
 void		 tty_free(struct tty *, int);
-void		 tty_write(
-		     struct tty *, struct window_pane *, enum tty_cmd, ...);
 void		 tty_vwrite(
     		     struct tty *, struct window_pane *, enum tty_cmd, va_list);
 
@@ -1034,7 +1034,6 @@ int		 tty_keys_next(struct tty *, int *, u_char *);
 
 /* tty-write.c */
 void		 tty_write_cmd(struct window_pane *, enum tty_cmd, ...);
-void		 tty_write_mode(struct window_pane *, int);
 
 /* options-cmd.c */
 void	set_option_string(struct cmd_ctx *,
@@ -1218,7 +1217,6 @@ size_t	cmd_pane_print(struct cmd *, char *, size_t);
 
 /* client.c */
 int	 client_init(char *, struct client_ctx *, int, int);
-int	 client_flush(struct client_ctx *);
 int	 client_main(struct client_ctx *);
 
 /* client-msg.c */
@@ -1263,8 +1261,6 @@ void	 server_write_client(
              struct client *, enum hdrtype, const void *, size_t);
 void	 server_write_session(
              struct session *, enum hdrtype, const void *, size_t);
-void	 server_write_window(
-	     struct window *, enum hdrtype, const void *, size_t);
 void	 server_redraw_client(struct client *);
 void	 server_status_client(struct client *);
 void	 server_redraw_session(struct session *);
@@ -1325,8 +1321,8 @@ void	 grid_set_utf8(struct grid *, u_int, u_int, const struct grid_utf8 *);
 void	 grid_clear(struct grid *, u_int, u_int, u_int, u_int);
 void	 grid_clear_lines(struct grid *, u_int, u_int);
 void	 grid_move_lines(struct grid *, u_int, u_int, u_int);
-void	 grid_clear_cells(struct grid *, u_int, u_int, u_int);
 void	 grid_move_cells(struct grid *, u_int, u_int, u_int, u_int);
+char	*grid_string_cells(struct grid *, u_int, u_int, u_int);
 
 /* grid-view.c */
 const struct grid_cell *grid_view_peek_cell(struct grid *, u_int, u_int);
@@ -1348,6 +1344,7 @@ void	 grid_view_delete_lines_region(
     	     struct grid *, u_int, u_int, u_int, u_int);
 void	 grid_view_insert_cells(struct grid *, u_int, u_int, u_int);
 void	 grid_view_delete_cells(struct grid *, u_int, u_int, u_int);
+char	*grid_view_string_cells(struct grid *, u_int, u_int, u_int);
 
 /* screen-write.c */
 void	 screen_write_start(
@@ -1408,8 +1405,6 @@ void	 screen_set_selection(
 	     struct screen *, u_int, u_int, u_int, u_int, struct grid_cell *);
 void	 screen_clear_selection(struct screen *);
 int	 screen_check_selection(struct screen *, u_int, u_int);
-void	 screen_display_copy_area(struct screen *, struct screen *,
-    	     u_int, u_int, u_int, u_int, u_int, u_int);
 
 /* window.c */
 extern struct windows windows;
@@ -1437,7 +1432,6 @@ void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, int,
 		     const char *, const char *, const char **, u_int, char **);
 void		 window_remove_pane(struct window *, struct window_pane *);
-u_int		 window_index_of_pane(struct window *, struct window_pane *);
 struct window_pane *window_pane_at_index(struct window *, u_int);
 u_int		 window_count_panes(struct window *);
 void		 window_destroy_panes(struct window *);
@@ -1446,7 +1440,6 @@ void		 window_pane_destroy(struct window_pane *);
 int		 window_pane_spawn(struct window_pane *,
 		     const char *, const char *, const char **, char **);
 int		 window_pane_resize(struct window_pane *, u_int, u_int);
-void		 window_calculate_sizes(struct window *);
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);
@@ -1454,7 +1447,8 @@ void		 window_pane_parse(struct window_pane *);
 void		 window_pane_key(struct window_pane *, struct client *, int);
 void		 window_pane_mouse(struct window_pane *,
     		     struct client *, u_char, u_char, u_char);
-char		*window_pane_search(struct window_pane *, const char *);
+char		*window_pane_search(
+		     struct window_pane *, const char *, u_int *);
 
 /* layout.c */
 const char * 	 layout_name(struct window *);
@@ -1483,7 +1477,6 @@ void 		 window_scroll_pageup(struct window_pane *);
 /* window-more.c */
 extern const struct window_mode window_more_mode;
 void 		 window_more_vadd(struct window_pane *, const char *, va_list);
-void printflike2 window_more_add(struct window_pane *, const char *, ...);
 
 /* window-choose.c */
 extern const struct window_mode window_choose_mode;
@@ -1524,52 +1517,33 @@ int		 session_last(struct session *);
 void	utf8_build(void);
 int	utf8_width(const u_char *);
 
-/* util.c */
-char   *section_string(char *, size_t, size_t, size_t);
-void	clean_string(const char *, char *, size_t);
-
 /* procname.c */
 char   *get_proc_name(int, char *);
 
 /* buffer.c */
 struct buffer 	*buffer_create(size_t);
 void		 buffer_destroy(struct buffer *);
-void		 buffer_clear(struct buffer *);
 void		 buffer_ensure(struct buffer *, size_t);
 void		 buffer_add(struct buffer *, size_t);
-void		 buffer_reverse_add(struct buffer *, size_t);
 void		 buffer_remove(struct buffer *, size_t);
-void		 buffer_reverse_remove(struct buffer *, size_t);
-void		 buffer_insert_range(struct buffer *, size_t, size_t);
-void		 buffer_delete_range(struct buffer *, size_t, size_t);
 void		 buffer_write(struct buffer *, const void *, size_t);
 void		 buffer_read(struct buffer *, void *, size_t);
 void	 	 buffer_write8(struct buffer *, uint8_t);
-void	 	 buffer_write16(struct buffer *, uint16_t);
 uint8_t		 buffer_read8(struct buffer *);
-uint16_t 	 buffer_read16(struct buffer *);
 
 /* buffer-poll.c */
-void		 buffer_set(
-		     struct pollfd *, int, struct buffer *, struct buffer *);
 int		 buffer_poll(struct pollfd *, struct buffer *, struct buffer *);
-void		 buffer_flush(int, struct buffer *n, struct buffer *);
 
 /* log.c */
-#define LOG_FACILITY LOG_DAEMON
-void		 log_open_syslog(int);
 void		 log_open_tty(int);
 void		 log_open_file(int, const char *);
 void		 log_close(void);
-void		 log_vwrite(int, const char *, va_list);
-void		 log_write(int, const char *, ...);
 void printflike1 log_warn(const char *, ...);
 void printflike1 log_warnx(const char *, ...);
 void printflike1 log_info(const char *, ...);
 void printflike1 log_debug(const char *, ...);
 void printflike1 log_debug2(const char *, ...);
 void printflike1 log_debug3(const char *, ...);
-__dead void	 log_vfatal(const char *, va_list);
 __dead void	 log_fatal(const char *, ...);
 __dead void	 log_fatalx(const char *, ...);
 
@@ -1583,6 +1557,5 @@ int printflike2	 xasprintf(char **, const char *, ...);
 int		 xvasprintf(char **, const char *, va_list);
 int printflike3	 xsnprintf(char *, size_t, const char *, ...);
 int		 xvsnprintf(char *, size_t, const char *, va_list);
-int printflike3	 printpath(char *, size_t, const char *, ...);
 
 #endif /* TMUX_H */

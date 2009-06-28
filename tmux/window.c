@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.3 2009/06/23 20:17:30 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.6 2009/06/25 06:15:04 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -21,6 +21,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <paths.h>
 #include <signal.h>
 #include <stdint.h>
@@ -326,21 +327,6 @@ window_remove_pane(struct window *w, struct window_pane *wp)
 	window_pane_destroy(wp);
 }
 
-u_int
-window_index_of_pane(struct window *w, struct window_pane *find)
-{
-	struct window_pane	*wp;
-	u_int			 n;
-
-	n = 0;
-	TAILQ_FOREACH(wp, &w->panes, entry) {
-		if (wp == find)
-			return (n);
-		n++;
-	}
-	fatalx("unknown pane");
-}
-
 struct window_pane *
 window_pane_at_index(struct window *w, u_int idx)
 {
@@ -588,44 +574,26 @@ window_pane_mouse(
 }
 
 char *
-window_pane_search(struct window_pane *wp, const char *searchstr)
+window_pane_search(struct window_pane *wp, const char *searchstr, u_int *lineno)
 {
-	const struct grid_cell	*gc;
-	const struct grid_utf8	*gu;
-	char			*buf, *s;
-	size_t	 		 off;
-	u_int	 		 i, j, k;
+	struct screen	*s = &wp->base;
+	char		*newsearchstr, *line, *msg;
+	u_int	 	 i;
 
-	buf = xmalloc(1);
+	msg = NULL;
+	xasprintf(&newsearchstr, "*%s*", searchstr);
 
-	for (j = 0; j < screen_size_y(&wp->base); j++) {
-		off = 0;
-		for (i = 0; i < screen_size_x(&wp->base); i++) {
-			gc = grid_view_peek_cell(wp->base.grid, i, j);
-			if (gc->flags & GRID_FLAG_UTF8) {
-				gu = grid_view_peek_utf8(wp->base.grid, i, j);
-				buf = xrealloc(buf, 1, off + 8);
-				for (k = 0; k < UTF8_SIZE; k++) {
-					if (gu->data[k] == 0xff)
-						break;
-					buf[off++] = gu->data[k];
-				}
-			} else {
-				buf = xrealloc(buf, 1, off + 1);
-				buf[off++] = gc->data;
-			}
+	for (i = 0; i < screen_size_y(s); i++) {
+		line = grid_view_string_cells(s->grid, 0, i, screen_size_x(s));
+		if (fnmatch(newsearchstr, line, 0) == 0) {
+			msg = line;
+			if (lineno != NULL)
+				*lineno = i;
+			break;
 		}
-		while (off > 0 && buf[off - 1] == ' ')
-			off--;
-		buf[off] = '\0';
-
-		if ((s = strstr(buf, searchstr)) != NULL) {
-			s = section_string(buf, off, s - buf, 40);
-			xfree(buf);
-			return (s);
-		}
+		xfree(line);
 	}
 
-	xfree(buf);
-	return (NULL);
+	xfree(newsearchstr);
+	return (msg);
 }

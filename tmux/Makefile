@@ -1,6 +1,4 @@
-# $OpenBSD: Makefile,v 1.1 2009/06/01 22:58:49 nicm Exp $
-
-.PATH:	${.CURDIR}/..
+# $OpenBSD: Makefile,v 1.4 2009/06/25 07:42:41 espie Exp $
 
 PROG=	tmux
 SRCS=	arg.c attributes.c buffer-poll.c buffer.c cfg.c client-fn.c \
@@ -32,17 +30,15 @@ SRCS=	arg.c attributes.c buffer-poll.c buffer.c cfg.c client-fn.c \
 	mode-key.c names.c options-cmd.c options.c paste.c procname.c \
 	resize.c screen-redraw.c screen-write.c screen.c server-fn.c \
 	server-msg.c server.c session.c status.c tmux.c tty-keys.c tty-term.c \
-	tty-write.c tty.c utf8.c util.c window-choose.c window-clock.c \
+	tty-write.c tty.c utf8.c window-choose.c window-clock.c \
 	window-copy.c window-more.c window-scroll.c window.c xmalloc.c
 
-CFLAGS+= -Wno-long-long -Wall -W -Wnested-externs -Wformat=2
-CFLAGS+= -Wmissing-prototypes -Wstrict-prototypes -Wmissing-declarations
-CFLAGS+= -Wwrite-strings -Wshadow -Wpointer-arith -Wsign-compare
-CFLAGS+= -Wundef -Wbad-function-cast -Winline -Wcast-align
+CDIAGFLAGS+= -Wno-long-long -Wall -W -Wnested-externs -Wformat=2
+CDIAGFLAGS+= -Wmissing-prototypes -Wstrict-prototypes -Wmissing-declarations
+CDIAGFLAGS+= -Wwrite-strings -Wshadow -Wpointer-arith -Wsign-compare
+CDIAGFLAGS+= -Wundef -Wbad-function-cast -Winline -Wcast-align
 
 LDADD=  -lutil -lncurses
 DPADD=  ${LIBUTIL}
-
-MAN=	tmux.1
 
 .include <bsd.prog.mk>

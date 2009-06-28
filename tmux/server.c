@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.2 2009/06/24 17:36:15 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.5 2009/06/26 22:12:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -25,6 +25,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -131,7 +132,7 @@ server_client_index(struct client *c)
 int
 server_start(char *path)
 {
-	int	pair[2], srv_fd;
+	int	pair[2], srv_fd, null_fd;
 	char   *cause;
 	char	rpathbuf[MAXPATHLEN];
 
@@ -175,6 +176,18 @@ server_start(char *path)
 		exit(1);
 	}
 	logfile("server");
+
+	/*
+	 * Close stdin/stdout/stderr. Can't let daemon() do this as they are
+	 * needed until now to print configuration file errors.
+	 */
+        if ((null_fd = open(_PATH_DEVNULL, O_RDWR)) != -1) {
+                dup2(null_fd, STDIN_FILENO);
+                dup2(null_fd, STDOUT_FILENO);
+                dup2(null_fd, STDERR_FILENO);
+                if (null_fd > 2)
+                        close(null_fd);
+        }
 
 	log_debug("server started, pid %ld", (long) getpid());
 	log_debug("socket path %s", socket_path);
@@ -288,7 +301,7 @@ server_main(int srv_fd)
 			xtimeout = POLL_TIMEOUT;
 
 		/* Do the poll. */
-		if ((nfds = poll(pfds, nfds, xtimeout)) == -1) {
+		if (poll(pfds, nfds, xtimeout) == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
 			fatal("poll failed");
@@ -959,7 +972,7 @@ server_check_window_content(
 		return (0);
 	if (session_alert_has_window(s, w, WINDOW_CONTENT))
 		return (0);
-	if ((found = window_pane_search(wp, ptr)) == NULL)
+	if ((found = window_pane_search(wp, ptr, NULL)) == NULL)
 		return (0);
 	session_alert_add(s, w, WINDOW_CONTENT);
     	xfree(found);
