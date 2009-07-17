@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.15 2009/06/26 19:44:36 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.34 2009/07/17 07:05:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -40,14 +40,15 @@
 
 extern const char    *__progname;
 
-/* Default configuration file. */
+/* Default configuration files. */
 #define DEFAULT_CFG ".tmux.conf"
+#define SYSTEM_CFG "/etc/tmux.conf"
 
 /* Default prompt history length. */
 #define PROMPT_HISTORY 100
 
 /* Minimum pane size. */
-#define PANE_MINIMUM 4	/* includes separator line */
+#define PANE_MINIMUM 5	/* includes separator line */
 
 /* Automatic name refresh interval, in milliseconds. */
 #define NAME_INTERVAL 500
@@ -356,6 +357,7 @@ struct msg_resize_data {
 /* Editing keys. */
 enum mode_key_cmd {
 	MODEKEYCMD_BACKSPACE = 0x1000,
+	MODEKEYCMD_BACKTOINDENTATION,
 	MODEKEYCMD_CHOOSE,
 	MODEKEYCMD_CLEARSELECTION,
 	MODEKEYCMD_COMPLETE,
@@ -441,6 +443,9 @@ struct grid_utf8 {
 
 /* Entire grid of cells. */
 struct grid {
+	int	flags;
+#define GRID_HISTORY 0x1	/* scroll lines into history */
+
 	u_int	sx;
 	u_int	sy;
 
@@ -595,8 +600,7 @@ struct window_pane {
 	u_int		 yoff;
 
 	int		 flags;
-#define PANE_HIDDEN 0x1
-#define PANE_REDRAW 0x2
+#define PANE_REDRAW 0x1
 
 	char		*cmd;
 	char		*cwd;
@@ -611,6 +615,11 @@ struct window_pane {
 
 	struct screen	*screen;
 	struct screen	 base;
+
+	/* Saved in alternative screen mode. */
+ 	u_int		 saved_cx;
+ 	u_int		 saved_cy;
+	struct grid	*saved_grid;
 
 	const struct window_mode *mode;
 	void		*modedata;
@@ -793,7 +802,8 @@ struct client {
 	char		*prompt_string;
 	char		*prompt_buffer;
 	size_t		 prompt_index;
-	int		 (*prompt_callback)(void *, const char *);
+	int		 (*prompt_callbackfn)(void *, const char *);
+	void		 (*prompt_freefn)(void *);
 	void		*prompt_data;
 
 #define PROMPT_HIDDEN 0x1
@@ -851,15 +861,12 @@ struct cmd_entry {
 #define CMD_CANTNEST 0x2
 #define CMD_ARG1 0x4
 #define CMD_ARG01 0x8
-#define CMD_AFLAG 0x10
-#define CMD_DFLAG 0x20
-#define CMD_GFLAG 0x40
-#define CMD_KFLAG 0x80
-#define CMD_UFLAG 0x100
-#define CMD_BIGDFLAG 0x200
-#define CMD_BIGUFLAG 0x400
-
 	int		 flags;
+
+#define CMD_CHFLAG(flag) \
+	((flag) >= 'a' && (flag) <= 'z' ? 1ULL << ((flag) - 'a') :	\
+	(flag) >= 'A' && (flag) <= 'Z' ? 1ULL << (26 + (flag) - 'A') : 0)
+	uint64_t	 chflags;
 
 	void		 (*init)(struct cmd *, int);
 	int		 (*parse)(struct cmd *, int, char **, char **);
@@ -872,34 +879,34 @@ struct cmd_entry {
 
 /* Generic command data. */
 struct cmd_target_data {
-	int	 flags;
+	uint64_t chflags;
 	char	*target;
 	char	*arg;
 };
 
 struct cmd_srcdst_data {
-	int	 flags;
+	uint64_t chflags;
 	char	*src;
 	char	*dst;
 	char	*arg;
 };
 
 struct cmd_buffer_data {
-	int	 flags;
+	uint64_t chflags;
 	char	*target;
 	int	 buffer;
 	char	*arg;
 };
 
 struct cmd_option_data {
-	int	 flags;
+	uint64_t chflags;
 	char	*target;
 	char	*option;
 	char	*value;
 };
 
 struct cmd_pane_data {
-	int	 flags;
+	uint64_t chflags;
 	char	*target;
 	char	*arg;
 	int	 pane;
@@ -935,8 +942,6 @@ struct set_option_entry {
 };
 extern const struct set_option_entry set_option_table[];
 extern const struct set_option_entry set_window_option_table[];
-#define NSETOPTION 25
-#define NSETWINDOWOPTION 19
 
 /* tmux.c */
 extern volatile sig_atomic_t sigwinch;
@@ -945,8 +950,8 @@ extern volatile sig_atomic_t sigcont;
 extern volatile sig_atomic_t sigchld;
 extern volatile sig_atomic_t sigusr1;
 extern volatile sig_atomic_t sigusr2;
-extern struct options global_options;
-extern struct options global_window_options;
+extern struct options global_s_options;
+extern struct options global_w_options;
 extern char	*cfg_file;
 extern int	 server_locked;
 extern char	*server_password;
@@ -1065,11 +1070,6 @@ int		 paste_replace(struct paste_stack *, u_int, char *);
 /* clock.c */
 void		 clock_draw(struct screen_write_ctx *, u_int, int);
 
-/* arg.c */
-struct client 	*arg_parse_client(const char *);
-struct session 	*arg_parse_session(const char *);
-int		 arg_parse_window(const char *, struct session **, int *);
-
 /* cmd.c */
 struct cmd	*cmd_parse(int, char **, char **);
 int		 cmd_exec(struct cmd *, struct cmd_ctx *);
@@ -1083,7 +1083,9 @@ struct session	*cmd_current_session(struct cmd_ctx *);
 struct client	*cmd_find_client(struct cmd_ctx *, const char *);
 struct session	*cmd_find_session(struct cmd_ctx *, const char *);
 struct winlink	*cmd_find_window(
-    		     struct cmd_ctx *, const char *, struct session **);
+		     struct cmd_ctx *, const char *, struct session **);
+int		 cmd_find_index(
+		     struct cmd_ctx *, const char *, struct session **);
 extern const struct cmd_entry *cmd_table[];
 extern const struct cmd_entry cmd_attach_session_entry;
 extern const struct cmd_entry cmd_bind_key_entry;
@@ -1101,6 +1103,7 @@ extern const struct cmd_entry cmd_detach_client_entry;
 extern const struct cmd_entry cmd_down_pane_entry;
 extern const struct cmd_entry cmd_find_window_entry;
 extern const struct cmd_entry cmd_has_session_entry;
+extern const struct cmd_entry cmd_if_shell_entry;
 extern const struct cmd_entry cmd_kill_pane_entry;
 extern const struct cmd_entry cmd_kill_server_entry;
 extern const struct cmd_entry cmd_kill_session_entry;
@@ -1235,6 +1238,7 @@ SPLAY_PROTOTYPE(key_bindings, key_binding, entry, key_bindings_cmp);
 struct key_binding *key_bindings_lookup(int);
 void	 key_bindings_add(int, int, struct cmd_list *);
 void	 key_bindings_remove(int);
+void	 key_bindings_clean(void);
 void	 key_bindings_init(void);
 void	 key_bindings_free(void);
 void	 key_bindings_dispatch(struct key_binding *, struct client *);
@@ -1272,11 +1276,11 @@ int	 server_unlock(const char *);
 
 /* status.c */
 int	 status_redraw(struct client *);
-void	 status_message_set(struct client *, const char *);
+void printflike2 status_message_set(struct client *, const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);
-void	 status_prompt_set(struct client *,
-	     const char *, int (*)(void *, const char *), void *, int);
+void	 status_prompt_set(struct client *, const char *,
+    	     int (*)(void *, const char *), void (*)(void *), void *, int);
 void	 status_prompt_clear(struct client *);
 int	 status_prompt_redraw(struct client *);
 void	 status_prompt_key(struct client *, int);
@@ -1323,6 +1327,8 @@ void	 grid_clear_lines(struct grid *, u_int, u_int);
 void	 grid_move_lines(struct grid *, u_int, u_int, u_int);
 void	 grid_move_cells(struct grid *, u_int, u_int, u_int, u_int);
 char	*grid_string_cells(struct grid *, u_int, u_int, u_int);
+void	 grid_duplicate_lines(
+    	     struct grid *, u_int, struct grid *, u_int, u_int);
 
 /* grid-view.c */
 const struct grid_cell *grid_view_peek_cell(struct grid *, u_int, u_int);
@@ -1337,11 +1343,9 @@ void	 grid_view_clear(struct grid *, u_int, u_int, u_int, u_int);
 void	 grid_view_scroll_region_up(struct grid *, u_int, u_int);
 void	 grid_view_scroll_region_down(struct grid *, u_int, u_int);
 void	 grid_view_insert_lines(struct grid *, u_int, u_int);
-void	 grid_view_insert_lines_region(
-    	     struct grid *, u_int, u_int, u_int, u_int);
+void	 grid_view_insert_lines_region(struct grid *, u_int, u_int, u_int);
 void	 grid_view_delete_lines(struct grid *, u_int, u_int);
-void	 grid_view_delete_lines_region(
-    	     struct grid *, u_int, u_int, u_int, u_int);
+void	 grid_view_delete_lines_region(struct grid *, u_int, u_int, u_int);
 void	 grid_view_insert_cells(struct grid *, u_int, u_int, u_int);
 void	 grid_view_delete_cells(struct grid *, u_int, u_int, u_int);
 char	*grid_view_string_cells(struct grid *, u_int, u_int, u_int);
@@ -1390,9 +1394,8 @@ void	 screen_write_cell(
     	     struct screen_write_ctx *, const struct grid_cell *, u_char *);
 
 /* screen-redraw.c */
-void	 screen_redraw_screen(struct client *);
+void	 screen_redraw_screen(struct client *, int);
 void	 screen_redraw_pane(struct client *, struct window_pane *);
-void	 screen_redraw_status(struct client *);
 
 /* screen.c */
 void	 screen_init(struct screen *, u_int, u_int, u_int);
@@ -1408,6 +1411,7 @@ int	 screen_check_selection(struct screen *, u_int, u_int);
 
 /* window.c */
 extern struct windows windows;
+const char	*window_default_command(void);
 int		 window_cmp(struct window *, struct window *);
 int		 winlink_cmp(struct winlink *, struct winlink *);
 RB_PROTOTYPE(windows, window, entry, window_cmp);
@@ -1447,6 +1451,7 @@ void		 window_pane_parse(struct window_pane *);
 void		 window_pane_key(struct window_pane *, struct client *, int);
 void		 window_pane_mouse(struct window_pane *,
     		     struct client *, u_char, u_char, u_char);
+int		 window_pane_visible(struct window_pane *);
 char		*window_pane_search(
 		     struct window_pane *, const char *, u_int *);
 
@@ -1485,7 +1490,7 @@ void 		 window_choose_vadd(
 void printflike3 window_choose_add(
     		     struct window_pane *, int, const char *, ...);
 void		 window_choose_ready(struct window_pane *,
-		     u_int, void (*)(void *, int), void *);
+		     u_int, void (*)(void *, int), void (*)(void *), void *);
 
 /* names.c */
 void		 set_window_names(void);

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-show-window-options.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-show-window-options.c,v 1.4 2009/07/15 07:50:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,7 @@ int	cmd_show_window_options_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_show_window_options_entry = {
 	"show-window-options", "showw",
 	"[-g] " CMD_TARGET_WINDOW_USAGE,
-	CMD_GFLAG,
+	0, CMD_CHFLAG('g'),
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_show_window_options_exec,
@@ -49,21 +49,18 @@ cmd_show_window_options_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct winlink			*wl;
 	struct options			*oo;
 	const struct set_option_entry	*entry;
-	u_int				 i;
 	char				*vs;
 	long long			 vn;
 
-	if (data->flags & CMD_GFLAG)
-		oo = &global_window_options;
+	if (data->chflags & CMD_CHFLAG('g'))
+		oo = &global_w_options;
 	else {
 		if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 			return (-1);
 		oo = &wl->window->options;
 	}
 
-	for (i = 0; i < NSETWINDOWOPTION; i++) {
-		entry = &set_window_option_table[i];
-
+	for (entry = set_window_option_table; entry->name != NULL; entry++) {
 		if (options_find1(oo, entry->name) == NULL)
 			continue;
 

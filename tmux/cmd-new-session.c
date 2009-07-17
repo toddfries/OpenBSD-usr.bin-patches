@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.3 2009/07/13 23:11:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -42,7 +42,7 @@ struct cmd_new_session_data {
 const struct cmd_entry cmd_new_session_entry = {
 	"new-session", "new",
 	"[-d] [-n window-name] [-s session-name] [command]",
-	CMD_STARTSERVER|CMD_CANTNEST,
+	CMD_STARTSERVER|CMD_CANTNEST, 0,
 	cmd_new_session_init,
 	cmd_new_session_parse,
 	cmd_new_session_exec,
@@ -137,9 +137,9 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	cmd = data->cmd;
 	if (cmd == NULL)
-		cmd = options_get_string(&global_options, "default-command");
+		cmd = options_get_string(&global_s_options, "default-command");
 	if (c == NULL || c->cwd == NULL)
-		cwd = options_get_string(&global_options, "default-path");
+		cwd = options_get_string(&global_s_options, "default-path");
 	else
 		cwd = c->cwd;
 
@@ -150,7 +150,7 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 		sy = c->tty.sy;
 	}
 
-	if (options_get_number(&global_options, "status")) {
+	if (options_get_number(&global_s_options, "status")) {
 		if (sy == 0)
 			sy = 1;
 		else

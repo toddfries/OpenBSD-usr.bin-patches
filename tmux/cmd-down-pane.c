@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-down-pane.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-down-pane.c,v 1.3 2009/07/14 07:23:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,7 +29,7 @@ int	cmd_down_pane_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_down_pane_entry = {
 	"down-pane", "downp",
 	CMD_TARGET_WINDOW_USAGE,
-	0,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_down_pane_exec,
@@ -55,7 +55,7 @@ cmd_down_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
 		if (w->active == NULL)
 			w->active = TAILQ_FIRST(&w->panes);
 		layout_refresh(w, 1);
-	} while (w->active->flags & PANE_HIDDEN);
+	} while (!window_pane_visible(w->active));
 
 	return (0);
 }

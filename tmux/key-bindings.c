@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.3 2009/07/15 17:39:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,6 +27,7 @@
 SPLAY_GENERATE(key_bindings, key_binding, entry, key_bindings_cmp);
 
 struct key_bindings	key_bindings;
+struct key_bindings	dead_key_bindings;
 
 int
 key_bindings_cmp(struct key_binding *bd1, struct key_binding *bd2)
@@ -48,12 +49,12 @@ key_bindings_add(int key, int can_repeat, struct cmd_list *cmdlist)
 {
 	struct key_binding	*bd;
 
-	if ((bd = key_bindings_lookup(key)) == NULL) {
-		bd = xmalloc(sizeof *bd);
-		bd->key = key;
-		SPLAY_INSERT(key_bindings, &key_bindings, bd);
-	} else
-		cmd_list_free(bd->cmdlist);
+	key_bindings_remove(key);
+		    
+	bd = xmalloc(sizeof *bd);
+	bd->key = key;
+	SPLAY_INSERT(key_bindings, &key_bindings, bd);
+	
 	bd->can_repeat = can_repeat;
 	bd->cmdlist = cmdlist;
 }
@@ -66,9 +67,20 @@ key_bindings_remove(int key)
 	if ((bd = key_bindings_lookup(key)) == NULL)
 		return;
 	SPLAY_REMOVE(key_bindings, &key_bindings, bd);
+	SPLAY_INSERT(key_bindings, &dead_key_bindings, bd);
+}
 
-	cmd_list_free(bd->cmdlist);
-	xfree(bd);
+void
+key_bindings_clean(void)
+{
+	struct key_binding	*bd;
+
+	while (!SPLAY_EMPTY(&dead_key_bindings)) {
+		bd = SPLAY_ROOT(&dead_key_bindings);
+		SPLAY_REMOVE(key_bindings, &dead_key_bindings, bd);
+		cmd_list_free(bd->cmdlist);
+		xfree(bd);
+	}
 }
 
 void
@@ -162,6 +174,7 @@ key_bindings_free(void)
 {
 	struct key_binding	*bd;
 
+	key_bindings_clean();
 	while (!SPLAY_EMPTY(&key_bindings)) {
 		bd = SPLAY_ROOT(&key_bindings);
 		SPLAY_REMOVE(key_bindings, &key_bindings, bd);
@@ -181,7 +194,7 @@ key_bindings_error(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, msg);
+ 	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 
@@ -214,7 +227,7 @@ key_bindings_info(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, msg);
+ 	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 

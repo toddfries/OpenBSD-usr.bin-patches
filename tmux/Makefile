@@ -1,7 +1,7 @@
-# $OpenBSD: Makefile,v 1.4 2009/06/25 07:42:41 espie Exp $
+# $OpenBSD: Makefile,v 1.7 2009/07/14 06:30:45 nicm Exp $
 
 PROG=	tmux
-SRCS=	arg.c attributes.c buffer-poll.c buffer.c cfg.c client-fn.c \
+SRCS=	attributes.c buffer-poll.c buffer.c cfg.c client-fn.c \
 	client-msg.c client.c clock.c cmd-attach-session.c cmd-bind-key.c \
 	cmd-break-pane.c cmd-choose-session.c cmd-choose-window.c \
 	cmd-clear-history.c cmd-clock-mode.c cmd-command-prompt.c \
@@ -22,7 +22,7 @@ SRCS=	arg.c attributes.c buffer-poll.c buffer.c cfg.c client-fn.c \
 	cmd-send-prefix.c cmd-server-info.c cmd-set-buffer.c cmd-set-option.c \
 	cmd-set-password.c cmd-set-window-option.c cmd-show-buffer.c \
 	cmd-show-options.c cmd-show-window-options.c cmd-source-file.c \
-	cmd-split-window.c cmd-start-server.c cmd-string.c \
+	cmd-split-window.c cmd-start-server.c cmd-string.c cmd-if-shell.c \
 	cmd-suspend-client.c cmd-swap-pane.c cmd-swap-window.c \
 	cmd-switch-client.c cmd-unbind-key.c cmd-unlink-window.c \
 	cmd-up-pane.c cmd.c colour.c grid-view.c grid.c input-keys.c \
@@ -38,7 +38,7 @@ CDIAGFLAGS+= -Wmissing-prototypes -Wstrict-prototypes -Wmissing-declarations
 CDIAGFLAGS+= -Wwrite-strings -Wshadow -Wpointer-arith -Wsign-compare
 CDIAGFLAGS+= -Wundef -Wbad-function-cast -Winline -Wcast-align
 
-LDADD=  -lutil -lncurses
+LDADD=  -lutil -lcurses
 DPADD=  ${LIBUTIL}
 
 .include <bsd.prog.mk>

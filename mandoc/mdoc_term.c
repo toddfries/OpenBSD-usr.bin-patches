@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.19 2009/06/27 13:03:51 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.24 2009/07/13 00:26:24 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -527,10 +527,6 @@ arg_width(const struct mdoc_argv *arg, int pos)
 
 	assert(pos < (int)arg->sz && pos >= 0);
 	assert(arg->value[pos]);
-	if (0 == strcmp(arg->value[pos], "indent"))
-		return(INDENT);
-	if (0 == strcmp(arg->value[pos], "indent-two"))
-		return(INDENT * 2);
 
 	if (0 == (len = (int)strlen(arg->value[pos])))
 		return(0);
@@ -603,7 +599,7 @@ arg_offset(const struct mdoc_argv *arg)
 	if (0 == strcmp(*arg->value, "indent"))
 		return(INDENT + 1);
 	if (0 == strcmp(*arg->value, "indent-two"))
-		return(INDENT * 2);
+		return((INDENT + 1) * 2);
 
 	/* FIXME: needs to support field-widths (10n, etc.). */
 
@@ -756,7 +752,7 @@ termp_it_pre(DECL_ARGS)
 		if (vals[0] >= 0) 
 			width = arg_width(&bl->args->argv[vals[0]], 0);
 		if (vals[1] >= 0) 
-			offset = arg_offset(&bl->args->argv[vals[1]]);
+			offset += arg_offset(&bl->args->argv[vals[1]]);
 		break;
 	}
 
@@ -1133,8 +1129,16 @@ termp_ex_pre(DECL_ARGS)
 static int
 termp_nd_pre(DECL_ARGS)
 {
-
+	/* 
+	 * XXX: signed off by jmc@openbsd.org.  This technically
+	 * produces a minus sign after the Nd, which is wrong, but is
+	 * consistent with the historic OpenBSD tmac file.
+	 */
+#ifdef __OpenBSD__
 	term_word(p, "\\-");
+#else
+	term_word(p, "\\(em");
+#endif
 	return(1);
 }
 
@@ -1837,8 +1841,12 @@ static int
 termp_in_pre(DECL_ARGS)
 {
 
+	/* XXX This conforms to new-groff style. */
 	TERMPAIR_SETFLAG(p, pair, ttypes[TTYPE_INCLUDE]);
-	term_word(p, "#include");
+
+	if (SEC_SYNOPSIS == node->sec)
+		term_word(p, "#include");
+
 	term_word(p, "<");
 	p->flags |= TERMP_NOSPACE;
 	return(1);
@@ -1853,9 +1861,16 @@ termp_in_post(DECL_ARGS)
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, ">");
 
-	term_newln(p);
 	if (SEC_SYNOPSIS != node->sec)
 		return;
+
+	term_newln(p);
+	/* 
+	 * XXX Not entirely correct.  If `.In foo bar' is specified in
+	 * the SYNOPSIS section, then it produces a single break after
+	 * the <foo>; mandoc asserts a vertical space.  Since this
+	 * construction is rarely used, I think it's fine.
+	 */
 	if (node->next && MDOC_In != node->next->tok)
 		term_vspace(p);
 }

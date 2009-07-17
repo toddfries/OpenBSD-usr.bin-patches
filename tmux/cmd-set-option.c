@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-option.c,v 1.2 2009/06/03 16:54:26 nicm Exp $ */
+/* $OpenBSD: cmd-set-option.c,v 1.6 2009/07/15 07:50:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,7 @@ int	cmd_set_option_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_set_option_entry = {
 	"set-option", "set",
 	CMD_OPTION_SESSION_USAGE,
-	CMD_GFLAG|CMD_UFLAG,
+	0, CMD_CHFLAG('g')|CMD_CHFLAG('u'),
 	NULL,
 	cmd_option_parse,
 	cmd_set_option_exec,
@@ -48,11 +48,12 @@ const char *set_option_status_keys_list[] = {
 const char *set_option_bell_action_list[] = {
 	"none", "any", "current", NULL
 };
-const struct set_option_entry set_option_table[NSETOPTION] = {
+const struct set_option_entry set_option_table[] = {
 	{ "bell-action", SET_OPTION_CHOICE, 0, 0, set_option_bell_action_list },
 	{ "buffer-limit", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "default-command", SET_OPTION_STRING, 0, 0, NULL },
 	{ "default-path", SET_OPTION_STRING, 0, 0, NULL },
+	{ "default-terminal", SET_OPTION_STRING, 0, 0, NULL },
 	{ "display-time", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "history-limit", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
 	{ "lock-after-time", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
@@ -74,6 +75,7 @@ const struct set_option_entry set_option_table[NSETOPTION] = {
 	{ "status-right", SET_OPTION_STRING, 0, 0, NULL },
 	{ "status-right-length", SET_OPTION_NUMBER, 0, SHRT_MAX, NULL },
 	{ "status-utf8", SET_OPTION_FLAG, 0, 0, NULL },
+	{ NULL, 0, 0, 0, NULL }
 };
 
 int
@@ -83,11 +85,11 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct session			*s;
 	struct client			*c;
 	struct options			*oo;
-	const struct set_option_entry   *entry;
+	const struct set_option_entry   *entry, *opt;
 	u_int				 i;
 
-	if (data->flags & CMD_GFLAG)
-		oo = &global_options;
+	if (data->chflags & CMD_CHFLAG('g'))
+		oo = &global_s_options;
 	else {
 		if ((s = cmd_find_session(ctx, data->target)) == NULL)
 			return (-1);
@@ -100,15 +102,14 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 
 	entry = NULL;
-	for (i = 0; i < NSETOPTION; i++) {
-		if (strncmp(set_option_table[i].name,
-		    data->option, strlen(data->option)) != 0)
+	for (opt = set_option_table; opt->name != NULL; opt++) {
+		if (strncmp(opt->name, data->option, strlen(data->option)) != 0)
 			continue;
 		if (entry != NULL) {
 			ctx->error(ctx, "ambiguous option: %s", data->option);
 			return (-1);
 		}
-		entry = &set_option_table[i];
+		entry = opt;
 
 		/* Bail now if an exact match. */
 		if (strcmp(entry->name, data->option) == 0)
@@ -119,8 +120,8 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 		return (-1);
 	}
 
-	if (data->flags & CMD_UFLAG) {
-		if (data->flags & CMD_GFLAG) {
+	if (data->chflags & CMD_CHFLAG('u')) {
+		if (data->chflags & CMD_CHFLAG('g')) {
 			ctx->error(ctx,
 			    "can't unset global option: %s", entry->name);
 			return (-1);

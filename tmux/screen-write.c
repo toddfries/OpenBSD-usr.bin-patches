@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.9 2009/06/29 21:30:50 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.13 2009/07/14 14:47:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -232,8 +232,15 @@ screen_write_cursorup(struct screen_write_ctx *ctx, u_int ny)
 	if (ny == 0)
 		ny = 1;
 
-	if (ny > s->cy)
-		ny = s->cy;
+	if (s->cy < s->rupper) {
+		/* Above region. */
+		if (ny > s->cy)
+			ny = s->cy;
+	} else {
+		/* Below region. */
+		if (ny > s->cy - s->rupper)
+			ny = s->cy - s->rupper;
+	}
 	if (ny == 0)
 		return;
 
@@ -249,8 +256,15 @@ screen_write_cursordown(struct screen_write_ctx *ctx, u_int ny)
 	if (ny == 0)
 		ny = 1;
 
-	if (ny > screen_size_y(s) - 1 - s->cy)
-		ny = screen_size_y(s) - 1 - s->cy;
+	if (s->cy > s->rlower) {
+		/* Below region. */
+		if (ny > screen_size_y(s) - 1 - s->cy)
+			ny = screen_size_y(s) - 1 - s->cy;
+	} else {
+		/* Above region. */
+		if (ny > s->rlower - s->cy)
+			ny = s->rlower - s->cy;
+	}
 	if (ny == 0)
 		return;
 
@@ -369,19 +383,31 @@ screen_write_insertline(struct screen_write_ctx *ctx, u_int ny)
 	if (ny == 0)
 		ny = 1;
 
-	if (ny > screen_size_y(s) - s->cy)
-		ny = screen_size_y(s) - s->cy;
+	if (s->cy < s->rupper || s->cy > s->rlower) {
+		if (ny > screen_size_y(s) - s->cy)
+			ny = screen_size_y(s) - s->cy;
+		if (ny == 0)
+			return;
+
+		screen_write_save(ctx);
+
+		grid_view_insert_lines(s->grid, s->cy, ny);
+
+		tty_write_cmd(ctx->wp, TTY_INSERTLINE, ny);
+		return;
+	}
+
+	if (ny > s->rlower + 1 - s->cy)
+		ny = s->rlower + 1 - s->cy;
 	if (ny == 0)
 		return;
-
+	
 	screen_write_save(ctx);
 
 	if (s->cy < s->rupper || s->cy > s->rlower)
 		grid_view_insert_lines(s->grid, s->cy, ny);
-	else {
-		grid_view_insert_lines_region(
-		    s->grid, s->rupper, s->rlower, s->cy, ny);
-	}
+	else
+		grid_view_insert_lines_region(s->grid, s->rlower, s->cy, ny);
 
 	tty_write_cmd(ctx->wp, TTY_INSERTLINE, ny);
 }
@@ -395,8 +421,22 @@ screen_write_deleteline(struct screen_write_ctx *ctx, u_int ny)
 	if (ny == 0)
 		ny = 1;
 
-	if (ny > screen_size_y(s) - s->cy)
-		ny = screen_size_y(s) - s->cy;
+	if (s->cy < s->rupper || s->cy > s->rlower) {
+		if (ny > screen_size_y(s) - s->cy)
+			ny = screen_size_y(s) - s->cy;
+		if (ny == 0)
+			return;
+
+		screen_write_save(ctx);
+
+		grid_view_delete_lines(s->grid, s->cy, ny);
+
+		tty_write_cmd(ctx->wp, TTY_DELETELINE, ny);
+		return;
+	}
+	
+	if (ny > s->rlower + 1 - s->cy)
+		ny = s->rlower + 1 - s->cy;
 	if (ny == 0)
 		return;
 
@@ -404,10 +444,8 @@ screen_write_deleteline(struct screen_write_ctx *ctx, u_int ny)
 
 	if (s->cy < s->rupper || s->cy > s->rlower)
 		grid_view_delete_lines(s->grid, s->cy, ny);
-	else {
-		grid_view_delete_lines_region(
-		    s->grid, s->rupper, s->rlower, s->cy, ny);
-	}
+	else
+		grid_view_delete_lines_region(s->grid, s->rlower, s->cy, ny);
 
 	tty_write_cmd(ctx->wp, TTY_DELETELINE, ny);
 }
@@ -515,7 +553,7 @@ screen_write_scrollregion(
 		rupper = screen_size_y(s) - 1;
 	if (rlower > screen_size_y(s) - 1)
 		rlower = screen_size_y(s) - 1;
-	if (rupper > rlower)
+	if (rupper >= rlower)	/* cannot be one line */
 		return;
 
 	/* Cursor moves to top-left. */

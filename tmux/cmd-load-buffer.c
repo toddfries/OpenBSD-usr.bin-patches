@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.3 2009/07/13 23:11:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -35,7 +35,7 @@ int	cmd_load_buffer_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_load_buffer_entry = {
 	"load-buffer", "loadb",
 	CMD_BUFFER_SESSION_USAGE " path",
-	CMD_ARG1,
+	CMD_ARG1, 0,
 	cmd_buffer_init,
 	cmd_buffer_parse,
 	cmd_load_buffer_exec,
@@ -78,6 +78,7 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 	 */
 	if ((buf = malloc(statbuf.st_size + 1)) == NULL) {
 		ctx->error(ctx, "malloc error: %s", strerror(errno));
+		fclose(f);
 		return (-1);
 	}
 

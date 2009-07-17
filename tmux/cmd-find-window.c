@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find-window.c,v 1.2 2009/06/24 22:49:56 nicm Exp $ */
+/* $OpenBSD: cmd-find-window.c,v 1.4 2009/07/17 07:05:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -34,7 +34,7 @@ void	cmd_find_window_callback(void *, int);
 const struct cmd_entry cmd_find_window_entry = {
 	"find-window", "findw",
 	CMD_TARGET_WINDOW_USAGE " match-string",
-	CMD_ARG1,
+	CMD_ARG1, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_find_window_exec,
@@ -140,7 +140,7 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		fatalx("session not found");
 
 	window_choose_ready(
-	    wl->window->active, 0, cmd_find_window_callback, cdata);
+	    wl->window->active, 0, cmd_find_window_callback, xfree, cdata);
 
 out:
 	ARRAY_FREE(&list_idx);
@@ -161,5 +161,4 @@ cmd_find_window_callback(void *data, int idx)
 			server_redraw_session(s);
 		recalculate_sizes();
 	}
-	xfree(cdata);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-prompt.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-select-prompt.c,v 1.4 2009/07/17 06:13:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,7 +33,7 @@ int	cmd_select_prompt_callback(void *, const char *);
 const struct cmd_entry cmd_select_prompt_entry = {
 	"select-prompt", NULL,
 	CMD_TARGET_CLIENT_USAGE,
-	0,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_select_prompt_exec,
@@ -55,7 +55,7 @@ cmd_select_prompt_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (c->prompt_string != NULL)
 		return (0);
 
-	status_prompt_set(c, "index ", cmd_select_prompt_callback, c, 0);
+	status_prompt_set(c, "index ", cmd_select_prompt_callback, NULL, c, 0);
 
 	return (0);
 }
@@ -74,14 +74,14 @@ cmd_select_prompt_callback(void *data, const char *s)
 	idx = strtonum(s, 0, UINT_MAX, &errstr);
 	if (errstr != NULL) {
 		xsnprintf(msg, sizeof msg, "Index %s: %s", errstr, s);
-		status_message_set(c, msg);
+		status_message_set(c, "%s", msg);
 		return (0);
 	}
 
 	if (winlink_find_by_index(&c->session->windows, idx) == NULL) {
 		xsnprintf(msg, sizeof msg,
 		    "Window not found: %s:%d", c->session->name, idx);
-		status_message_set(c, msg);
+		status_message_set(c, "%s", msg);
 		return (0);
 	}
 

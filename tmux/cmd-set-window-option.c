@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-window-option.c,v 1.2 2009/06/25 06:00:45 nicm Exp $ */
+/* $OpenBSD: cmd-set-window-option.c,v 1.6 2009/07/15 07:50:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,7 @@ int	cmd_set_window_option_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_set_window_option_entry = {
 	"set-window-option", "setw",
 	CMD_OPTION_WINDOW_USAGE,
-	CMD_GFLAG|CMD_UFLAG,
+	0, CMD_CHFLAG('g')|CMD_CHFLAG('u'),
 	NULL,
 	cmd_option_parse,
 	cmd_set_window_option_exec,
@@ -48,7 +48,7 @@ const char *set_option_mode_keys_list[] = {
 const char *set_option_clock_mode_style_list[] = {
 	"12", "24", NULL
 };
-const struct set_option_entry set_window_option_table[NSETWINDOWOPTION] = {
+const struct set_option_entry set_window_option_table[] = {
 	{ "aggressive-resize", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "automatic-rename", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "clock-mode-colour", SET_OPTION_COLOUR, 0, 0, NULL },
@@ -56,6 +56,7 @@ const struct set_option_entry set_window_option_table[NSETWINDOWOPTION] = {
 	  SET_OPTION_CHOICE, 0, 0, set_option_clock_mode_style_list },
 	{ "force-height", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
 	{ "force-width", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
+	{ "main-pane-height", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "main-pane-width", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "mode-attr", SET_OPTION_ATTRIBUTES, 0, 0, NULL },
 	{ "mode-bg", SET_OPTION_COLOUR, 0, 0, NULL },
@@ -69,6 +70,7 @@ const struct set_option_entry set_window_option_table[NSETWINDOWOPTION] = {
 	{ "window-status-bg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "window-status-fg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "xterm-keys", SET_OPTION_FLAG, 0, 0, NULL },
+	{ NULL, 0, 0, 0, NULL }
 };
 
 int
@@ -78,11 +80,11 @@ cmd_set_window_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct winlink			*wl;
 	struct client			*c;
 	struct options			*oo;
-	const struct set_option_entry   *entry;
+	const struct set_option_entry   *entry, *opt;
 	u_int				 i;
 
-	if (data->flags & CMD_GFLAG)
-		oo = &global_window_options;
+	if (data->chflags & CMD_CHFLAG('g'))
+		oo = &global_w_options;
 	else {
 		if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 			return (-1);
@@ -95,15 +97,14 @@ cmd_set_window_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 
 	entry = NULL;
-	for (i = 0; i < NSETWINDOWOPTION; i++) {
-		if (strncmp(set_window_option_table[i].name,
-		    data->option, strlen(data->option)) != 0)
+	for (opt = set_window_option_table; opt->name != NULL; opt++) {
+		if (strncmp(opt->name, data->option, strlen(data->option)) != 0)
 			continue;
 		if (entry != NULL) {
 			ctx->error(ctx, "ambiguous option: %s", data->option);
 			return (-1);
 		}
-		entry = &set_window_option_table[i];
+		entry = opt;
 
 		/* Bail now if an exact match. */
 		if (strcmp(entry->name, data->option) == 0)
@@ -114,8 +115,8 @@ cmd_set_window_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 		return (-1);
 	}
 
-	if (data->flags & CMD_UFLAG) {
-		if (data->flags & CMD_GFLAG) {
+	if (data->chflags & CMD_CHFLAG('u')) {
+		if (data->chflags & CMD_CHFLAG('g')) {
 			ctx->error(ctx,
 			    "can't unset global option: %s", entry->name);
 			return (-1);

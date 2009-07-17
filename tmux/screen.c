@@ -1,4 +1,4 @@
-/* $OpenBSD: screen.c,v 1.5 2009/06/24 22:51:47 nicm Exp $ */
+/* $OpenBSD: screen.c,v 1.8 2009/07/13 10:43:52 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -54,7 +54,7 @@ screen_reinit(struct screen *s)
 	
 	screen_reset_tabs(s);
 
-	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy - 1);
+	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy);
 
 	screen_clear_selection(s);
 }
@@ -122,44 +122,19 @@ void
 screen_resize_x(struct screen *s, u_int sx)
 {
 	struct grid		*gd = s->grid;
-	const struct grid_cell	*gc;
-	const struct grid_utf8	*gu;
-	u_int			 xx, yy;
 
 	if (sx == 0)
 		fatalx("zero size");
 
-	/* If getting larger, not much to do. */
-	if (sx > screen_size_x(s)) {
-		gd->sx = sx;
-		return;
-	}
-
-	/* If getting smaller, nuke any data in lines over the new size. */
-	for (yy = gd->hsize; yy < gd->hsize + screen_size_y(s); yy++) {
-		/*
-		 * If the character after the last is wide or padding, remove
-		 * it and any leading padding.
-		 */
-		gc = &grid_default_cell;
-		for (xx = sx; xx > 0; xx--) {
-			gc = grid_peek_cell(gd, xx - 1, yy);
-			if (!(gc->flags & GRID_FLAG_PADDING))
-				break;
-			grid_set_cell(gd, xx - 1, yy, &grid_default_cell);
-		}
-		if (xx > 0 && xx != sx && gc->flags & GRID_FLAG_UTF8) {
-			gu = grid_peek_utf8(gd, xx - 1, yy);
-			if (gu->width > 1) {
-				grid_set_cell(
-				    gd, xx - 1, yy, &grid_default_cell);
-			}
-		}
-
-		/* Reduce the line size. */
-		grid_reduce_line(gd, yy, sx);
-	}
-
+	/*
+	 * Treat resizing horizontally simply: just ensure the cursor is
+	 * on-screen and change the size. Don't bother to truncate any lines -
+	 * then the data should be accessible if the size is then incrased.
+	 *
+	 * The only potential wrinkle is if UTF-8 double-width characters are
+	 * left in the last column, but UTF-8 terminals should deal with this
+	 * sanely.
+	 */
 	if (s->cx >= sx)
 		s->cx = sx - 1;
 	gd->sx = sx;
@@ -199,10 +174,20 @@ screen_resize_y(struct screen *s, u_int sy)
 		needed -= available;
 
 		/*
-		 * Now just increase the history size to take over the lines
-		 * which are left. XXX Should apply history limit?
+		 * Now just increase the history size, if possible, to take
+		 * over the lines which are left. If history is off, delete
+		 * lines from the top.
+		 *
+		 * XXX Should apply history limit?
 		 */
-		gd->hsize += needed;
+		available = s->cy;
+		if (gd->flags & GRID_HISTORY)
+			gd->hsize += needed;
+		else if (available > 0) {
+			if (available > needed)
+				available = needed;
+			grid_view_delete_lines(gd, 0, available);
+		}
 		s->cy -= needed;
  	}
 
@@ -216,14 +201,18 @@ screen_resize_y(struct screen *s, u_int sy)
 	if (sy > oldy) {
 		needed = sy - oldy;
 
-		/* Try to pull as much as possible out of the history. */
+		/*
+		 * Try to pull as much as possible out of the history, if is
+		 * is enabled.
+		 */
 		available = gd->hsize;
-		if (available > 0) {
+		if (gd->flags & GRID_HISTORY && available > 0) {
 			if (available > needed)
 				available = needed;
 			gd->hsize -= available;
 			s->cy += available;
-		}
+		} else
+			available = 0;
 		needed -= available;
 
 		/* Then fill the rest in with blanks. */

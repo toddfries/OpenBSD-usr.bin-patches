@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-move-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-move-window.c,v 1.3 2009/07/13 23:11:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -31,7 +31,7 @@ int	cmd_move_window_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_move_window_entry = {
 	"move-window", "movew",
 	"[-dk] " CMD_SRCDST_WINDOW_USAGE,
-	CMD_DFLAG|CMD_KFLAG,
+	0, CMD_CHFLAG('d')|CMD_CHFLAG('k'),
 	cmd_srcdst_init,
 	cmd_srcdst_parse,
 	cmd_move_window_exec,
@@ -54,19 +54,8 @@ cmd_move_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	if ((wl_src = cmd_find_window(ctx, data->src, &src)) == NULL)
 		return (-1);
-
-	if (arg_parse_window(data->dst, &dst, &idx) != 0) {
-		ctx->error(ctx, "bad window: %s", data->dst);
+	if ((idx = cmd_find_index(ctx, data->dst, &dst)) == -2)
 		return (-1);
-	}
-	if (dst == NULL)
-		dst = ctx->cursession;
-	if (dst == NULL)
-		dst = cmd_current_session(ctx);
-	if (dst == NULL) {
-		ctx->error(ctx, "session not found: %s", data->dst);
-		return (-1);
-	}
 
 	wl_dst = NULL;
 	if (idx != -1)
@@ -75,7 +64,7 @@ cmd_move_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		if (wl_dst->window == wl_src->window)
 			return (0);
 
-		if (data->flags & CMD_KFLAG) {
+		if (data->chflags & CMD_CHFLAG('k')) {
 			/*
 			 * Can't use session_detach as it will destroy session
 			 * if this makes it empty.
@@ -86,7 +75,7 @@ cmd_move_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 			/* Force select/redraw if current. */
 			if (wl_dst == dst->curw) {
-				data->flags &= ~CMD_DFLAG;
+				data->chflags &= ~CMD_CHFLAG('d');
 				dst->curw = NULL;
 			}
 		}
@@ -111,7 +100,7 @@ cmd_move_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 			server_redraw_client(c);
 	}
 
-	if (data->flags & CMD_DFLAG)
+	if (data->chflags & CMD_CHFLAG('d'))
 		server_status_session(dst);
 	else {
 		session_select(dst, wl_dst->idx);

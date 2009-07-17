@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.5 2009/06/26 22:12:19 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.9 2009/07/14 19:03:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -171,6 +171,17 @@ server_start(char *path)
 	start_time = time(NULL);
 	socket_path = path;
 
+	if (access(SYSTEM_CFG, R_OK) != 0) {
+		if (errno != ENOENT) {
+			log_warn("%s", SYSTEM_CFG);
+			exit(1);
+		}
+	} else {
+		if (load_cfg(SYSTEM_CFG, &cause) != 0) {
+			log_warnx("%s", cause);
+			exit(1);
+		}
+	}
 	if (cfg_file != NULL && load_cfg(cfg_file, &cause) != 0) {
 		log_warnx("%s", cause);
 		exit(1);
@@ -335,6 +346,9 @@ server_main(int srv_fd)
 		server_handle_windows(&pfd);
 		server_handle_clients(&pfd);
 
+		/* Collect any unset key bindings. */
+		key_bindings_clean();
+		
 		/*
 		 * If we have no sessions and clients left, let's get out
 		 * of here...
@@ -373,8 +387,8 @@ server_main(int srv_fd)
 	unlink(socket_path);
 	xfree(socket_path);
 
-	options_free(&global_options);
-	options_free(&global_window_options);
+	options_free(&global_s_options);
+	options_free(&global_w_options);
 	if (server_password != NULL)
 		xfree(server_password);
 
@@ -543,7 +557,7 @@ server_check_redraw(struct client *c)
 		if (server_locked)
 			server_redraw_locked(c);
 		else
- 			screen_redraw_screen(c);
+ 			screen_redraw_screen(c, 0);
 		c->flags &= ~CLIENT_STATUS;
 	} else {
 		TAILQ_FOREACH(wp, &c->session->curw->window->panes, entry) {
@@ -553,7 +567,7 @@ server_check_redraw(struct client *c)
 	}
 
 	if (c->flags & CLIENT_STATUS)
-		screen_redraw_status(c);
+		screen_redraw_screen(c, 1);
 
 	c->tty.flags |= flags;
 
@@ -573,10 +587,8 @@ server_redraw_locked(struct client *c)
 	yy = c->tty.sy - 1;
 	if (xx == 0 || yy == 0)
 		return;
-	colour = options_get_number(
-	    &global_window_options, "clock-mode-colour");
-	style = options_get_number(
-	    &global_window_options, "clock-mode-style");
+	colour = options_get_number(&global_w_options, "clock-mode-colour");
+	style = options_get_number(&global_w_options, "clock-mode-style");
 
 	screen_init(&screen, xx, yy, 0);
 
@@ -586,7 +598,7 @@ server_redraw_locked(struct client *c)
 
 	for (i = 0; i < screen_size_y(&screen); i++)
 		tty_draw_line(&c->tty, &screen, i, 0, 0);
-	screen_redraw_status(c);
+	screen_redraw_screen(c, 1);
 
 	screen_free(&screen);
 }
@@ -1062,7 +1074,7 @@ server_second_timers(void)
 	time_t		 	 t;
 
 	t = time(NULL);
-	xtimeout = options_get_number(&global_options, "lock-after-time");
+	xtimeout = options_get_number(&global_s_options, "lock-after-time");
 	if (xtimeout > 0 && t > server_activity + xtimeout)
 		server_lock();
 

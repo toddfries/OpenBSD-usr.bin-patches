@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.17 2009/06/26 22:47:06 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.32 2009/07/16 22:50:49 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 26 2009 $
+.Dd $Mdocdate: July 16 2009 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -70,7 +70,9 @@ to assume the terminal supports default colours.
 Specify an alternative configuration file.
 By default,
 .Nm
-will look for a config file at
+loads the system configuration file from
+.Pa /etc/tmux.conf ,
+if present, then looks for a user configuration file at
 .Pa ~/.tmux.conf .
 The configuration file is a set of
 .Nm
@@ -304,7 +306,8 @@ option).
 The following keys are supported as appropriate for the mode:
 .Bl -column "FunctionXXXXXXXXXXXX" "viXXXXXX" "emacs" -offset indent
 .It Sy "Function" Ta Sy "vi" Ta Sy "emacs"
-.It Li "Start of line" Ta "0 or ^" Ta "C-a"
+.It Li "Start of line" Ta "0" Ta "C-a"
+.It Li "Back to indentation" Ta "^" Ta "M-m"
 .It Li "Clear selection" Ta "Escape" Ta "C-g"
 .It Li "Copy selection" Ta "Enter" Ta "M-w"
 .It Li "Cursor down" Ta "j" Ta "Down"
@@ -338,6 +341,38 @@ or the
 .Ic set-buffer
 command, and pasted into a window using the
 .Ic paste-buffer
+command.
+.Sh OPTIONS
+The appearance and behaviour of
+.Nm
+may be modified by changing the value of various options.
+There are two types of option:
+.Em session options
+and
+.Em window options .
+.Pp
+Each individual session may have a set of session options, and there is a
+separate set of global session options.
+Sessions which do not have a particular option configured inherit the value
+from the global session options.
+Session options are set or unset with the
+.Ic set-option
+command and may be listed with the
+.Ic show-options
+command.
+The available session options are listed under the
+.Ic set-option
+command.
+.Pp
+Similarly, a set of window options is attached to each window, and there is
+a set of global window options from which any unset options are inherited.
+Window options are altered with the
+.Ic set-window-option
+command and can be listed with the
+.Ic show-window-options
+command.
+All window options are documented with the
+.Ic set-window-option
 command.
 .Sh PANES AND LAYOUTS
 Each window displayed by
@@ -465,8 +500,14 @@ These specify the client, session or window which a command should affect.
 .Ar target-client
 is the name of the
 .Xr pty 4
-file to which the client is connected, for example
+file to which the client is connected, for example either of
+.Pa /dev/ttyp1
+or
+.Pa ttyp1
+for the client attached to
 .Pa /dev/ttyp1 .
+If no client is specified, the current client is chosen, if possible, or an
+error is reported.
 Clients may be listed with the
 .Ic list-clients
 command.
@@ -474,23 +515,32 @@ command.
 .Ar target-session
 is either the name of a session (as listed by the
 .Ic list-sessions
-command) or the name of a client,
+command) or the name of a client with the same syntax as
 .Ar target-client ,
 in which case the session attached to the client is used.
-An
+When looking for the session name,
+.Nm
+initially searches for an exact match; if none is found, the session names
+are checked for any for which
+.Ar target-session
+is a prefix or for which it matches as an
 .Xr fnmatch 3
-pattern may be used to match the session name.
-If a session is omitted when required,
-.Nm tmux
-attempts to use the current session; if no current session is available, the
-most recently created is chosen.
-If no client is specified, the current client is chosen, if possible, or an
-error is reported.
+pattern.
+If a single match is found, it is used as the target session; multiple matches
+produce an error
+If a session is omitted, the current session is used if available; if no
+current session is available, the most recently created is chosen.
 .Pp
 .Ar target-window
 specifies a window in the form
-.Em session Ns \&: Ns Em index ,
-for example mysession:1.
+.Em session Ns \&: Ns Em window ,
+where
+.Em window
+is a window index, for example mysession:1, or a window name,
+.Xr fnmatch 3
+pattern, or prefix, such as mysession:mywin[0-3].
+If the latter, the window is looked up in a similar fashion to session name
+searches described above.
 The session is in the same form as for
 .Ar target-session .
 .Em session ,
@@ -501,7 +551,7 @@ If
 is omitted, the same rules as for
 .Ar target-session
 are followed; if
-.Em index
+.Em window
 is not present, the current window for the given session is used.
 When the argument does not contain a colon,
 .Nm
@@ -679,6 +729,16 @@ This command only works from inside
 .D1 (alias: Ic has )
 Report an error and exit with 1 if the specified session does not exist.
 If it does exist, exit with 0.
+.It Xo Ic if-shell
+.Ar shell-command
+.Ar command
+.Xc
+.D1 (alias: Ic if )
+Execute
+.Ar command
+if
+.Ar shell-command
+returns success.
 .It Xo Ic kill-pane
 .Op Fl p Ar pane-index
 .Op Fl t Ar target-window
@@ -802,7 +862,7 @@ and
 .Ar command
 are the name of and command to execute in the initial window.
 .It Xo Ic new-window
-.Op Fl d
+.Op Fl dk
 .Op Fl n Ar window-name
 .Op Fl t Ar target-window
 .Op Ar command
@@ -813,7 +873,10 @@ If
 .Fl d
 is given, the session does not make the new window the current window.
 .Ar target-window
-represents the window to be created.
+represents the window to be created; if the target already exists an error is
+shown, unless the
+.Fl k
+flag is used, in which case it is destroyed.
 .Ar command
 is the command to execute.
 If
@@ -846,12 +909,20 @@ If
 .Fl a
 is used, move to the next window with a bell, activity or content alert.
 .It Xo Ic paste-buffer
-.Op Fl d
+.Op Fl dr
 .Op Fl b Ar buffer-index
 .Op Fl t Ar target-window
 .Xc
 .D1 (alias: Ic pasteb )
 Insert the contents of a paste buffer into the current window.
+With
+.Fl d ,
+also delete the paste buffer from the stack.
+When output, any linefeed (LF) characters in the paste buffer are replaced with
+carriage returns (CR).
+This translation may be disabled with the
+.Fl r
+flag.
 .It Xo Ic previous-window
 .Op Fl a
 .Op Fl t Ar target-session
@@ -1008,22 +1079,16 @@ Set the contents of the specified buffer to
 .Ar option Ar value
 .Xc
 .D1 (alias: Ic set )
-Set an option.
+Set a session option.
 If
 .Fl g
-is specified, the option is set as a global option.
-Global options apply to all sessions which don't have the option explicitly
-set.
-If
-.Fl g
-is not used, the option applies only to
-.Ar target-session .
+is specified, the global session option is set.
 The
 .Fl u
 flag unsets an option, so a session inherits the option from the global
 options - it is not possible to unset a global option.
 .Pp
-Possible options are:
+Available session options are:
 .Bl -tag -width Ds
 .It Xo Ic bell-action
 .Op Ic any | Ic none | Ic current
@@ -1044,12 +1109,32 @@ maintain this maximum length.
 Set the command used for new windows (if not specified when the window is
 created) to
 .Ar command .
-The default is
-.Dq exec $SHELL -l .
+The default is an empty string, which instructs
+.Nm
+to create a login shell using the
+.Ev SHELL
+environment variable or, if it is unset, the user's shell returned by
+.Xr getpwuid 3 .
 .It Ic default-path Ar path
 Set the default working directory for processes created from keys, or
 interactively from the prompt.
 The default is the current working directory when the server is started.
+.It Ic default-terminal Ar terminal
+Set the default terminal for new windows created in this session - the
+default value of the
+.Ev TERM
+environment variable.
+For
+.Nm
+to work correctly, this
+.Em must
+be set to
+.Ql screen
+or a derivative of it.
+.It Ic display-time Ar time
+Set the amount of time for which status line messages are displayed.
+.Ar time
+is in milliseconds.
 .It Ic history-limit Ar lines
 Set the maximum number of lines held in window history.
 This setting applies only to new windows - existing window histories are not
@@ -1095,10 +1180,10 @@ or
 Set status line message foreground colour.
 .It Ic prefix Ar key
 Set the current prefix key.
-.It Ic repeat-time Ar number
+.It Ic repeat-time Ar time
 Allow multiple commands to be entered without pressing the prefix-key again
 in the specified
-.Ar number
+.Ar time
 milliseconds (the default is 500).
 Whether a key repeats may be set when it is bound using the
 .Fl r
@@ -1234,7 +1319,7 @@ configuration file, enclose it in single quotes (').
 .Ar option Ar value
 .Xc
 .D1 (alias: Ic setw )
-Set a window-specific option.
+Set a window option.
 The
 .Fl g
 and
@@ -1243,7 +1328,7 @@ flags work similarly to the
 .Ic set-option
 command.
 .Pp
-Supported options are:
+Supported window options are:
 .Bl -tag -width Ds
 .It Xo Ic aggressive-resize
 .Op Ic on | Ic off
@@ -1359,21 +1444,24 @@ as Shift, Alt or Ctrl.
 .D1 (alias: Ic showb )
 Display the contents of the specified buffer.
 .It Xo Ic show-options
+.Op Fl g
 .Op Fl t Ar target-session
-.Ar option Ar value
 .Xc
 .D1 (alias: Ic show )
-Show the currently set options.
-If a
-.Ar target-session
-is specified, the options for that session are shown; otherwise, the global
-options are listed.
+Show the session options for
+.Ar target session ,
+or the global session options with
+.Fl g .
 .It Xo Ic show-window-options
+.Op Fl g
 .Op Fl t Ar target-window
-.Ar option Ar value
 .Xc
 .D1 (alias: Ic showw )
-List the current options for the given window.
+List the window options for
+.Ar target-window ,
+or the global window options if
+.Fl g
+is used.
 .It Xo Ic source-file
 .Ar path
 .Xc
@@ -1453,7 +1541,8 @@ except the source and destination windows are swapped.
 It is an error if no window exists at
 .Ar src-window .
 .It Xo Ic switch-client
-.Op Fl c Ar target-client Fl t Ar target-session
+.Op Fl c Ar target-client
+.Op Fl t Ar target-session
 .Xc
 .D1 (alias: Ic switchc )
 Switch the current session for client
@@ -1467,13 +1556,20 @@ to
 Unbind the key bound to
 .Ar key .
 .It Xo Ic unlink-window
+.Op Fl k
 .Op Fl t Ar target-window
 .Xc
 .D1 (alias: Ic unlinkw )
 Unlink
 .Ar target-window .
-A window may be unlinked only if it is linked to multiple sessions - windows may
-not be linked to no sessions.
+Unless
+.Fl k
+is given, a window may be unlinked only if it is linked to multiple sessions -
+windows may not be linked to no sessions;
+if
+.Fl k
+is specified and the window is linked to only one session, it is unlinked and
+destroyed.
 .It Xo Ic up-pane
 .Op Fl p Ar pane-index
 .Op Fl t Ar target-window
@@ -1482,11 +1578,13 @@ not be linked to no sessions.
 Move up a pane.
 .El
 .Sh FILES
-.Bl -tag -width "~/.tmux.confXXX" -compact
+.Bl -tag -width "/etc/tmux.confXXX" -compact
 .It Pa ~/.tmux.conf
 Default
 .Nm
 configuration file.
+.It Pa /etc/tmux.conf
+System-wide configuration file.
 .El
 .Sh SEE ALSO
 .Xr pty 4

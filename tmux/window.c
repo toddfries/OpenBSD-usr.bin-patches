@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.6 2009/06/25 06:15:04 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.12 2009/07/15 08:00:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -23,6 +23,7 @@
 #include <fcntl.h>
 #include <fnmatch.h>
 #include <paths.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -57,10 +58,40 @@ struct windows windows;
 
 RB_GENERATE(winlinks, winlink, entry, winlink_cmp);
 
+const char *
+window_default_command(void)
+{
+	const char	*shell;
+	struct passwd	*pw;
+
+	shell = getenv("SHELL");
+	if (shell != NULL && *shell != '\0')
+		return (shell);
+
+	pw = getpwuid(getuid());
+	if (pw != NULL && pw->pw_shell != NULL && *pw->pw_shell != '\0')
+		return (pw->pw_shell);
+
+	return (_PATH_BSHELL);
+}
+
 int
 winlink_cmp(struct winlink *wl1, struct winlink *wl2)
 {
 	return (wl1->idx - wl2->idx);
+}
+
+struct winlink *
+winlink_find_by_window(struct winlinks *wwl, struct window *w)
+{
+	struct winlink	*wl;
+
+	RB_FOREACH(wl, winlinks, wwl) {
+		if (wl->window == w)
+			return (wl);
+	}
+
+	return (NULL);
 }
 
 struct winlink *
@@ -204,7 +235,7 @@ window_create1(u_int sx, u_int sy)
 	w->sx = sx;
 	w->sy = sy;
 
-	options_init(&w->options, &global_window_options);
+	options_init(&w->options, &global_w_options);
 
 	for (i = 0; i < ARRAY_LENGTH(&windows); i++) {
 		if (ARRAY_ITEM(&windows, i) == NULL) {
@@ -273,8 +304,14 @@ void
 window_set_active_pane(struct window *w, struct window_pane *wp)
 {
 	w->active = wp;
-	while (w->active->flags & PANE_HIDDEN)
+
+	while (!window_pane_visible(w->active)) {
 		w->active = TAILQ_PREV(w->active, window_panes, entry);
+		if (w->active == NULL)
+			w->active = TAILQ_LAST(&w->panes, window_panes);
+		if (w->active == wp)
+			return;
+	}
 }
 
 struct window_pane *
@@ -389,6 +426,8 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 	wp->sx = sx;
 	wp->sy = sy;
 
+	wp->saved_grid = NULL;
+
 	screen_init(&wp->base, sx, sy, hlimit);
 	wp->screen = &wp->base;
 
@@ -407,6 +446,8 @@ window_pane_destroy(struct window_pane *wp)
 
 	window_pane_reset_mode(wp);
 	screen_free(&wp->base);
+	if (wp->saved_grid != NULL)
+		grid_destroy(wp->saved_grid);
 
 	buffer_destroy(wp->in);
 	buffer_destroy(wp->out);
@@ -424,7 +465,8 @@ window_pane_spawn(struct window_pane *wp,
 {
 	struct winsize	 ws;
 	int		 mode;
-	const char     **envq;
+	const char     **envq, *ptr;
+	char		*argv0;
 	struct timeval	 tv;
 
 	if (wp->fd != -1)
@@ -465,7 +507,18 @@ window_pane_spawn(struct window_pane *wp,
 		sigreset();
 		log_close();
 
-		execl(_PATH_BSHELL, "sh", "-c", wp->cmd, (char *) NULL);
+		if (*wp->cmd != '\0') {
+			execl(_PATH_BSHELL, "sh", "-c", wp->cmd, (char *) NULL);
+			fatal("execl failed");
+		}
+
+		/* No command; fork a login shell. */
+		cmd = window_default_command();
+		if ((ptr = strrchr(cmd, '/')) != NULL && *(ptr + 1) != '\0')
+			xasprintf(&argv0, "-%s", ptr + 1);
+		else
+			xasprintf(&argv0, "-%s", cmd);
+		execl(cmd, argv0, (char *) NULL);
 		fatal("execl failed");
 	}
 
@@ -540,7 +593,7 @@ window_pane_parse(struct window_pane *wp)
 void
 window_pane_key(struct window_pane *wp, struct client *c, int key)
 {
- 	if (wp->fd == -1)
+	if (wp->fd == -1 || !window_pane_visible(wp))
 		return;
 
 	if (wp->mode != NULL) {
@@ -554,7 +607,7 @@ void
 window_pane_mouse(
     struct window_pane *wp, struct client *c, u_char b, u_char x, u_char y)
 {
- 	if (wp->fd == -1)
+	if (wp->fd == -1 || !window_pane_visible(wp))
 		return;
 
 	/* XXX convert from 1-based? */
@@ -571,6 +624,18 @@ window_pane_mouse(
 			wp->mode->mouse(wp, c, b, x, y);
 	} else
 		input_mouse(wp, b, x, y);
+}
+
+int
+window_pane_visible(struct window_pane *wp)
+{
+	struct window	*w = wp->window;
+
+	if (wp->xoff >= w->sx || wp->yoff >= w->sy)
+		return (0);
+	if (wp->xoff + wp->sx > w->sx || wp->yoff + wp->sy > w->sy)
+		return (0);
+	return (1);
 }
 
 char *

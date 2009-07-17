@@ -1,4 +1,4 @@
-/*	$Id: mdoc_action.c,v 1.9 2009/06/27 12:43:11 schwarze Exp $ */
+/*	$Id: mdoc_action.c,v 1.14 2009/07/12 22:35:08 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -24,18 +24,6 @@
 
 #include "libmdoc.h"
 
-enum	mwarn {
-	WBADSEC,
-	WNOWIDTH,
-	WBADDATE
-};
-
-enum	merr {
-	ETOOLONG,
-	EMALLOC,
-	ENUMFMT
-};
-
 #define	PRE_ARGS  struct mdoc *m, const struct mdoc_node *n
 #define	POST_ARGS struct mdoc *m
 
@@ -44,8 +32,6 @@ struct	actions {
 	int	(*post)(POST_ARGS);
 };
 
-static	int	  pwarn(struct mdoc *, int, int, enum mwarn);
-static	int	  perr(struct mdoc *, int, int, enum merr);
 static	int	  concat(struct mdoc *, const struct mdoc_node *, 
 			char *, size_t);
 
@@ -66,10 +52,6 @@ static	int	  post_std(POST_ARGS);
 
 static	int	  pre_bd(PRE_ARGS);
 static	int	  pre_dl(PRE_ARGS);
-
-#define	vwarn(m, t) pwarn((m), (m)->last->line, (m)->last->pos, (t))
-#define	verr(m, t) perr((m), (m)->last->line, (m)->last->pos, (t))
-#define	nerr(m, n, t) perr((m), (n)->line, (n)->pos, (t))
 
 const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* Ap */
@@ -243,61 +225,14 @@ concat(struct mdoc *m, const struct mdoc_node *n,
 	for ( ; n; n = n->next) {
 		assert(MDOC_TEXT == n->type);
 		if (strlcat(buf, n->string, sz) >= sz)
-			return(nerr(m, n, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 		if (NULL == n->next)
 			continue;
 		if (strlcat(buf, " ", sz) >= sz)
-			return(nerr(m, n, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 	}
 
 	return(1);
-}
-
-
-static int
-perr(struct mdoc *m, int line, int pos, enum merr type)
-{
-	char		*p;
-
-	p = NULL;
-	switch (type) {
-	case (ENUMFMT):
-		p = "bad number format";
-		break;
-	case (ETOOLONG):
-		p = "argument text too long";
-		break;
-	case (EMALLOC):
-		p = "memory exhausted";
-		break;
-	}
-	assert(p);
-	return(mdoc_perr(m, line, pos, p));
-}
-
-
-static int
-pwarn(struct mdoc *m, int line, int pos, enum mwarn type)
-{
-	char		*p;
-	int		 c;
-
-	p = NULL;
-	c = WARN_SYNTAX;
-	switch (type) {
-	case (WBADSEC):
-		p = "inappropriate document section in manual section";
-		c = WARN_COMPAT;
-		break;
-	case (WNOWIDTH):
-		p = "cannot determine default width";
-		break;
-	case (WBADDATE):
-		p = "malformed date syntax";
-		break;
-	}
-	assert(p);
-	return(mdoc_pwarn(m, line, pos, c, p));
 }
 
 
@@ -319,12 +254,12 @@ post_std(POST_ARGS)
 
 	m->last->args->argv[0].value = calloc(1, sizeof(char *));
 	if (NULL == m->last->args->argv[0].value)
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	m->last->args->argv[0].sz = 1;
 	m->last->args->argv[0].value[0] = strdup(m->meta.name);
 	if (NULL == m->last->args->argv[0].value[0])
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -343,7 +278,7 @@ post_nm(POST_ARGS)
 		return(0);
 
 	if (NULL == (m->meta.name = strdup(buf)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -382,7 +317,7 @@ post_sh(POST_ARGS)
 		case (9):
 			break;
 		default:
-			return(vwarn(m, WBADSEC));
+			return(mdoc_nwarn(m, m->last, EBADSEC));
 		}
 		break;
 	default:
@@ -416,9 +351,9 @@ post_dt(POST_ARGS)
 
 	if (NULL == (n = m->last->child)) {
 		if (NULL == (m->meta.title = strdup("unknown")))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 		if (NULL == (m->meta.vol = strdup("local")))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 		return(post_prol(m));
 	}
 
@@ -427,11 +362,11 @@ post_dt(POST_ARGS)
 	 */
 
 	if (NULL == (m->meta.title = strdup(n->string)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	if (NULL == (n = n->next)) {
 		if (NULL == (m->meta.vol = strdup("local")))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 		return(post_prol(m));
 	}
 
@@ -445,13 +380,13 @@ post_dt(POST_ARGS)
 	cp = mdoc_a2msec(n->string);
 	if (cp) {
 		if (NULL == (m->meta.vol = strdup(cp)))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 		errno = 0;
 		lval = strtol(n->string, &ep, 10);
 		if (n->string[0] != '\0' && *ep == '\0')
 			m->meta.msec = (int)lval;
 	} else if (NULL == (m->meta.vol = strdup(n->string)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	if (NULL == (n = n->next))
 		return(post_prol(m));
@@ -467,16 +402,16 @@ post_dt(POST_ARGS)
 	if (cp) {
 		free(m->meta.vol);
 		if (NULL == (m->meta.vol = strdup(cp)))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 		n = n->next;
 	} else {
 		cp = mdoc_a2arch(n->string);
 		if (NULL == cp) {
 			free(m->meta.vol);
 			if (NULL == (m->meta.vol = strdup(n->string)))
-				return(verr(m, EMALLOC));
+				return(mdoc_nerr(m, m->last, EMALLOC));
 		} else if (NULL == (m->meta.arch = strdup(cp)))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 	}	
 
 	/* Ignore any subsequent parameters... */
@@ -500,17 +435,17 @@ post_os(POST_ARGS)
 
 	if (0 == buf[0]) {
 		if (-1 == uname(&utsname))
-			return(mdoc_err(m, "utsname"));
+			return(mdoc_nerr(m, m->last, EUTSNAME));
 		if (strlcat(buf, utsname.sysname, 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, m->last, ETOOLONG));
 		if (strlcat(buf, " ", 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, m->last, ETOOLONG));
 		if (strlcat(buf, utsname.release, 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, m->last, ETOOLONG));
 	}
 
 	if (NULL == (m->meta.os = strdup(buf)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	m->flags |= MDOC_PBODY;
 	return(post_prol(m));
@@ -545,14 +480,14 @@ post_bl_tagwidth(struct mdoc *m)
 	if (n) {
 		if (MDOC_TEXT != n->type) {
 			if (0 == (sz = (int)mdoc_macro2len(n->tok)))
-				if ( ! vwarn(m, WNOWIDTH))
+				if ( ! mdoc_nwarn(m, m->last, ENOWIDTH))
 					return(0);
 		} else
 			sz = (int)strlen(n->string) + 1;
 	} 
 
 	if (-1 == snprintf(buf, sizeof(buf), "%dn", sz))
-		return(verr(m, ENUMFMT));
+		return(mdoc_nerr(m, m->last, ENUMFMT));
 
 	/*
 	 * We have to dynamically add this to the macro's argument list.
@@ -567,7 +502,7 @@ post_bl_tagwidth(struct mdoc *m)
 			n->args->argc * sizeof(struct mdoc_argv));
 
 	if (NULL == n->args->argv)
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	n->args->argv[sz].arg = MDOC_Width;
 	n->args->argv[sz].line = m->last->line;
@@ -576,9 +511,9 @@ post_bl_tagwidth(struct mdoc *m)
 	n->args->argv[sz].value = calloc(1, sizeof(char *));
 
 	if (NULL == n->args->argv[sz].value)
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	if (NULL == (n->args->argv[sz].value[0] = strdup(buf)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -613,17 +548,17 @@ post_bl_width(struct mdoc *m)
 	else if (MDOC_MAX == (tok = mdoc_hash_find(m->htab, p)))
 		return(1);
 	else if (0 == (width = mdoc_macro2len(tok))) 
-		return(vwarn(m, WNOWIDTH));
+		return(mdoc_nwarn(m, m->last, ENOWIDTH));
 
 	/* The value already exists: free and reallocate it. */
 
 	if (-1 == snprintf(buf, sizeof(buf), "%zun", width))
-		return(verr(m, ENUMFMT));
+		return(mdoc_nerr(m, m->last, ENUMFMT));
 
 	free(m->last->args->argv[i].value[0]);
 	m->last->args->argv[i].value[0] = strdup(buf);
 	if (NULL == m->last->args->argv[i].value[0])
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -770,7 +705,7 @@ post_dd(POST_ARGS)
 		return(0);
 
 	if (0 == (m->meta.date = mdoc_atotime(buf))) {
-		if ( ! vwarn(m, WBADDATE))
+		if ( ! mdoc_nwarn(m, m->last, EBADDATE))
 			return(0);
 		m->meta.date = time(NULL);
 	}

@@ -1,4 +1,4 @@
-/*	$Id: mdoc_argv.c,v 1.4 2009/06/21 19:09:58 schwarze Exp $ */
+/*	$Id: mdoc_argv.c,v 1.9 2009/07/12 23:26:08 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -33,7 +33,6 @@
  */
 
 /* FIXME .Bf Li raises "macro-like parameter". */
-/* FIXME .Bl -column should deprecate old-groff syntax. */
 
 #define	ARGS_QUOTED	(1 << 0)
 #define	ARGS_DELIM	(1 << 1)
@@ -47,19 +46,6 @@
 
 #define	MULTI_STEP	 5
 
-enum 	mwarn {
-	WQUOTPARM,
-	WARGVPARM,
-	WCOLEMPTY,
-	WTAILWS	
-};
-
-enum	merr {
-	EQUOTTERM,
-	EMALLOC,
-	EARGVAL	
-};
-
 static	int		 argv_a2arg(int, const char *);
 static	int		 args(struct mdoc *, int, int *, 
 				char *, int, char **);
@@ -71,10 +57,6 @@ static	int		 argv_opt_single(struct mdoc *, int,
 				struct mdoc_argv *, int *, char *);
 static	int		 argv_multi(struct mdoc *, int, 
 				struct mdoc_argv *, int *, char *);
-static	int		 pwarn(struct mdoc *, int, int, enum mwarn);
-static	int		 perr(struct mdoc *, int, int, enum merr);
-
-#define verr(m, t) perr((m), (m)->last->line, (m)->last->pos, (t))
 
 /* Per-argument flags. */
 
@@ -235,7 +217,7 @@ static	int mdoc_argflags[MDOC_MAX] = {
  * one mandatory value, an optional single value, or no value.
  */
 int
-mdoc_argv(struct mdoc *mdoc, int line, int tok,
+mdoc_argv(struct mdoc *m, int line, int tok,
 		struct mdoc_arg **v, int *pos, char *buf)
 {
 	int		  i;
@@ -284,7 +266,7 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 		/* XXX - restore saved zeroed byte. */
 		if (sv)
 			buf[*pos - 1] = sv;
-		if ( ! pwarn(mdoc, line, i, WARGVPARM))
+		if ( ! mdoc_pwarn(m, line, i, EARGVPARM))
 			return(ARGV_ERROR);
 		return(ARGV_WORD);
 	}
@@ -292,13 +274,13 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 	while (buf[*pos] && ' ' == buf[*pos])
 		(*pos)++;
 
-	if ( ! argv(mdoc, line, &tmp, pos, buf))
+	if ( ! argv(m, line, &tmp, pos, buf))
 		return(ARGV_ERROR);
 
 	if (NULL == (arg = *v)) {
 		*v = calloc(1, sizeof(struct mdoc_arg));
 		if (NULL == *v) {
-			(void)verr(mdoc, EMALLOC);
+			(void)mdoc_nerr(m, m->last, EMALLOC);
 			return(ARGV_ERROR);
 		}
 		arg = *v;
@@ -309,7 +291,7 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 			sizeof(struct mdoc_argv));
 
 	if (NULL == arg->argv) {
-		(void)verr(mdoc, EMALLOC);
+		(void)mdoc_nerr(m, m->last, EMALLOC);
 		return(ARGV_ERROR);
 	}
 
@@ -351,60 +333,8 @@ mdoc_argv_free(struct mdoc_arg *p)
 }
 
 
-
-static int
-perr(struct mdoc *mdoc, int line, int pos, enum merr code)
-{
-	char		*p;
-
-	p = NULL;
-	switch (code) {
-	case (EMALLOC):
-		p = "memory exhausted";
-		break;
-	case (EQUOTTERM):
-		p = "unterminated quoted parameter";
-		break;
-	case (EARGVAL):
-		p = "argument requires a value";
-		break;
-	}
-	assert(p);
-	return(mdoc_perr(mdoc, line, pos, p));
-}
-
-
-static int
-pwarn(struct mdoc *mdoc, int line, int pos, enum mwarn code)
-{
-	char		*p;
-	int		 c;
-
-	p = NULL;
-	c = WARN_SYNTAX;
-	switch (code) {
-	case (WQUOTPARM):
-		p = "unexpected quoted parameter";
-		break;
-	case (WARGVPARM):
-		p = "argument-like parameter";
-		break;
-	case (WCOLEMPTY):
-		p = "last list column is empty";
-		c = WARN_COMPAT;
-		break;
-	case (WTAILWS):
-		p = "trailing whitespace";
-		c = WARN_COMPAT;
-		break;
-	}
-	assert(p);
-	return(mdoc_pwarn(mdoc, line, pos, c, p));
-}
-
-
 int
-mdoc_args(struct mdoc *mdoc, int line, 
+mdoc_args(struct mdoc *m, int line, 
 		int *pos, char *buf, int tok, char **v)
 {
 	int		  fl, c, i;
@@ -420,7 +350,7 @@ mdoc_args(struct mdoc *mdoc, int line,
 
 	switch (tok) {
 	case (MDOC_It):
-		for (n = mdoc->last; n; n = n->parent)
+		for (n = m->last; n; n = n->parent)
 			if (MDOC_BLOCK == n->type && MDOC_Bl == n->tok)
 				break;
 
@@ -455,12 +385,12 @@ mdoc_args(struct mdoc *mdoc, int line,
 		break;
 	}
 
-	return(args(mdoc, line, pos, buf, fl, v));
+	return(args(m, line, pos, buf, fl, v));
 }
 
 
 static int
-args(struct mdoc *mdoc, int line, 
+args(struct mdoc *m, int line, 
 		int *pos, char *buf, int fl, char **v)
 {
 	int		  i;
@@ -472,11 +402,11 @@ args(struct mdoc *mdoc, int line,
 		return(ARGS_EOLN);
 
 	if ('\"' == buf[*pos] && ! (fl & ARGS_QUOTED))
-		if ( ! pwarn(mdoc, line, *pos, WQUOTPARM))
+		if ( ! mdoc_pwarn(m, line, *pos, EQUOTPARM))
 			return(ARGS_ERROR);
 
 	if ( ! (fl & ARGS_ARGVLIKE) && '-' == buf[*pos]) 
-		if ( ! pwarn(mdoc, line, *pos, WARGVPARM))
+		if ( ! mdoc_pwarn(m, line, *pos, EARGVPARM))
 			return(ARGS_ERROR);
 
 	/* 
@@ -568,10 +498,10 @@ args(struct mdoc *mdoc, int line,
 			} 
 
 			if (p && 0 == *p)
-				if ( ! pwarn(mdoc, line, *pos, WCOLEMPTY))
+				if ( ! mdoc_pwarn(m, line, *pos, ECOLEMPTY))
 					return(0);
 			if (p && 0 == *p && p > *v && ' ' == *(p - 1))
-				if ( ! pwarn(mdoc, line, *pos, WTAILWS))
+				if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
 					return(0);
 
 			if (p)
@@ -583,7 +513,7 @@ args(struct mdoc *mdoc, int line,
 			assert(p);
 
 			if (p > *v && ' ' == *(p - 1))
-				if ( ! pwarn(mdoc, line, *pos, WTAILWS))
+				if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
 					return(0);
 			*pos += (int)(p - *v);
 
@@ -615,7 +545,7 @@ args(struct mdoc *mdoc, int line,
 		if (buf[*pos])
 			return(ARGS_WORD);
 
-		if ( ! pwarn(mdoc, line, *pos, WTAILWS))
+		if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
 			return(ARGS_ERROR);
 
 		return(ARGS_WORD);
@@ -633,7 +563,7 @@ args(struct mdoc *mdoc, int line,
 		(*pos)++;
 
 	if (0 == buf[*pos]) {
-		(void)perr(mdoc, line, *pos, EQUOTTERM);
+		(void)mdoc_perr(m, line, *pos, EQUOTTERM);
 		return(ARGS_ERROR);
 	}
 
@@ -647,7 +577,7 @@ args(struct mdoc *mdoc, int line,
 	if (buf[*pos])
 		return(ARGS_QWORD);
 
-	if ( ! pwarn(mdoc, line, *pos, WTAILWS))
+	if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
 		return(ARGS_ERROR);
 
 	return(ARGS_QWORD);
@@ -753,7 +683,7 @@ argv_a2arg(int tok, const char *argv)
 
 
 static int
-argv_multi(struct mdoc *mdoc, int line, 
+argv_multi(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	int		 c;
@@ -762,7 +692,7 @@ argv_multi(struct mdoc *mdoc, int line,
 	for (v->sz = 0; ; v->sz++) {
 		if ('-' == buf[*pos])
 			break;
-		c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+		c = args(m, line, pos, buf, ARGS_QUOTED, &p);
 		if (ARGS_ERROR == c)
 			return(0);
 		else if (ARGS_EOLN == c)
@@ -772,12 +702,12 @@ argv_multi(struct mdoc *mdoc, int line,
 			v->value = realloc(v->value, 
 				(v->sz + MULTI_STEP) * sizeof(char *));
 			if (NULL == v->value) {
-				(void)verr(mdoc, EMALLOC);
+				(void)mdoc_nerr(m, m->last, EMALLOC);
 				return(ARGV_ERROR);
 			}
 		}
 		if (NULL == (v->value[(int)v->sz] = strdup(p)))
-			return(verr(mdoc, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 	}
 
 	return(1);
@@ -785,7 +715,7 @@ argv_multi(struct mdoc *mdoc, int line,
 
 
 static int
-argv_opt_single(struct mdoc *mdoc, int line, 
+argv_opt_single(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	int		 c;
@@ -794,7 +724,7 @@ argv_opt_single(struct mdoc *mdoc, int line,
 	if ('-' == buf[*pos])
 		return(1);
 
-	c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+	c = args(m, line, pos, buf, ARGS_QUOTED, &p);
 	if (ARGS_ERROR == c)
 		return(0);
 	if (ARGS_EOLN == c)
@@ -802,9 +732,9 @@ argv_opt_single(struct mdoc *mdoc, int line,
 
 	v->sz = 1;
 	if (NULL == (v->value = calloc(1, sizeof(char *))))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	if (NULL == (v->value[0] = strdup(p)))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -814,7 +744,7 @@ argv_opt_single(struct mdoc *mdoc, int line,
  * Parse a single, mandatory value from the stream.
  */
 static int
-argv_single(struct mdoc *mdoc, int line, 
+argv_single(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	int		 c, ppos;
@@ -822,17 +752,17 @@ argv_single(struct mdoc *mdoc, int line,
 
 	ppos = *pos;
 
-	c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+	c = args(m, line, pos, buf, ARGS_QUOTED, &p);
 	if (ARGS_ERROR == c)
 		return(0);
 	if (ARGS_EOLN == c)
-		return(perr(mdoc, line, ppos, EARGVAL));
+		return(mdoc_perr(m, line, ppos, EARGVAL));
 
 	v->sz = 1;
 	if (NULL == (v->value = calloc(1, sizeof(char *))))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	if (NULL == (v->value[0] = strdup(p)))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
