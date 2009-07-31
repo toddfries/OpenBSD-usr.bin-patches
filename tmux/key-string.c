@@ -1,4 +1,4 @@
-/* $OpenBSD: key-string.c,v 1.2 2009/07/14 06:56:30 nicm Exp $ */
+/* $OpenBSD: key-string.c,v 1.6 2009/07/28 09:18:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -57,7 +57,9 @@ struct {
 	{ "PPage",	KEYC_PPAGE },
 	{ "Tab",	'\011' },
 	{ "BTab",	KEYC_BTAB },
-	{ "BSpace",	'\177' },
+	{ "BSpace",	KEYC_BSPACE },
+	{ "Enter",	'\r' },
+	{ "Escape",	'\033' },
 
 	/* Arrow keys. */
 	{ "Up",		KEYC_UP },
@@ -108,7 +110,7 @@ key_string_lookup_string(const char *string)
 		return (string[0]);
 
 	ptr = NULL;
-	if (string[0] == 'C' && string[1] == '-')
+	if ((string[0] == 'C' || string[0] == 'c') && string[1] == '-')
 		ptr = string + 2;
 	else if (string[0] == '^')
 		ptr = string + 1;
@@ -126,22 +128,22 @@ key_string_lookup_string(const char *string)
 		}
 		key = key_string_search_table(ptr);
 		if (key != KEYC_NONE)
-			return (KEYC_ADDCTL(key));
+			return (key | KEYC_CTRL);
 		return (KEYC_NONE);
 	}
-
-	if (string[0] == 'M' && string[1] == '-') {
+	
+	if ((string[0] == 'M' || string[0] == 'm') && string[1] == '-') {
 		ptr = string + 2;
 		if (ptr[0] == '\0')
 			return (KEYC_NONE);
 		if (ptr[1] == '\0') {
 			if (ptr[0] < 32 || ptr[0] > 127)
 				return (KEYC_NONE);
-			return (KEYC_ADDESC(ptr[0]));
+			return (ptr[0] | KEYC_ESCAPE);
 		}
 		key = key_string_lookup_string(ptr);
 		if (key != KEYC_NONE)
-			return (KEYC_ADDESC(key));
+			return (key | KEYC_ESCAPE);
 		return (KEYC_NONE);
 	}
 
@@ -158,23 +160,28 @@ key_string_lookup_key(int key)
 	if (key == 127)
 		return (NULL);
 
-	if (KEYC_ISESC(key)) {
-		if ((s = key_string_lookup_key(KEYC_REMOVEESC(key))) == NULL)
+	if (key & KEYC_ESCAPE) {
+		if ((s = key_string_lookup_key(key & ~KEYC_ESCAPE)) == NULL)
 			return (NULL);
 		xsnprintf(tmp2, sizeof tmp2, "M-%s", s);
 		return (tmp2);
 	}
-	if (KEYC_ISCTL(key)) {
-		if ((s = key_string_lookup_key(KEYC_REMOVECTL(key))) == NULL)
+	if (key & KEYC_CTRL) {
+		if ((s = key_string_lookup_key(key & ~KEYC_CTRL)) == NULL)
 			return (NULL);
 		xsnprintf(tmp2, sizeof tmp2, "C-%s", s);
 		return (tmp2);
 	}
-	if (KEYC_ISSFT(key)) {
-		if ((s = key_string_lookup_key(KEYC_REMOVESFT(key))) == NULL)
+	if (key & KEYC_SHIFT) {
+		if ((s = key_string_lookup_key(key & ~KEYC_SHIFT)) == NULL)
 			return (NULL);
 		xsnprintf(tmp2, sizeof tmp2, "S-%s", s);
 		return (tmp2);
+	}
+
+	for (i = 0; i < nitems(key_string_table); i++) {
+		if (key == key_string_table[i].key)
+			return (key_string_table[i].string);
 	}
 
 	if (key >= 32 && key <= 255) {
@@ -191,9 +198,5 @@ key_string_lookup_key(int key)
 		return (tmp);
 	}
 
-	for (i = 0; i < nitems(key_string_table); i++) {
-		if (key == key_string_table[i].key)
-			return (key_string_table[i].string);
-	}
 	return (NULL);
 }

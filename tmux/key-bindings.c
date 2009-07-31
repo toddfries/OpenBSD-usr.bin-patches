@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.3 2009/07/15 17:39:00 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.8 2009/07/24 14:52:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,18 @@ struct key_bindings	dead_key_bindings;
 int
 key_bindings_cmp(struct key_binding *bd1, struct key_binding *bd2)
 {
-	return (bd1->key - bd2->key);
+	int	key1, key2;
+
+	key1 = bd1->key & ~KEYC_PREFIX;
+	key2 = bd2->key & ~KEYC_PREFIX;
+	if (key1 != key2)
+		return (key1 - key2);
+
+	if (bd1->key & KEYC_PREFIX && !(bd2->key & KEYC_PREFIX))
+		return (-1);
+	if (bd2->key & KEYC_PREFIX && !(bd1->key & KEYC_PREFIX))
+		return (1);
+	return (0);
 }
 
 struct key_binding *
@@ -93,7 +104,8 @@ key_bindings_init(void)
 	} table[] = {
 		{ ' ',			  0, &cmd_next_layout_entry },
 		{ '!', 			  0, &cmd_break_pane_entry },
-		{ '"', 			  0, &cmd_split_window_entry },
+		{ '"', 			  0, &cmd_split_window_entry },	
+		{ '%', 			  0, &cmd_split_window_entry },	
 		{ '#', 			  0, &cmd_list_buffers_entry },
 		{ '&', 			  0, &cmd_confirm_before_entry },
 		{ ',', 			  0, &cmd_command_prompt_entry },
@@ -119,6 +131,7 @@ key_bindings_init(void)
 		{ 'c', 			  0, &cmd_new_window_entry },
 		{ 'd', 			  0, &cmd_detach_client_entry },
 		{ 'f', 			  0, &cmd_command_prompt_entry },
+		{ 'i',			  0, &cmd_display_message_entry },
 		{ 'l', 			  0, &cmd_last_window_entry },
 		{ 'n', 			  0, &cmd_next_window_entry },
 		{ 'o', 			  0, &cmd_down_pane_entry },
@@ -131,21 +144,24 @@ key_bindings_init(void)
 		{ '{',			  0, &cmd_swap_pane_entry },
 		{ '}',			  0, &cmd_swap_pane_entry },
 		{ '\002', 		  0, &cmd_send_prefix_entry },
-		{ KEYC_ADDESC('0'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('1'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('2'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('9'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDCTL(KEYC_DOWN), 1, &cmd_resize_pane_entry },
+		{ '1' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '2' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '3' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '4' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ KEYC_PPAGE, 		  0, &cmd_scroll_mode_entry },
-		{ KEYC_ADDESC('n'), 	  0, &cmd_next_window_entry },
-		{ KEYC_ADDESC('p'), 	  0, &cmd_previous_window_entry },
-		{ KEYC_UP, 		  1, &cmd_up_pane_entry },
-		{ KEYC_DOWN, 		  1, &cmd_down_pane_entry },
-		{ KEYC_ADDESC(KEYC_UP),   1, &cmd_resize_pane_entry },
-		{ KEYC_ADDESC(KEYC_DOWN), 1, &cmd_resize_pane_entry },
-		{ KEYC_ADDCTL(KEYC_UP),   1, &cmd_resize_pane_entry },
-		{ KEYC_ADDCTL(KEYC_DOWN), 1, &cmd_resize_pane_entry },
-		{ KEYC_ADDESC('o'),	  0, &cmd_rotate_window_entry },
+		{ 'n' | KEYC_ESCAPE, 	  0, &cmd_next_window_entry },
+		{ 'p' | KEYC_ESCAPE, 	  0, &cmd_previous_window_entry },
+		{ KEYC_UP, 		  0, &cmd_up_pane_entry },
+		{ KEYC_DOWN, 		  0, &cmd_down_pane_entry },
+		{ KEYC_UP | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_DOWN | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_LEFT | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_RIGHT | KEYC_ESCAPE, 1, &cmd_resize_pane_entry },
+		{ KEYC_UP | KEYC_CTRL,    1, &cmd_resize_pane_entry },
+		{ KEYC_DOWN | KEYC_CTRL,  1, &cmd_resize_pane_entry },	
+		{ KEYC_LEFT | KEYC_CTRL,  1, &cmd_resize_pane_entry },
+		{ KEYC_RIGHT | KEYC_CTRL, 1, &cmd_resize_pane_entry },
+		{ 'o' | KEYC_ESCAPE,	  0, &cmd_rotate_window_entry },
 		{ '\017',	          0, &cmd_rotate_window_entry },
 	};
 	u_int		 i;
@@ -165,7 +181,8 @@ key_bindings_init(void)
 			cmd->entry->init(cmd, table[i].key);
 		TAILQ_INSERT_HEAD(cmdlist, cmd, qentry);
 
-		key_bindings_add(table[i].key, table[i].can_repeat, cmdlist);
+		key_bindings_add(
+		    table[i].key | KEYC_PREFIX, table[i].can_repeat, cmdlist);
 	}
 }
 

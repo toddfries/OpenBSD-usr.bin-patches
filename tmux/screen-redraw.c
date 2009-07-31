@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-redraw.c,v 1.5 2009/07/14 19:11:58 nicm Exp $ */
+/* $OpenBSD: screen-redraw.c,v 1.8 2009/07/31 10:12:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -22,18 +22,31 @@
 
 #include "tmux.h"
 
+int	screen_redraw_cell_border(struct client *, u_int, u_int);
 int	screen_redraw_check_cell(struct client *, u_int, u_int);
 
-/* Check if cell inside a pane. */
+#define CELL_INSIDE 0
+#define CELL_LEFTRIGHT 1
+#define CELL_TOPBOTTOM 2
+#define CELL_TOPLEFT 3
+#define CELL_TOPRIGHT 4
+#define CELL_BOTTOMLEFT 5
+#define CELL_BOTTOMRIGHT 6
+#define CELL_TOPJOIN 7
+#define CELL_BOTTOMJOIN 8
+#define CELL_LEFTJOIN 9
+#define CELL_RIGHTJOIN 10
+#define CELL_JOIN 11
+#define CELL_OUTSIDE 12
+
+/* Check if a cell is on the pane border. */
 int
-screen_redraw_check_cell(struct client *c, u_int px, u_int py)
+screen_redraw_cell_border(struct client *c, u_int px, u_int py)
 {
 	struct window		*w = c->session->curw->window;
 	struct window_pane	*wp;
 
-	if (px > w->sx || py > w->sy)
-		return (0);
-
+	/* Check all the panes. */
 	TAILQ_FOREACH(wp, &w->panes, entry) {
 		if (!window_pane_visible(wp))
 			continue;
@@ -41,10 +54,11 @@ screen_redraw_check_cell(struct client *c, u_int px, u_int py)
 		/* Inside pane. */
 		if (px >= wp->xoff && px < wp->xoff + wp->sx &&
 		    py >= wp->yoff && py < wp->yoff + wp->sy)
-			return (1);
+			return (0);
 
 		/* Left/right borders. */
-		if (py >= wp->yoff && py < wp->yoff + wp->sy) {
+		if ((wp->yoff == 0 || py >= wp->yoff - 1) &&
+		    py <= wp->yoff + wp->sy) {
 			if (wp->xoff != 0 && px == wp->xoff - 1)
 				return (1);
 			if (px == wp->xoff + wp->sx)
@@ -52,7 +66,8 @@ screen_redraw_check_cell(struct client *c, u_int px, u_int py)
 		}
 
 		/* Top/bottom borders. */
-		if (px >= wp->xoff && px < wp->xoff + wp->sx) {
+		if ((wp->xoff == 0 || px >= wp->xoff - 1) && 
+		    px <= wp->xoff + wp->sx) {
 			if (wp->yoff != 0 && py == wp->yoff - 1)
 				return (1);
 			if (py == wp->yoff + wp->sy)
@@ -63,6 +78,80 @@ screen_redraw_check_cell(struct client *c, u_int px, u_int py)
 	return (0);
 }
 
+/* Check if cell inside a pane. */
+int
+screen_redraw_check_cell(struct client *c, u_int px, u_int py)
+{
+	struct window		*w = c->session->curw->window;
+	struct window_pane	*wp;
+	int			 borders;
+
+	if (px > w->sx || py > w->sy)
+		return (CELL_OUTSIDE);
+
+	TAILQ_FOREACH(wp, &w->panes, entry) {
+		if (!window_pane_visible(wp))
+			continue;
+
+		/* If outside the pane and its border, skip it. */
+		if ((wp->xoff != 0 && px < wp->xoff - 1) ||
+		    px > wp->xoff + wp->sx ||
+		    (wp->yoff != 0 && py < wp->yoff - 1) ||
+		    py > wp->yoff + wp->sy)
+			continue;
+
+		/* If definitely inside, return so. */
+		if (!screen_redraw_cell_border(c, px, py))
+			return (CELL_INSIDE);
+
+		/* 
+		 * Construct a bitmask of whether the cells to the left (bit
+		 * 4), right, top, and bottom (bit 1) of this cell are borders.
+		 */
+		borders = 0;
+		if (px == 0 || screen_redraw_cell_border(c, px - 1, py))
+			borders |= 8;
+		if (px <= w->sx && screen_redraw_cell_border(c, px + 1, py))
+			borders |= 4;
+		if (py == 0 || screen_redraw_cell_border(c, px, py - 1))
+			borders |= 2;
+		if (py <= w->sy && screen_redraw_cell_border(c, px, py + 1))
+			borders |= 1;
+
+		/* 
+		 * Figure out what kind of border this cell is. Only one bit
+		 * set doesn't make sense (can't have a border cell with no
+		 * others connected).
+		 */
+		switch (borders) {
+		case 15:	/* 1111, left right top bottom */
+			return (CELL_JOIN);
+		case 14:	/* 1110, left right top */
+			return (CELL_BOTTOMJOIN);
+		case 13:	/* 1101, left right bottom */
+			return (CELL_TOPJOIN);
+		case 12:	/* 1100, left right */
+			return (CELL_TOPBOTTOM);
+		case 11:	/* 1011, left top bottom */
+			return (CELL_RIGHTJOIN);
+		case 10:	/* 1010, left top */
+			return (CELL_BOTTOMRIGHT);
+		case 9:		/* 1001, left bottom */
+			return (CELL_TOPRIGHT);
+		case 7:		/* 0111, right top bottom */
+			return (CELL_LEFTJOIN);
+		case 6:		/* 0110, right top */
+			return (CELL_BOTTOMLEFT);
+		case 5:		/* 0101, right bottom */
+			return (CELL_TOPLEFT);
+		case 3:		/* 0011, top bottom */
+			return (CELL_LEFTRIGHT);
+		}
+	}
+
+	return (CELL_OUTSIDE);
+}
+
 /* Redraw entire screen. */
 void
 screen_redraw_screen(struct client *c, int status_only)
@@ -70,9 +159,10 @@ screen_redraw_screen(struct client *c, int status_only)
 	struct window		*w = c->session->curw->window;
 	struct tty		*tty = &c->tty;
 	struct window_pane	*wp;
-	u_int		 	 i, j, sx, sy;
-	int		 	 status, has_acs;
-	u_char			 choriz, cvert, cbackg;
+	u_int		 	 i, j, type;
+	int		 	 status;
+	const u_char		*base, *ptr;
+	u_char		       	 ch, border[20];
 
 	/* Get status line, er, status. */
 	if (c->message_string != NULL || c->prompt_string != NULL)
@@ -86,85 +176,34 @@ screen_redraw_screen(struct client *c, int status_only)
 		return;
 	}
 
-	/* Work out ACS characters. */
-	if (tty_term_has(tty->term, TTYC_ACSC)) {
-		has_acs = 1;
-		choriz = tty_get_acs(tty, 'q');
-		cvert = tty_get_acs(tty, 'x');
-		cbackg = tty_get_acs(tty, '~');
-	} else {
-		has_acs = 0;
-		choriz = '-';
-		cvert = '|';
-		cbackg = '.';
-	}
-
-	/* Clear the screen. */
+	/* Draw background and borders. */
 	tty_reset(tty);
-	if (has_acs)
+	strlcpy(border, " |-....--||+.", sizeof border);
+	if (tty_term_has(tty->term, TTYC_ACSC)) {
+		base = " xqlkmjwvtun~";
+		for (ptr = base; *ptr != '\0'; ptr++) {
+			if ((ch = tty_get_acs(tty, *ptr)) != '\0')
+				border[ptr - base] = ch;
+		}
 		tty_putcode(tty, TTYC_SMACS);
+	}
 	for (j = 0; j < tty->sy - status; j++) {
 		if (status_only && j != tty->sy - 1)
 			continue;
 		for (i = 0; i < tty->sx; i++) {
-			if (!screen_redraw_check_cell(c, i, j)) {
+			type = screen_redraw_check_cell(c, i, j);
+			if (type != CELL_INSIDE) {
 				tty_cursor(tty, i, j, 0, 0);
-				tty_putc(tty, cbackg);
+				tty_putc(tty, border[type]);
 			}
 		}
 	}
-	if (has_acs)
-		tty_putcode(tty, TTYC_RMACS);
+	tty_putcode(tty, TTYC_RMACS);
 
 	/* Draw the panes. */
 	TAILQ_FOREACH(wp, &w->panes, entry) {
 		if (!window_pane_visible(wp))
 			continue;
-
-		tty_reset(tty);
-
-		sx = wp->sx;
-		sy = wp->sy;
-
-		/* Draw left and right borders. */
-		if (has_acs)
-			tty_putcode(tty, TTYC_SMACS);
-		if (wp->xoff > 0) {
-			for (i = wp->yoff; i < wp->yoff + sy; i++) {
-				if (status_only && i != tty->sy - 1)
-					continue;
-				tty_cursor(tty, wp->xoff - 1, i, 0, 0);
-				tty_putc(tty, cvert);
-			}
-		}
-		if (wp->xoff + sx < tty->sx) {
-			for (i = wp->yoff; i < wp->yoff + sy; i++) {
-				if (status_only && i != tty->sy - 1)
-					continue;
-				tty_cursor(tty, wp->xoff + sx, i, 0, 0);
-				tty_putc(&c->tty, cvert);
-			}
-		}
-
-		/* Draw top and bottom borders. */
-		if (wp->yoff > 0) {
-			if (!status_only || wp->yoff - 1 == tty->sy - 1) {
-				tty_cursor(tty, wp->xoff, wp->yoff - 1, 0, 0);
-				for (i = 0; i < sx; i++)
-					tty_putc(tty, choriz);
-			}
-		}
-		if (wp->yoff + sy < tty->sy - status) {
-			if (!status_only || wp->yoff + sy == tty->sy - 1) {
-				tty_cursor(tty, wp->xoff, wp->yoff + sy, 0, 0);
-				for (i = 0; i < sx; i++)
-					tty_putc(tty, choriz);
-			}
-		}
-		if (has_acs)
-			tty_putcode(tty, TTYC_RMACS);
-
-		/* Draw the pane. */
 		for (i = 0; i < wp->sy; i++) {
 			if (status_only && wp->yoff + i != tty->sy - 1)
 				continue;

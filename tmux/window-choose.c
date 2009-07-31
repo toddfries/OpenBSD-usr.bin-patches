@@ -1,4 +1,4 @@
-/* $OpenBSD: window-choose.c,v 1.3 2009/07/17 07:05:58 nicm Exp $ */
+/* $OpenBSD: window-choose.c,v 1.7 2009/07/30 07:04:50 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -109,6 +109,7 @@ window_choose_init(struct window_pane *wp)
 {
 	struct window_choose_mode_data	*data;
 	struct screen			*s;
+	int				 keys;
 
 	wp->modedata = data = xmalloc(sizeof *data);
 
@@ -122,11 +123,14 @@ window_choose_init(struct window_pane *wp)
 	s = &data->screen;
 	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
 	s->mode &= ~MODE_CURSOR;
-	s->mode |= MODE_MOUSE;
+	if (options_get_number(&wp->window->options, "mode-mouse"))
+		s->mode |= MODE_MOUSE;
 
-	mode_key_init(&data->mdata,
-	    options_get_number(&wp->window->options, "mode-keys"),
-	    MODEKEY_CHOOSEMODE);
+	keys = options_get_number(&wp->window->options, "mode-keys");
+	if (keys == MODEKEY_EMACS)
+		mode_key_init(&data->mdata, &mode_key_tree_emacs_choice);
+	else
+		mode_key_init(&data->mdata, &mode_key_tree_vi_choice);
 
 	return (s);
 }
@@ -139,8 +143,6 @@ window_choose_free(struct window_pane *wp)
 
 	if (data->freefn != NULL && data->data != NULL)
 		data->freefn(data->data);
-
- 	mode_key_free(&data->mdata);
 
 	for (i = 0; i < ARRAY_LENGTH(&data->list); i++)
 		xfree(ARRAY_ITEM(&data->list, i).name);
@@ -176,16 +178,16 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 	items = ARRAY_LENGTH(&data->list);
 
 	switch (mode_key_lookup(&data->mdata, key)) {
-	case MODEKEYCMD_QUIT:
+	case MODEKEYCHOICE_CANCEL:
 		data->callbackfn(data->data, -1);
 		window_pane_reset_mode(wp);
 		break;
-	case MODEKEYCMD_CHOOSE:
+	case MODEKEYCHOICE_CHOOSE:
 		item = &ARRAY_ITEM(&data->list, data->selected);
 		data->callbackfn(data->data, item->idx);
 		window_pane_reset_mode(wp);
 		break;
-	case MODEKEYCMD_UP:
+	case MODEKEYCHOICE_UP:
 		if (items == 0)
 			break;
 		if (data->selected == 0) {
@@ -207,7 +209,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 			screen_write_stop(&ctx);
 		}
 		break;
-	case MODEKEYCMD_DOWN:
+	case MODEKEYCHOICE_DOWN:
 		if (items == 0)
 			break;
 		if (data->selected == items - 1) {
@@ -217,6 +219,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 			break;
 		}
 		data->selected++;
+
 		if (data->selected >= data->top + screen_size_y(&data->screen))
 			window_choose_scroll_down(wp);
 		else {
@@ -228,7 +231,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 			screen_write_stop(&ctx);
 		}
 		break;
-	case MODEKEYCMD_PREVIOUSPAGE:
+	case MODEKEYCHOICE_PAGEUP:
 		if (data->selected < screen_size_y(s)) {
 			data->selected = 0;
 			data->top = 0;
@@ -241,7 +244,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 		}
  		window_choose_redraw_screen(wp);
 		break;
-	case MODEKEYCMD_NEXTPAGE:
+	case MODEKEYCHOICE_PAGEDOWN:
 		data->selected += screen_size_y(s);
 		if (data->selected > items - 1)
 			data->selected = items - 1;

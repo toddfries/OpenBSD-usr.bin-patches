@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-kill-window.c,v 1.3 2009/07/15 08:00:49 nicm Exp $ */
+/* $OpenBSD: cmd-kill-window.c,v 1.5 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,8 +33,6 @@ const struct cmd_entry cmd_kill_window_entry = {
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_kill_window_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -44,37 +42,11 @@ cmd_kill_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
-	struct window		*w;
-	struct session		*s;
-	struct client		*c;
-	u_int		 	 i, j;
-	int		 	 destroyed;
 
 	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 		return (-1);
-	w = wl->window;
 
-	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
-		s = ARRAY_ITEM(&sessions, i);
-		if (s == NULL || !session_has(s, w))
-			continue;
-		if ((wl = winlink_find_by_window(&s->windows, w)) == NULL)
-			continue;
-
-		destroyed = session_detach(s, wl);
-		for (j = 0; j < ARRAY_LENGTH(&clients); j++) {
-			c = ARRAY_ITEM(&clients, j);
-			if (c == NULL || c->session != s)
-				continue;
-
-			if (destroyed) {
-				c->session = NULL;
-				server_write_client(c, MSG_EXIT, NULL, 0);
-			} else
-				server_redraw_client(c);
-		}
-	}
-	recalculate_sizes();
+	server_kill_window(wl->window);
 
 	return (0);
 }

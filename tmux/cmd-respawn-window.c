@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-respawn-window.c,v 1.2 2009/07/13 23:11:35 nicm Exp $ */
+/* $OpenBSD: cmd-respawn-window.c,v 1.5 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,8 +35,6 @@ const struct cmd_entry cmd_respawn_window_entry = {
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_respawn_window_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -70,6 +68,7 @@ cmd_respawn_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	wp = TAILQ_FIRST(&w->panes);
 	TAILQ_REMOVE(&w->panes, wp, entry);
+	layout_free(w);
  	window_destroy_panes(w);
 	TAILQ_INSERT_HEAD(&w->panes, wp, entry);
 	window_pane_resize(wp, w->sx, w->sy);
@@ -78,7 +77,9 @@ cmd_respawn_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		xfree(cause);
 		return (-1);
 	}
+	layout_init(w);
 	screen_reinit(&wp->base);
+	window_set_active_pane(w, wp);
 
 	recalculate_sizes();
 	server_redraw_window(w);

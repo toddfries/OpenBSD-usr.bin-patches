@@ -1,4 +1,4 @@
-/* $OpenBSD: client-fn.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: client-fn.c,v 1.4 2009/07/30 16:32:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "tmux.h"
 
@@ -63,7 +64,7 @@ client_fill_session(struct msg_command_data *data)
 
 void
 client_write_server(
-    struct client_ctx *cctx, enum hdrtype type, void *buf, size_t len)
+    struct client_ctx *cctx, enum msgtype type, void *buf, size_t len)
 {
 	struct hdr	hdr;
 
@@ -76,17 +77,21 @@ client_write_server(
 }
 
 void
-client_write_server2(struct client_ctx *cctx,
-    enum hdrtype type, void *buf1, size_t len1, void *buf2, size_t len2)
+client_suspend(void)
 {
-	struct hdr	hdr;
+	struct sigaction	 act;
 
-	hdr.type = type;
-	hdr.size = len1 + len2;
-	buffer_write(cctx->srv_out, &hdr, sizeof hdr);
+	memset(&act, 0, sizeof act);
+	sigemptyset(&act.sa_mask);
+	act.sa_flags = SA_RESTART;
 
-	if (buf1 != NULL && len1 > 0)
-		buffer_write(cctx->srv_out, buf1, len1);
-	if (buf2 != NULL && len2 > 0)
-		buffer_write(cctx->srv_out, buf2, len2);
+	act.sa_handler = SIG_DFL;
+	if (sigaction(SIGTSTP, &act, NULL) != 0)
+		fatal("sigaction failed");
+
+	act.sa_handler = sighandler;
+	if (sigaction(SIGCONT, &act, NULL) != 0)
+		fatal("sigaction failed");
+
+	kill(getpid(), SIGTSTP);
 }

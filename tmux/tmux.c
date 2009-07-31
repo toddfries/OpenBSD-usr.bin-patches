@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.14 2009/07/10 05:50:54 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.24 2009/07/30 07:04:50 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -46,6 +46,7 @@ struct options	 global_s_options;	/* session options */
 struct options	 global_w_options;	/* window options */
 
 int		 server_locked;
+u_int		 password_failures;
 char		*server_password;
 time_t		 server_activity;
 
@@ -56,6 +57,8 @@ char		*socket_path;
 
 __dead void	 usage(void);
 char 		*makesockpath(const char *);
+int		 prepare_unlock(enum msgtype *, void **, size_t *, int);
+int		 prepare_cmd(enum msgtype *, void **, size_t *, int, char **);
 
 __dead void
 usage(void)
@@ -200,19 +203,70 @@ makesockpath(const char *label)
 }
 
 int
+prepare_unlock(enum msgtype *msg, void **buf, size_t *len, int argc)
+{
+	static struct msg_unlock_data	 unlockdata;
+	char				*pass;
+
+	if (argc != 0) {
+		log_warnx("can't specify a command when unlocking");
+		return (-1);
+	}
+	
+	if ((pass = getpass("Password: ")) == NULL)
+		return (-1);
+
+	if (strlen(pass) >= sizeof unlockdata.pass) {
+		log_warnx("password too long");
+		return (-1);
+	}
+		
+	strlcpy(unlockdata.pass, pass, sizeof unlockdata.pass);
+	memset(pass, 0, strlen(pass));
+
+	*buf = &unlockdata;
+	*len = sizeof unlockdata;
+
+	*msg = MSG_UNLOCK;
+	return (0);
+}
+
+int
+prepare_cmd(enum msgtype *msg, void **buf, size_t *len, int argc, char **argv)
+{
+	static struct msg_command_data	 cmddata;
+
+	client_fill_session(&cmddata);
+	
+	cmddata.argc = argc;
+	if (cmd_pack_argv(argc, argv, cmddata.argv, sizeof cmddata.argv) != 0) {
+		log_warnx("command too long");
+		return (-1);
+	}
+
+	*buf = &cmddata;
+	*len = sizeof cmddata;
+
+	*msg = MSG_COMMAND;
+	return (0);
+}
+
+int
 main(int argc, char **argv)
 {
 	struct client_ctx	 cctx;
-	struct msg_command_data	 cmddata;
-	struct buffer		*b;
 	struct cmd_list		*cmdlist;
  	struct cmd		*cmd;
 	struct pollfd	 	 pfd;
+	enum msgtype		 msg;
 	struct hdr	 	 hdr;
 	struct passwd		*pw;
-	char			*s, *path, *label, *cause, *home, *pass = NULL;
+	struct msg_print_data	 printdata;
+	char			*s, *path, *label, *home, *cause;
 	char			 cwd[MAXPATHLEN];
-	int	 		 retcode, opt, flags, unlock, start_server;
+	void			*buf;
+	size_t			 len;
+	int	 		 retcode, opt, flags, unlock, cmdflags = 0;
 
 	unlock = flags = 0;
 	label = path = NULL;
@@ -266,6 +320,22 @@ main(int argc, char **argv)
 	log_open_tty(debug_level);
 	siginit();
 
+	if (!(flags & IDENTIFY_UTF8)) {
+		/*
+		 * If the user has set whichever of LC_ALL, LC_CTYPE or LANG
+		 * exist (in that order) to contain UTF-8, it is a safe
+		 * assumption that either they are using a UTF-8 terminal, or
+		 * if not they know that output from UTF-8-capable programs may
+		 * be wrong.
+		 */
+		if ((s = getenv("LC_ALL")) == NULL) {
+			if ((s = getenv("LC_CTYPE")) == NULL)
+				s = getenv("LANG");
+		}
+		if (s != NULL && strcasestr(s, "UTF-8") != NULL)
+			flags |= IDENTIFY_UTF8;
+	}
+
 	options_init(&global_s_options, NULL);
 	options_set_number(&global_s_options, "bell-action", BELL_ANY);
 	options_set_number(&global_s_options, "buffer-limit", 9);
@@ -287,12 +357,19 @@ main(int argc, char **argv)
 	options_set_number(&global_s_options, "status-fg", 0);
 	options_set_number(&global_s_options, "status-interval", 15);
 	options_set_number(&global_s_options, "status-keys", MODEKEY_EMACS);
+	options_set_number(&global_s_options, "status-justify", 0);
 	options_set_number(&global_s_options, "status-left-length", 10);
 	options_set_number(&global_s_options, "status-right-length", 40);
 	options_set_string(&global_s_options, "status-left", "[#S]");
 	options_set_string(
-	    &global_s_options, "status-right", "\"#24T\" %%H:%%M %%d-%%b-%%y");
-	options_set_number(&global_s_options, "status-utf8", 0);
+	    &global_s_options, "status-right", "\"#22T\" %%H:%%M %%d-%%b-%%y");
+	if (flags & IDENTIFY_UTF8)
+		options_set_number(&global_s_options, "status-utf8", 1);
+	else
+		options_set_number(&global_s_options, "status-utf8", 0);
+	options_set_number(&global_s_options, "visual-activity", 0);
+	options_set_number(&global_s_options, "visual-bell", 0);
+	options_set_number(&global_s_options, "visual-content", 0);
 
 	options_init(&global_w_options, NULL);
 	options_set_number(&global_w_options, "aggressive-resize", 0);
@@ -301,36 +378,27 @@ main(int argc, char **argv)
 	options_set_number(&global_w_options, "clock-mode-style", 1);
 	options_set_number(&global_w_options, "force-height", 0);
 	options_set_number(&global_w_options, "force-width", 0);
-	options_set_number(&global_w_options, "mode-attr", GRID_ATTR_REVERSE);
 	options_set_number(&global_w_options, "main-pane-width", 81);
 	options_set_number(&global_w_options, "main-pane-height", 24);
+	options_set_number(&global_w_options, "mode-attr", GRID_ATTR_REVERSE);
 	options_set_number(&global_w_options, "mode-bg", 3);
 	options_set_number(&global_w_options, "mode-fg", 0);
 	options_set_number(&global_w_options, "mode-keys", MODEKEY_EMACS);
+	options_set_number(&global_w_options, "mode-mouse", 1);
 	options_set_number(&global_w_options, "monitor-activity", 0);
 	options_set_string(&global_w_options, "monitor-content", "%s", "");
-	options_set_number(&global_w_options, "utf8", 0);
+	if (flags & IDENTIFY_UTF8)
+		options_set_number(&global_w_options, "utf8", 1);
+	else
+		options_set_number(&global_w_options, "utf8", 0);
 	options_set_number(&global_w_options, "window-status-attr", 0);
 	options_set_number(&global_w_options, "window-status-bg", 8);
 	options_set_number(&global_w_options, "window-status-fg", 8);
+	options_set_number(&global_w_options, "window-status-current-attr", 0);
+	options_set_number(&global_w_options, "window-status-current-bg", 8);
+	options_set_number(&global_w_options, "window-status-current-fg", 8);
 	options_set_number(&global_w_options, "xterm-keys", 0);
  	options_set_number(&global_w_options, "remain-on-exit", 0);
-
-	if (!(flags & IDENTIFY_UTF8)) {
-		/*
-		 * If the user has set whichever of LC_ALL, LC_CTYPE or LANG
-		 * exist (in that order) to contain UTF-8, it is a safe
-		 * assumption that either they are using a UTF-8 terminal, or
-		 * if not they know that output from UTF-8-capable programs may
-		 * be wrong.
-		 */
-		if ((s = getenv("LC_ALL")) == NULL) {
-			if ((s = getenv("LC_CTYPE")) == NULL)
-				s = getenv("LANG");
-		}
-		if (s != NULL && strcasestr(s, "UTF-8") != NULL)
-			flags |= IDENTIFY_UTF8;
-	}
 
 	if (cfg_file == NULL) {
 		home = getenv("HOME");
@@ -350,7 +418,7 @@ main(int argc, char **argv)
 			exit(1);
 		}
 	}
-
+	
 	if (label == NULL)
 		label = xstrdup("default");
 	if (path == NULL && (path = makesockpath(label)) == NULL) {
@@ -369,58 +437,44 @@ main(int argc, char **argv)
 	options_set_string(&global_s_options, "default-path", "%s", cwd);
 
 	if (unlock) {
-		if (argc != 0) {
-			log_warnx("can't specify a command when unlocking");
+		if (prepare_unlock(&msg, &buf, &len, argc) != 0)
 			exit(1);
-		}
-		cmdlist = NULL;
-		if ((pass = getpass("Password: ")) == NULL)
-			exit(1);
-		start_server = 0;
 	} else {
-		if (argc == 0) {
-			cmd = xmalloc(sizeof *cmd);
-			cmd->entry = &cmd_new_session_entry;
-			cmd->entry->init(cmd, 0);
+		if (prepare_cmd(&msg, &buf, &len, argc, argv) != 0)
+			exit(1);
+	}
 
-			cmdlist = xmalloc(sizeof *cmdlist);
-			TAILQ_INIT(cmdlist);
-			TAILQ_INSERT_HEAD(cmdlist, cmd, qentry);
-		} else {
-			cmdlist = cmd_list_parse(argc, argv, &cause);
-			if (cmdlist == NULL) {
-				log_warnx("%s", cause);
-				exit(1);
-			}
+	if (unlock)
+		cmdflags &= ~CMD_STARTSERVER;
+	else if (argc == 0)
+		cmdflags |= CMD_STARTSERVER;
+	else {
+		/*
+		 * It sucks parsing the command string twice (in client and
+		 * later in server) but it is necessary to get the start server
+		 * flag.
+		 */
+		if ((cmdlist = cmd_list_parse(argc, argv, &cause)) == NULL) {
+			log_warnx("%s", cause);
+			exit(1);
 		}
-		start_server = 0;
+		cmdflags &= ~CMD_STARTSERVER;
 		TAILQ_FOREACH(cmd, cmdlist, qentry) {
 			if (cmd->entry->flags & CMD_STARTSERVER) {
-				start_server = 1;
+				cmdflags |= CMD_STARTSERVER;
 				break;
 			}
 		}
+		cmd_list_free(cmdlist);
 	}
 
  	memset(&cctx, 0, sizeof cctx);
-	if (client_init(path, &cctx, start_server, flags) != 0)
+	if (client_init(path, &cctx, cmdflags, flags) != 0)
 		exit(1);
 	xfree(path);
 
-	b = buffer_create(BUFSIZ);
-	if (unlock) {
-		cmd_send_string(b, pass);
-		memset(pass, 0, strlen(pass));
-		client_write_server(
-		    &cctx, MSG_UNLOCK, BUFFER_OUT(b), BUFFER_USED(b));
-	} else {
-		cmd_list_send(cmdlist, b);
-		cmd_list_free(cmdlist);
-		client_fill_session(&cmddata);
-		client_write_server2(&cctx, MSG_COMMAND,
-		    &cmddata, sizeof cmddata, BUFFER_OUT(b), BUFFER_USED(b));
-	}
-	buffer_destroy(b);
+	client_write_server(&cctx, msg, buf, len);
+	memset(buf, 0, len);
 
 	retcode = 0;
 	for (;;) {
@@ -454,12 +508,12 @@ main(int argc, char **argv)
 			retcode = 1;
 			/* FALLTHROUGH */
 		case MSG_PRINT:
-			if (hdr.size > INT_MAX - 1)
+			if (hdr.size < sizeof printdata)
 				fatalx("bad MSG_PRINT size");
-			log_info("%.*s",
-			    (int) hdr.size, BUFFER_OUT(cctx.srv_in));
-			if (hdr.size != 0)
-				buffer_remove(cctx.srv_in, hdr.size);
+			buffer_read(cctx.srv_in, &printdata, sizeof printdata);
+
+			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
+			log_info("%s", printdata.msg);
 			goto restart;
 		case MSG_READY:
 			retcode = client_main(&cctx);

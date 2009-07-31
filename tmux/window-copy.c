@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.6 2009/07/12 16:15:34 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.13 2009/07/30 07:04:50 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -94,6 +94,7 @@ window_copy_init(struct window_pane *wp)
 	struct screen			*s;
 	struct screen_write_ctx	 	 ctx;
 	u_int				 i;
+	int				 keys;
 
 	wp->modedata = data = xmalloc(sizeof *data);
 	data->ox = 0;
@@ -103,10 +104,14 @@ window_copy_init(struct window_pane *wp)
 
 	s = &data->screen;
 	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
-	s->mode |= MODE_MOUSE;
+	if (options_get_number(&wp->window->options, "mode-mouse"))
+		s->mode |= MODE_MOUSE;
 
-	mode_key_init(&data->mdata,
-	    options_get_number(&wp->window->options, "mode-keys"), 0);
+	keys = options_get_number(&wp->window->options, "mode-keys");
+	if (keys == MODEKEY_EMACS)
+		mode_key_init(&data->mdata, &mode_key_tree_emacs_copy);
+	else
+		mode_key_init(&data->mdata, &mode_key_tree_vi_copy);
 
 	s->cx = data->cx;
 	s->cy = data->cy;
@@ -124,8 +129,6 @@ void
 window_copy_free(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
-
- 	mode_key_free(&data->mdata);
 
 	screen_free(&data->screen);
 	xfree(data);
@@ -166,25 +169,25 @@ window_copy_key(struct window_pane *wp, struct client *c, int key)
 	struct screen			*s = &data->screen;
 
 	switch (mode_key_lookup(&data->mdata, key)) {
-	case MODEKEYCMD_QUIT:
+	case MODEKEYCOPY_CANCEL:
 		window_pane_reset_mode(wp);
 		break;
-	case MODEKEYCMD_LEFT:
+	case MODEKEYCOPY_LEFT:
 		window_copy_cursor_left(wp);
 		return;
-	case MODEKEYCMD_RIGHT:
+	case MODEKEYCOPY_RIGHT:
 		window_copy_cursor_right(wp);
  		return;
-	case MODEKEYCMD_UP:
+	case MODEKEYCOPY_UP:
 		window_copy_cursor_up(wp);
 		return;
-	case MODEKEYCMD_DOWN:
+	case MODEKEYCOPY_DOWN:
 		window_copy_cursor_down(wp);
 		return;
-	case MODEKEYCMD_PREVIOUSPAGE:
+	case MODEKEYCOPY_PREVIOUSPAGE:
 		window_copy_pageup(wp);
 		break;
-	case MODEKEYCMD_NEXTPAGE:
+	case MODEKEYCOPY_NEXTPAGE:
 		if (data->oy < screen_size_y(s))
 			data->oy = 0;
 		else
@@ -192,32 +195,33 @@ window_copy_key(struct window_pane *wp, struct client *c, int key)
 		window_copy_update_selection(wp);
 		window_copy_redraw_screen(wp);
 		break;
-	case MODEKEYCMD_STARTSELECTION:
+	case MODEKEYCOPY_STARTSELECTION:
  		window_copy_start_selection(wp);
+		window_copy_redraw_screen(wp);
 		break;
-	case MODEKEYCMD_CLEARSELECTION:
+	case MODEKEYCOPY_CLEARSELECTION:
 		screen_clear_selection(&data->screen);
 		window_copy_redraw_screen(wp);
 		break;
-	case MODEKEYCMD_COPYSELECTION:
+	case MODEKEYCOPY_COPYSELECTION:
 		if (c != NULL && c->session != NULL) {
 			window_copy_copy_selection(wp, c);
 			window_pane_reset_mode(wp);
 		}
 		break;
-	case MODEKEYCMD_STARTOFLINE:
+	case MODEKEYCOPY_STARTOFLINE:
 		window_copy_cursor_start_of_line(wp);
 		break;
-	case MODEKEYCMD_BACKTOINDENTATION:
+	case MODEKEYCOPY_BACKTOINDENTATION:
 		window_copy_cursor_back_to_indentation(wp);
 		break;
-	case MODEKEYCMD_ENDOFLINE:
+	case MODEKEYCOPY_ENDOFLINE:
 		window_copy_cursor_end_of_line(wp);
 		break;
-	case MODEKEYCMD_NEXTWORD:
+	case MODEKEYCOPY_NEXTWORD:
 		window_copy_cursor_next_word(wp);
 		break;
-	case MODEKEYCMD_PREVIOUSWORD:
+	case MODEKEYCOPY_PREVIOUSWORD:
 		window_copy_cursor_previous_word(wp);
 		break;
 	default:
@@ -795,55 +799,40 @@ out:
 	window_copy_set_cursor_x(wp, px);
 }
 
+/* Move to the previous place where a word begins. */
 void
 window_copy_cursor_previous_word(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
-	u_int				 ox, px, py, skip;
+	u_int				 px, py;
 
-	ox = px = data->ox + data->cx;
+	px = data->ox + data->cx;
 	py = screen_hsize(&wp->base) + data->cy - data->oy;
 
-	skip = 1;
-	if (px != 0) {
-		/* If currently on a space, skip space. */
-		if (window_copy_is_space(wp, px - 1, py))
-			skip = 0;
-	}
+	/* Move back to the previous word character. */
 	for (;;) {
-		if (px == 0) {
-			if (ox != 0)
+		if (px > 0) {
+			px--;
+			if (!window_copy_is_space(wp, px, py))
 				break;
-
-			while (px == 0) {
-				if (data->cy == 0 &&
-				    (screen_hsize(&wp->base) == 0 ||
-				    data->oy >= screen_hsize(&wp->base) - 1))
-					goto out;
-
-				window_copy_cursor_up(wp);
-
-				py = screen_hsize(
-				    &wp->base) + data->cy - data->oy;
-				px = window_copy_find_length(wp, py);
-			}
-			goto out;
-		}
-
-		if (skip) {
-			/* Currently skipping non-space (until space). */
-			if (window_copy_is_space(wp, px - 1, py))
-				skip = 0;
 		} else {
-			/* Currently skipping space (until non-space). */
-			if (!window_copy_is_space(wp, px - 1, py))
-				break;
+			if (data->cy == 0 &&
+			    (screen_hsize(&wp->base) == 0 ||
+			    data->oy >= screen_hsize(&wp->base) - 1))
+				goto out;
+			window_copy_cursor_up(wp);
+
+			py = screen_hsize(
+			    &wp->base) + data->cy - data->oy;
+			px = window_copy_find_length(wp, py);
 		}
-
-		px--;
 	}
-out:
 
+	/* Move back to the beginning of this word. */
+	while (px > 0 && !window_copy_is_space(wp, px - 1, py))
+		px--;
+
+out:
 	window_copy_set_cursor_x(wp, px);
 }
 

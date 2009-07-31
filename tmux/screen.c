@@ -1,4 +1,4 @@
-/* $OpenBSD: screen.c,v 1.8 2009/07/13 10:43:52 nicm Exp $ */
+/* $OpenBSD: screen.c,v 1.10 2009/07/30 20:41:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -63,6 +63,8 @@ screen_reinit(struct screen *s)
 void
 screen_free(struct screen *s)
 {
+	if (s->tabs != NULL)
+		xfree(s->tabs);
 	xfree(s->title);
 	grid_destroy(s->grid);
 }
@@ -183,7 +185,7 @@ screen_resize_y(struct screen *s, u_int sy)
 		available = s->cy;
 		if (gd->flags & GRID_HISTORY)
 			gd->hsize += needed;
-		else if (available > 0) {
+		else if (needed > 0 && available > 0) {
 			if (available > needed)
 				available = needed;
 			grid_view_delete_lines(gd, 0, available);

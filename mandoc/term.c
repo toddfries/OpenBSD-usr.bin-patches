@@ -1,4 +1,4 @@
-/*	$Id: term.c,v 1.5 2009/06/23 23:53:43 schwarze Exp $ */
+/*	$Id: term.c,v 1.8 2009/07/26 00:40:28 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -31,15 +31,13 @@ extern	int		  mdoc_run(struct termp *,
 
 static	struct termp	 *term_alloc(enum termenc);
 static	void		  term_free(struct termp *);
-static	void		  term_pword(struct termp *, const char *, int);
-static	void		  term_pescape(struct termp *, 
-				const char *, int *, int);
+static	void		  term_pescape(struct termp *, const char **);
 static	void		  term_nescape(struct termp *,
 				const char *, size_t);
 static	void		  term_chara(struct termp *, char);
 static	void		  term_encodea(struct termp *, char);
-static	int		  term_isopendelim(const char *, int);
-static	int		  term_isclosedelim(const char *, int);
+static	int		  term_isopendelim(const char *);
+static	int		  term_isclosedelim(const char *);
 
 
 void *
@@ -112,10 +110,10 @@ term_alloc(enum termenc enc)
 
 
 static int
-term_isclosedelim(const char *p, int len)
+term_isclosedelim(const char *p)
 {
 
-	if (1 != len)
+	if ( ! (*p && 0 == *(p + 1)))
 		return(0);
 
 	switch (*p) {
@@ -146,10 +144,10 @@ term_isclosedelim(const char *p, int len)
 
 
 static int
-term_isopendelim(const char *p, int len)
+term_isopendelim(const char *p)
 {
 
-	if (1 != len)
+	if ( ! (*p && 0 == *(p + 1)))
 		return(0);
 
 	switch (*p) {
@@ -176,8 +174,7 @@ term_isopendelim(const char *p, int len)
  * Specifically, a line is whatever's in p->buf of length p->col, which
  * is zeroed after this function returns.
  *
- * The variables TERMP_NOLPAD, TERMP_LITERAL and TERMP_NOBREAK are of
- * critical importance here.  Their behaviour follows:
+ * The usage of termp:flags is as follows:
  *
  *  - TERMP_NOLPAD: when beginning to write the line, don't left-pad the
  *    offset value.  This is useful when doing columnar lists where the
@@ -187,7 +184,12 @@ term_isopendelim(const char *p, int len)
  *    columns.  In short: don't print a newline and instead pad to the
  *    right margin.  Used in conjunction with TERMP_NOLPAD.
  *
- *  - TERMP_NONOBREAK: don't newline when TERMP_NOBREAK is specified.
+ *  - TERMP_DANGLE: don't newline when TERMP_NOBREAK is specified and
+ *    the line is overrun, and don't pad-right if it's underrun.
+ *
+ *  - TERMP_HANG: like TERMP_DANGLE, but doesn't newline when
+ *    overruning, instead save the position and continue at that point
+ *    when the next invocation.
  *
  *  In-line line breaking:
  *
@@ -202,13 +204,17 @@ term_isopendelim(const char *p, int len)
  *  possible).
  *
  *  FIXME: newline breaks occur (in groff) also occur when a single
- *  space follows a NOBREAK!
+ *  space follows a NOBREAK (try `Bl -tag')
+ *
+ *  FIXME: there's a newline error where a `Bl -diag' will have a
+ *  trailing newline if the line is exactly 73 chars long.
  */
 void
 term_flushln(struct termp *p)
 {
 	int		 i, j;
 	size_t		 vbl, vsz, vis, maxvis, mmax, bp;
+	static int	 sv = -1;
 
 	/*
 	 * First, establish the maximum columns of "visible" content.
@@ -222,6 +228,11 @@ term_flushln(struct termp *p)
 	mmax = p->maxrmargin - p->offset;
 	bp = TERMP_NOBREAK & p->flags ? mmax : maxvis;
 	vis = 0;
+
+	if (sv >= 0) {
+		vis = (size_t)sv;
+		sv = -1;
+	}
 
 	/*
 	 * If in the standard case (left-justified), then begin with our
@@ -244,10 +255,10 @@ term_flushln(struct termp *p)
 
 		/* LINTED */
 		for (j = i, vsz = 0; j < (int)p->col; j++) {
-			if (' ' == p->buf[j])
+			if (' ' == p->buf[j]) 
 				break;
 			else if (8 == p->buf[j])
-				j += 1;
+				vsz--;
 			else
 				vsz++;
 		}
@@ -298,11 +309,14 @@ term_flushln(struct termp *p)
 	 */
 
 	if ((TERMP_NOBREAK & p->flags) && vis >= maxvis) {
-		if ( ! (TERMP_NONOBREAK & p->flags)) {
+		if ( ! (TERMP_DANGLE & p->flags) &&
+				! (TERMP_HANG & p->flags)) {
 			putchar('\n');
 			for (i = 0; i < (int)p->rmargin; i++)
 				putchar(' ');
 		}
+		if (TERMP_HANG & p->flags)
+			sv = (int)(vis - maxvis);
 		p->col = 0;
 		return;
 	}
@@ -313,7 +327,7 @@ term_flushln(struct termp *p)
 	 */
 
 	if (p->flags & TERMP_NOBREAK) {
-		if ( ! (TERMP_NONOBREAK & p->flags))
+		if ( ! (TERMP_DANGLE & p->flags))
 			for ( ; vis < maxvis; vis++)
 				putchar(' ');
 	} else
@@ -358,50 +372,6 @@ term_vspace(struct termp *p)
 
 
 /*
- * Break apart a word into "pwords" (partial-words, usually from
- * breaking up a phrase into individual words) and, eventually, put them
- * into the output buffer.  If we're a literal word, then don't break up
- * the word and put it verbatim into the output buffer.
- */
-void
-term_word(struct termp *p, const char *word)
-{
-	int 		 i, j, len;
-
-	len = (int)strlen(word);
-
-	if (p->flags & TERMP_LITERAL) {
-		term_pword(p, word, len);
-		return;
-	}
-
-	/* LINTED */
-	for (j = i = 0; i < len; i++) {
-		if (' ' != word[i]) {
-			j++;
-			continue;
-		} 
-		
-		/* Escaped spaces don't delimit... */
-		if (i && ' ' == word[i] && '\\' == word[i - 1]) {
-			j++;
-			continue;
-		}
-
-		if (0 == j)
-			continue;
-		assert(i >= j);
-		term_pword(p, &word[i - j], j);
-		j = 0;
-	}
-	if (j > 0) {
-		assert(i >= j);
-		term_pword(p, &word[i - j], j);
-	}
-}
-
-
-/*
  * Determine the symbol indicated by an escape sequences, that is, one
  * starting with a backslash.  Once done, we pass this value into the
  * output buffer by way of the symbol table.
@@ -414,6 +384,7 @@ term_nescape(struct termp *p, const char *word, size_t len)
 	int		 i;
 
 	rhs = term_a2ascii(p->symtab, word, len, &sz);
+
 	if (rhs)
 		for (i = 0; i < (int)sz; i++) 
 			term_encodea(p, rhs[i]);
@@ -426,48 +397,61 @@ term_nescape(struct termp *p, const char *word, size_t len)
  * the escape sequence (we assert upon badly-formed escape sequences).
  */
 static void
-term_pescape(struct termp *p, const char *word, int *i, int len)
+term_pescape(struct termp *p, const char **word)
 {
 	int		 j;
+	const char	*wp;
 
-	if (++(*i) >= len)
+	wp = *word;
+
+	if (0 == *(++wp)) {
+		*word = wp;
+		return;
+	}
+
+	if ('(' == *wp) {
+		wp++;
+		if (0 == *wp || 0 == *(wp + 1)) {
+			*word = 0 == *wp ? wp : wp + 1;
+			return;
+		}
+
+		term_nescape(p, wp, 2);
+		*word = ++wp;
 		return;
 
-	if ('(' == word[*i]) {
-		(*i)++;
-		if (*i + 1 >= len)
+	} else if ('*' == *wp) {
+		if (0 == *(++wp)) {
+			*word = wp;
 			return;
+		}
 
-		term_nescape(p, &word[*i], 2);
-		(*i)++;
-		return;
-
-	} else if ('*' == word[*i]) { 
-		(*i)++;
-		if (*i >= len)
-			return;
-
-		switch (word[*i]) {
+		switch (*wp) {
 		case ('('):
-			(*i)++;
-			if (*i + 1 >= len)
+			wp++;
+			if (0 == *wp || 0 == *(wp + 1)) {
+				*word = 0 == *wp ? wp : wp + 1;
 				return;
+			}
 
-			term_nescape(p, &word[*i], 2);
-			(*i)++;
+			term_nescape(p, wp, 2);
+			*word = ++wp;
 			return;
 		case ('['):
 			break;
 		default:
-			term_nescape(p, &word[*i], 1);
+			term_nescape(p, wp, 1);
+			*word = wp;
 			return;
 		}
 	
-	} else if ('f' == word[*i]) {
-		(*i)++;
-		if (*i >= len)
+	} else if ('f' == *wp) {
+		if (0 == *(++wp)) {
+			*word = wp;
 			return;
-		switch (word[*i]) {
+		}
+
+		switch (*wp) {
 		case ('B'):
 			p->flags |= TERMP_BOLD;
 			break;
@@ -482,21 +466,27 @@ term_pescape(struct termp *p, const char *word, int *i, int len)
 		default:
 			break;
 		}
+
+		*word = wp;
 		return;
 
-	} else if ('[' != word[*i]) {
-		term_nescape(p, &word[*i], 1);
+	} else if ('[' != *wp) {
+		term_nescape(p, wp, 1);
+		*word = wp;
 		return;
 	}
 
-	(*i)++;
-	for (j = 0; word[*i] && ']' != word[*i]; (*i)++, j++)
+	wp++;
+	for (j = 0; *wp && ']' != *wp; wp++, j++)
 		/* Loop... */ ;
 
-	if (0 == word[*i])
+	if (0 == *wp) {
+		*word = wp;
 		return;
+	}
 
-	term_nescape(p, &word[*i - j], (size_t)j);
+	term_nescape(p, wp - j, (size_t)j);
+	*word = wp;
 }
 
 
@@ -505,12 +495,12 @@ term_pescape(struct termp *p, const char *word, int *i, int len)
  * phrase that cannot be broken down (such as a literal string).  This
  * handles word styling.
  */
-static void
-term_pword(struct termp *p, const char *word, int len)
+void
+term_word(struct termp *p, const char *word)
 {
-	int		 i;
+	const char	 *sv;
 
-	if (term_isclosedelim(word, len))
+	if (term_isclosedelim(word))
 		if ( ! (TERMP_IGNDELIM & p->flags))
 			p->flags |= TERMP_NOSPACE;
 
@@ -525,13 +515,13 @@ term_pword(struct termp *p, const char *word, int len)
 	 * before the word.
 	 */
 
-	for (i = 0; i < len; i++) 
-		if ('\\' == word[i]) 
-			term_pescape(p, word, &i, len);
+	for (sv = word; *word; word++)
+		if ('\\' != *word)
+			term_encodea(p, *word);
 		else
-			term_encodea(p, word[i]);
+			term_pescape(p, &word);
 
-	if (term_isopendelim(word, len))
+	if (term_isopendelim(sv))
 		p->flags |= TERMP_NOSPACE;
 }
 
@@ -562,8 +552,8 @@ term_chara(struct termp *p, char c)
 static void
 term_encodea(struct termp *p, char c)
 {
-
-	if (TERMP_STYLE & p->flags) {
+	
+	if (' ' != c && TERMP_STYLE & p->flags) {
 		if (TERMP_BOLD & p->flags) {
 			term_chara(p, c);
 			term_chara(p, 8);

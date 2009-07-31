@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.3 2009/07/13 23:11:35 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.8 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,8 +26,6 @@
 
 int	cmd_new_session_parse(struct cmd *, int, char **, char **);
 int	cmd_new_session_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_new_session_send(struct cmd *, struct buffer *);
-void	cmd_new_session_recv(struct cmd *, struct buffer *);
 void	cmd_new_session_free(struct cmd *);
 void	cmd_new_session_init(struct cmd *, int);
 size_t	cmd_new_session_print(struct cmd *, char *, size_t);
@@ -46,8 +44,6 @@ const struct cmd_entry cmd_new_session_entry = {
 	cmd_new_session_init,
 	cmd_new_session_parse,
 	cmd_new_session_exec,
-	cmd_new_session_send,
-	cmd_new_session_recv,
 	cmd_new_session_free,
 	cmd_new_session_print
 };
@@ -111,65 +107,89 @@ int
 cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_new_session_data	*data = self->data;
-	struct client			*c = ctx->cmdclient;
 	struct session			*s;
 	char				*cmd, *cwd, *cause;
+	int				 detached;
 	u_int				 sx, sy;
-
-	if (ctx->curclient != NULL)
-		return (0);
-
-	if (!data->flag_detached) {
-		if (c == NULL) {
-			ctx->error(ctx, "no client to attach to");
-			return (-1);
-		}
-		if (!(c->flags & CLIENT_TERMINAL)) {
-			ctx->error(ctx, "not a terminal");
-			return (-1);
-		}
-	}
 
 	if (data->newname != NULL && session_find(data->newname) != NULL) {
 		ctx->error(ctx, "duplicate session: %s", data->newname);
 		return (-1);
 	}
 
-	cmd = data->cmd;
-	if (cmd == NULL)
-		cmd = options_get_string(&global_s_options, "default-command");
-	if (c == NULL || c->cwd == NULL)
-		cwd = options_get_string(&global_s_options, "default-path");
+	/*
+	 * There are three cases:
+	 *
+	 * 1. If cmdclient is non-NULL, new-session has been called from the
+	 *    command-line - cmdclient is to become a new attached, interactive
+	 *    client. Unless -d is given, the terminal must be opened and then
+	 *    the client sent MSG_READY.
+	 *
+	 * 2. If cmdclient is NULL, new-session has been called from an
+	 *    existing client (such as a key binding).
+	 *
+	 * 3. Both are NULL, the command was in the configuration file. Treat
+	 *    this as if -d was given even if it was not.
+	 *
+	 * In all cases, a new additional session needs to be created and
+	 * (unless -d) set as the current session for the client.
+	 */
+
+	/* Set -d if no client. */
+	detached = data->flag_detached;
+	if (ctx->cmdclient == NULL && ctx->curclient == NULL)
+		detached = 1;
+
+	/* Open the terminal if necessary. */
+	if (!detached && ctx->cmdclient != NULL) {
+		if (!(ctx->cmdclient->flags & CLIENT_TERMINAL)) {
+			ctx->error(ctx, "not a terminal");
+			return (-1);
+		}
+		
+		if (tty_open(&ctx->cmdclient->tty, &cause) != 0) {
+			ctx->error(ctx, "open terminal failed: %s", cause);
+			xfree(cause);
+			return (-1);
+		}
+	}
+
+	/* Find new session size and options. */
+	if (detached) {
+		sx = 80;
+		sy = 25;
+	} else {
+		if (ctx->cmdclient != NULL) {
+			sx = ctx->cmdclient->tty.sx;
+			sy = ctx->cmdclient->tty.sy;
+		} else {
+			sx = ctx->curclient->tty.sx;
+			sy = ctx->curclient->tty.sy;
+		}
+	}
+	if (sy > 0 && options_get_number(&global_s_options, "status"))
+		sy--;
+	if (sx == 0)
+		sx = 1;
+	if (sy == 0)
+		sy = 1;
+	if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
+		cwd = ctx->cmdclient->cwd;
 	else
-		cwd = c->cwd;
+		cwd = options_get_string(&global_s_options, "default-path");
+	if (data->cmd != NULL)
+		cmd = data->cmd;
+	else
+		cmd = options_get_string(&global_s_options, "default-command");
 
-	sx = 80;
-	sy = 25;
-	if (!data->flag_detached) {
-		sx = c->tty.sx;
-		sy = c->tty.sy;
-	}
-
-	if (options_get_number(&global_s_options, "status")) {
-		if (sy == 0)
-			sy = 1;
-		else
-			sy--;
-	}
-
-	if (!data->flag_detached && tty_open(&c->tty, &cause) != 0) {
-		ctx->error(ctx, "open terminal failed: %s", cause);
-		xfree(cause);
-		return (-1);
-	}
-
-
+	/* Create the new session. */
 	s = session_create(data->newname, cmd, cwd, sx, sy, &cause);
 	if (s == NULL) {
 		ctx->error(ctx, "create session failed: %s", cause);
 		xfree(cause);
 		return (-1);
 	}
+
 	if (data->winname != NULL) {
 		xfree(s->curw->window->name);
 		s->curw->window->name = xstrdup(data->winname);
@@ -177,40 +197,31 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 		    &s->curw->window->options, "automatic-rename", 0);
 	}
 
-	if (data->flag_detached) {
-		if (c != NULL)
-			server_write_client(c, MSG_EXIT, NULL, 0);
-	} else {
-		c->session = s;
-		server_write_client(c, MSG_READY, NULL, 0);
-		server_redraw_client(c);
+	/* 
+	 * If a command client exists, it is either taking this session (and
+	 * needs to get MSG_READY and stay around), or -d is given and it needs
+	 * to exit.
+	 */
+	if (ctx->cmdclient != NULL) {
+		if (!detached)
+			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
+		else 
+			server_write_client(ctx->cmdclient, MSG_EXIT, NULL, 0);
+	}
+	
+	/* Set the client to the new session. */
+ 	if (!detached) {
+		if (ctx->cmdclient != NULL) {
+ 			ctx->cmdclient->session = s;
+			server_redraw_client(ctx->cmdclient);
+		} else {
+ 			ctx->curclient->session = s;
+			server_redraw_client(ctx->curclient);
+		}
 	}
 	recalculate_sizes();
 
-	return (1);
-}
-
-void
-cmd_new_session_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_session_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->newname);
-	cmd_send_string(b, data->winname);
-	cmd_send_string(b, data->cmd);
-}
-
-void
-cmd_new_session_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_session_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->newname = cmd_recv_string(b);
-	data->winname = cmd_recv_string(b);
-	data->cmd = cmd_recv_string(b);
+	return (1);	/* 1 means don't tell command client to exit */
 }
 
 void

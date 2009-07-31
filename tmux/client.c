@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.3 2009/06/25 22:09:20 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.9 2009/07/30 16:32:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,7 +36,7 @@
 void	client_handle_winch(struct client_ctx *);
 
 int
-client_init(char *path, struct client_ctx *cctx, int start_server, int flags)
+client_init(char *path, struct client_ctx *cctx, int cmdflags, int flags)
 {
 	struct sockaddr_un		sa;
 	struct stat			sb;
@@ -44,8 +44,7 @@ client_init(char *path, struct client_ctx *cctx, int start_server, int flags)
 	struct winsize			ws;
 	size_t				size;
 	int				mode;
-	struct buffer		       *b;
-	char			       *name;
+	char			       *name, *term;
 	char		 		rpathbuf[MAXPATHLEN];
 
 	if (realpath(path, rpathbuf) == NULL)
@@ -53,7 +52,7 @@ client_init(char *path, struct client_ctx *cctx, int start_server, int flags)
 	setproctitle("client (%s)", rpathbuf);
 
 	if (lstat(path, &sb) != 0) {
-		if (start_server && errno == ENOENT) {
+		if (cmdflags & CMD_STARTSERVER && errno == ENOENT) {
 			if ((cctx->srv_fd = server_start(path)) == -1)
 				goto start_failed;
 			goto server_started;
@@ -79,7 +78,7 @@ client_init(char *path, struct client_ctx *cctx, int start_server, int flags)
 	if (connect(
 	    cctx->srv_fd, (struct sockaddr *) &sa, SUN_LEN(&sa)) == -1) {
 		if (errno == ECONNREFUSED) {
-			if (unlink(path) != 0 || !start_server)
+			if (unlink(path) != 0 || !(cmdflags & CMD_STARTSERVER))
 				goto not_found;
 			if ((cctx->srv_fd = server_start(path)) == -1)
 				goto start_failed;
@@ -103,20 +102,24 @@ server_started:
 		data.flags = flags;
 		data.sx = ws.ws_col;
 		data.sy = ws.ws_row;
-		*data.tty = '\0';
+
 		if (getcwd(data.cwd, sizeof data.cwd) == NULL)
 			*data.cwd = '\0';
 
+		*data.term = '\0';
+		if ((term = getenv("TERM")) != NULL) {
+			if (strlcpy(data.term,
+			    term, sizeof data.term) >= sizeof data.term)
+				*data.term = '\0';
+		}
+
+		*data.tty = '\0';
 		if ((name = ttyname(STDIN_FILENO)) == NULL)
 			fatal("ttyname failed");
 		if (strlcpy(data.tty, name, sizeof data.tty) >= sizeof data.tty)
 			fatalx("ttyname failed");
 
-		b = buffer_create(BUFSIZ);
-		cmd_send_string(b, getenv("TERM"));
-		client_write_server2(cctx, MSG_IDENTIFY,
-		    &data, sizeof data, BUFFER_OUT(b), BUFFER_USED(b));
-		buffer_destroy(b);
+		client_write_server(cctx, MSG_IDENTIFY, &data, sizeof data);
 	}
 
 	return (0);
@@ -134,15 +137,14 @@ int
 client_main(struct client_ctx *cctx)
 {
 	struct pollfd	 pfd;
-	char		*error;
-	int		 xtimeout; /* Yay for ncurses namespace! */
 
 	siginit();
 
 	logfile("client");
 
-	error = NULL;
-	while (!sigterm) {
+	for (;;) {
+		if (sigterm)
+			client_write_server(cctx, MSG_EXITING, NULL, 0);
 		if (sigchld) {
 			waitpid(WAIT_ANY, NULL, WNOHANG);
 			sigchld = 0;
@@ -155,61 +157,47 @@ client_main(struct client_ctx *cctx)
 			sigcont = 0;
 		}
 
-		switch (client_msg_dispatch(cctx, &error)) {
-		case -1:
-			goto out;
-		case 0:
-			/* May be more in buffer, don't let poll block. */
-			xtimeout = 0;
-			break;
-		default:
-			/* Out of data, poll may block. */
-			xtimeout = INFTIM;
-			break;
-		}
-
 		pfd.fd = cctx->srv_fd;
 		pfd.events = POLLIN;
 		if (BUFFER_USED(cctx->srv_out) > 0)
 			pfd.events |= POLLOUT;
 
-		if (poll(&pfd, 1, xtimeout) == -1) {
+		if (poll(&pfd, 1, INFTIM) == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
 			fatal("poll failed");
 		}
 
-		if (buffer_poll(&pfd, cctx->srv_in, cctx->srv_out) != 0)
-			goto server_dead;
+		if (buffer_poll(&pfd, cctx->srv_in, cctx->srv_out) != 0) {
+			cctx->exittype = CCTX_DIED;
+			break;
+		}
+
+		if (client_msg_dispatch(cctx) != 0)
+			break;
 	}
 
-out:
  	if (sigterm) {
  		printf("[terminated]\n");
  		return (1);
  	}
-
-	if (cctx->flags & CCTX_SHUTDOWN) {
+	switch (cctx->exittype) {
+	case CCTX_DIED:
+		printf("[lost server]\n");
+		return (0);
+	case CCTX_SHUTDOWN:
 		printf("[server exited]\n");
 		return (0);
-	}
-
-	if (cctx->flags & CCTX_EXIT) {
+	case CCTX_EXIT:
 		printf("[exited]\n");
 		return (0);
-	}
-
-	if (cctx->flags & CCTX_DETACH) {
+	case CCTX_DETACH:
 		printf("[detached]\n");
 		return (0);
+	default:
+		printf("[error: %s]\n", cctx->errstr);
+		return (1);
 	}
-
-	printf("[error: %s]\n", error);
-	return (1);
-
-server_dead:
-	printf("[lost server]\n");
-	return (0);
 }
 
 void
@@ -226,4 +214,65 @@ client_handle_winch(struct client_ctx *cctx)
 	client_write_server(cctx, MSG_RESIZE, &data, sizeof data);
 
 	sigwinch = 0;
+}
+
+int
+client_msg_dispatch(struct client_ctx *cctx)
+{
+	struct hdr		 hdr;
+	struct msg_print_data	 printdata;
+
+	for (;;) {
+		if (BUFFER_USED(cctx->srv_in) < sizeof hdr)
+			return (0);
+		memcpy(&hdr, BUFFER_OUT(cctx->srv_in), sizeof hdr);
+		if (BUFFER_USED(cctx->srv_in) < (sizeof hdr) + hdr.size)
+			return (0);
+		buffer_remove(cctx->srv_in, sizeof hdr);
+
+		switch (hdr.type) {
+		case MSG_DETACH:
+			if (hdr.size != 0)
+				fatalx("bad MSG_DETACH size");
+
+			client_write_server(cctx, MSG_EXITING, NULL, 0);
+			cctx->exittype = CCTX_DETACH;
+			break;
+		case MSG_ERROR:
+			if (hdr.size != sizeof printdata)
+				fatalx("bad MSG_PRINT size");
+			buffer_read(cctx->srv_in, &printdata, sizeof printdata);
+			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
+
+			cctx->errstr = xstrdup(printdata.msg);
+			return (-1);
+		case MSG_EXIT:
+			if (hdr.size != 0)
+				fatalx("bad MSG_EXIT size");
+		
+			client_write_server(cctx, MSG_EXITING, NULL, 0);
+			cctx->exittype = CCTX_EXIT;
+			break;
+		case MSG_EXITED:
+			if (hdr.size != 0)
+				fatalx("bad MSG_EXITED size");
+
+			return (-1);
+		case MSG_SHUTDOWN:
+			if (hdr.size != 0)
+				fatalx("bad MSG_SHUTDOWN size");
+
+			client_write_server(cctx, MSG_EXITING, NULL, 0);
+			cctx->exittype = CCTX_SHUTDOWN;
+			break;
+		case MSG_SUSPEND:
+			if (hdr.size != 0)
+				fatalx("bad MSG_SUSPEND size");
+
+			client_suspend();
+			break;
+		default:
+			fatalx("unexpected message");
+		}
+	}
 }

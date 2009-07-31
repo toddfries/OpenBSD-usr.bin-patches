@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.3 2009/07/13 23:11:35 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.5 2009/07/30 17:46:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -39,8 +39,6 @@ const struct cmd_entry cmd_load_buffer_entry = {
 	cmd_buffer_init,
 	cmd_buffer_parse,
 	cmd_load_buffer_exec,
-	cmd_buffer_send,
-	cmd_buffer_recv,
 	cmd_buffer_free,
 	cmd_buffer_print
 };
@@ -60,10 +58,6 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	if (stat(data->arg, &statbuf) < 0) {
 		ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
-		return (-1);
-	}
-	if (!S_ISREG(statbuf.st_mode)) {
-		ctx->error(ctx, "%s: not a regular file", data->arg);
 		return (-1);
 	}
 

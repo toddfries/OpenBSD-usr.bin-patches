@@ -1,4 +1,4 @@
-/*	$OpenBSD: abuf.c,v 1.11 2009/02/13 20:48:49 ratchov Exp $	*/
+/*	$OpenBSD: abuf.c,v 1.13 2009/07/25 10:52:18 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -37,10 +37,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "conf.h"
+#include "abuf.h"
 #include "aparams.h"
 #include "aproc.h"
-#include "abuf.h"
+#include "conf.h"
 
 #ifdef DEBUG
 void
@@ -55,6 +55,7 @@ abuf_dprn(int n, struct abuf *buf, char *fmt, ...)
 	    buf->rproc ? buf->rproc->name : "none");
 	va_start(ap, fmt);
 	vfprintf(stderr, fmt, ap);
+	va_end(ap);
 }
 #define ABUF_DPRN(n, buf, ...) abuf_dprn((n), (buf), __VA_ARGS__)
 #define ABUF_DPR(buf, ...) abuf_dprn(1, (buf), __VA_ARGS__)
@@ -112,7 +113,7 @@ abuf_del(struct abuf *buf)
 }
 
 /*
- * Clear buffer contents
+ * Clear buffer contents.
  */
 void
 abuf_clear(struct abuf *buf)
@@ -153,7 +154,7 @@ abuf_rgetblk(struct abuf *buf, unsigned *rsize, unsigned ofs)
 }
 
 /*
- * Discard the block at the start postion
+ * Discard the block at the start postion.
  */
 void
 abuf_rdiscard(struct abuf *buf, unsigned count)
@@ -172,7 +173,7 @@ abuf_rdiscard(struct abuf *buf, unsigned count)
 }
 
 /*
- * Commit the data written at the end postion
+ * Commit the data written at the end postion.
  */
 void
 abuf_wcommit(struct abuf *buf, unsigned count)
@@ -216,8 +217,8 @@ abuf_wgetblk(struct abuf *buf, unsigned *rsize, unsigned ofs)
 }
 
 /*
- * flush buffer either by dropping samples or by calling the aproc
- * call-back to consume data. Return 0 if blocked, 1 otherwise
+ * Flush buffer either by dropping samples or by calling the aproc
+ * call-back to consume data. Return 0 if blocked, 1 otherwise.
  */
 int
 abuf_flush_do(struct abuf *buf)
@@ -247,8 +248,8 @@ abuf_flush_do(struct abuf *buf)
 }
 
 /*
- * fill the buffer either by generating silence or by calling the aproc
- * call-back to provide data. Return 0 if blocked, 1 otherwise
+ * Fill the buffer either by generating silence or by calling the aproc
+ * call-back to provide data. Return 0 if blocked, 1 otherwise.
  */
 int
 abuf_fill_do(struct abuf *buf)
@@ -282,7 +283,7 @@ abuf_fill_do(struct abuf *buf)
 
 /*
  * Notify the reader that there will be no more input (producer
- * disappeared) and destroy the buffer
+ * disappeared) and destroy the buffer.
  */
 void
 abuf_eof_do(struct abuf *buf)
@@ -304,7 +305,7 @@ abuf_eof_do(struct abuf *buf)
 
 /*
  * Notify the writer that the buffer has no more consumer,
- * and destroy the buffer
+ * and destroy the buffer.
  */
 void
 abuf_hup_do(struct abuf *buf)
@@ -358,7 +359,7 @@ abuf_flush(struct abuf *buf)
  * call-back of the reader.
  *
  * Return 1 if the buffer was filled, and 0 if eof condition occured. The
- * reader must detach the buffer on EOF condition, since it's aproc->eof()
+ * reader must detach the buffer on EOF condition, since its aproc->eof()
  * call-back will never be called.
  */
 int
@@ -383,7 +384,7 @@ abuf_fill(struct abuf *buf)
 
 /*
  * Run a read/write loop on the buffer until either the reader or the
- * writer blocks, or until the buffer reaches eofs. We can not get hup hear,
+ * writer blocks, or until the buffer reaches eofs. We can not get hup here,
  * since hup() is only called from terminal nodes, from the main loop.
  *
  * NOTE: The buffer may disappear (ie. be free()ed) if eof is reached, so
@@ -510,7 +511,6 @@ void
 abuf_opos(struct abuf *buf, int delta)
 {
 	struct aproc *p = buf->wproc;
-
 
 	if (p && p->ops->opos) {
 		buf->inuse++;

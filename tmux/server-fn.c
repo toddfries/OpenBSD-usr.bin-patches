@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.7 2009/07/17 07:09:46 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.11 2009/07/29 14:17:26 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -48,8 +48,17 @@ server_fill_environ(struct session *s)
 }
 
 void
+server_write_error(struct client *c, const char *msg)
+{
+	struct msg_print_data	printdata;
+
+	strlcpy(printdata.msg, msg, sizeof printdata.msg);
+	server_write_client(c, MSG_ERROR, &printdata, sizeof printdata);
+}
+
+void
 server_write_client(
-    struct client *c, enum hdrtype type, const void *buf, size_t len)
+    struct client *c, enum msgtype type, const void *buf, size_t len)
 {
 	struct hdr	 hdr;
 
@@ -65,7 +74,7 @@ server_write_client(
 
 void
 server_write_session(
-    struct session *s, enum hdrtype type, const void *buf, size_t len)
+    struct session *s, enum msgtype type, const void *buf, size_t len)
 {
 	struct client	*c;
 	u_int		 i;
@@ -213,18 +222,53 @@ server_unlock(const char *s)
 	}
 
 	server_locked = 0;
+	password_failures = 0;
 	return (0);
 
 wrong:
+	password_failures++;
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
-                if (c == NULL || c->prompt_buffer == NULL)
+		if (c == NULL || c->prompt_buffer == NULL)
 			continue;
 
 		*c->prompt_buffer = '\0';
 		c->prompt_index = 0;
-  		server_status_client(c);
+  		server_redraw_client(c);
 	}
 
 	return (-1);
+}
+
+void
+server_kill_window(struct window *w)
+{
+	struct session	*s;
+	struct winlink	*wl;
+	struct client	*c;
+	u_int		 i, j;
+	int		 destroyed;
+
+	
+	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+		s = ARRAY_ITEM(&sessions, i);
+		if (s == NULL || !session_has(s, w))
+			continue;
+		if ((wl = winlink_find_by_window(&s->windows, w)) == NULL)
+			continue;
+		
+		destroyed = session_detach(s, wl);
+		for (j = 0; j < ARRAY_LENGTH(&clients); j++) {
+			c = ARRAY_ITEM(&clients, j);
+			if (c == NULL || c->session != s)
+				continue;
+			
+			if (destroyed) {
+				c->session = NULL;
+				server_write_client(c, MSG_EXIT, NULL, 0);
+			} else
+				server_redraw_client(c);
+		}
+	}
+	recalculate_sizes();
 }

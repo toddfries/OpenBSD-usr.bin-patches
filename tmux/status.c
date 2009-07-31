@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.12 2009/07/17 06:13:27 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.22 2009/07/30 20:41:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,7 +29,6 @@
 
 #include "tmux.h"
 
-char   *status_replace(struct session *, char *, time_t);
 char   *status_replace_popen(char **);
 size_t	status_width(struct winlink *);
 char   *status_print(struct session *, struct winlink *, struct grid_cell *);
@@ -47,7 +46,7 @@ status_redraw(struct client *c)
 	struct screen		      	old_status;
 	char		 	       *left, *right, *text, *ptr;
 	size_t				llen, llen2, rlen, rlen2, offset;
-	size_t				xx, yy, size, start, width;
+	size_t				ox, xx, yy, size, start, width;
 	struct grid_cell	        stdgc, gc;
 	int				larrow, rarrow, utf8flag;
 
@@ -176,6 +175,21 @@ draw:
 			screen_write_cursormove(&ctx, 0, yy);
 	}
 
+	ox = 0;
+	if (width < xx) {
+		switch (options_get_number(&s->options, "status-justify")) {
+		case 1:	/* centered */
+			ox = 1 + (xx - width) / 2;
+			break;
+		case 2:	/* right */
+			ox = 1 + (xx - width);
+			break;
+		}
+		xx -= ox;
+		while (ox-- > 0)
+			screen_write_putc(&ctx, &stdgc, ' ');
+	}
+
 	/* Draw each character in succession. */
 	offset = 0;
 	RB_FOREACH(wl, winlinks, &s->windows) {
@@ -275,7 +289,7 @@ out:
 }
 
 char *
-status_replace(struct session *s, char *fmt, time_t t)
+status_replace(struct session *s, const char *fmt, time_t t)
 {
 	struct winlink *wl = s->curw;
 	static char	out[BUFSIZ];
@@ -323,6 +337,20 @@ status_replace(struct session *s, char *fmt, time_t t)
 					ptr = tmp;
 				}
 				/* FALLTHROUGH */
+			case 'I':
+				if (ptr == NULL) {
+					xsnprintf(tmp, sizeof tmp, "%d", wl->idx);
+					ptr = tmp;
+				}
+				/* FALLTHROUGH */
+			case 'P':
+				if (ptr == NULL) {
+					xsnprintf(tmp, sizeof tmp, "%u",
+						  window_pane_index(wl->window,
+						  wl->window->active));
+					ptr = tmp;
+				}
+				/* FALLTHROUGH */
 			case 'S':
 				if (ptr == NULL)
 					ptr = s->name;
@@ -330,6 +358,10 @@ status_replace(struct session *s, char *fmt, time_t t)
 			case 'T':
 				if (ptr == NULL)
 					ptr = wl->window->active->base.title;
+				/* FALLTHROUGH */
+			case 'W':
+				if (ptr == NULL)
+					ptr = wl->window->name;
 				len = strlen(ptr);
 				if ((size_t) n < len)
 					len = n;
@@ -443,8 +475,18 @@ status_print(struct session *s, struct winlink *wl, struct grid_cell *gc)
 	flag = ' ';
  	if (wl == SLIST_FIRST(&s->lastw))
 		flag = '-';
-	if (wl == s->curw)
+	if (wl == s->curw) {
+		fg = options_get_number(&wl->window->options, "window-status-current-fg");
+		if (fg != 8)
+			gc->fg = fg;
+		bg = options_get_number(&wl->window->options, "window-status-current-bg");
+		if (bg != 8)
+			gc->bg = bg;
+		attr = options_get_number(&wl->window->options, "window-status-current-attr");
+		if (attr != 0)
+			gc->attr = attr;
 		flag = '*';
+	}
 
 	if (session_alert_has(s, wl, WINDOW_ACTIVITY)) {
 		flag = '#';
@@ -547,6 +589,8 @@ status_prompt_set(struct client *c, const char *msg,
     int (*callbackfn)(void *, const char *), void (*freefn)(void *),
     void *data, int flags)
 {
+	int	keys;
+
 	status_message_clear(c);
 	status_prompt_clear(c);
 
@@ -563,9 +607,11 @@ status_prompt_set(struct client *c, const char *msg,
 
 	c->prompt_flags = flags;
 
-	mode_key_init(&c->prompt_mdata,
-	    options_get_number(&c->session->options, "status-keys"),
-	    MODEKEY_CANEDIT);
+	keys = options_get_number(&c->session->options, "status-keys");
+	if (keys == MODEKEY_EMACS)
+		mode_key_init(&c->prompt_mdata, &mode_key_tree_emacs_edit);
+	else
+		mode_key_init(&c->prompt_mdata, &mode_key_tree_vi_edit);
 
 	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
 	c->flags |= CLIENT_STATUS;
@@ -579,8 +625,6 @@ status_prompt_clear(struct client *c)
 
 	if (c->prompt_freefn != NULL && c->prompt_data != NULL)
 		c->prompt_freefn(c->prompt_data);
-
-	mode_key_free(&c->prompt_mdata);
 
 	xfree(c->prompt_string);
 	c->prompt_string = NULL;
@@ -603,7 +647,7 @@ status_prompt_redraw(struct client *c)
 	struct screen_write_ctx	ctx;
 	struct session		       *s = c->session;
 	struct screen		        old_status;
-	size_t			        i, size, left, len, offset, n;
+	size_t			        i, size, left, len, off, n;
 	char				ch;
 	struct grid_cell		gc;
 
@@ -611,7 +655,7 @@ status_prompt_redraw(struct client *c)
 		return (0);
 	memcpy(&old_status, &c->status, sizeof old_status);
 	screen_init(&c->status, c->tty.sx, 1, 0);
-	offset = 0;
+	off = 0;
 
 	len = strlen(c->prompt_string);
 	if (len > c->tty.sx)
@@ -632,7 +676,7 @@ status_prompt_redraw(struct client *c)
 		if (c->prompt_index < left)
 			size = strlen(c->prompt_buffer);
 		else {
-			offset = c->prompt_index - left - 1;
+			off = c->prompt_index - left + 1;
 			if (c->prompt_index == strlen(c->prompt_buffer))
 				left--;
 			size = left;
@@ -645,27 +689,27 @@ status_prompt_redraw(struct client *c)
 				screen_write_putc(&ctx, &gc, '*');
 		} else {
 			screen_write_puts(&ctx, &gc,
-			    "%.*s", (int) left, c->prompt_buffer + offset);
+			    "%.*s", (int) left, c->prompt_buffer + off);
 		}
 
 		for (i = len + size; i < c->tty.sx; i++)
 			screen_write_putc(&ctx, &gc, ' ');
-	}
 
-	/* Draw a fake cursor. */
-	screen_write_cursormove(&ctx, len + c->prompt_index - offset, 0);
-	if (c->prompt_index == strlen(c->prompt_buffer))
-		ch = ' ';
-	else {
-		if (c->prompt_flags & PROMPT_HIDDEN)
-			ch = '*';
-		else
-			ch = c->prompt_buffer[c->prompt_index];
+		/* Draw a fake cursor. */
+		screen_write_cursormove(&ctx, len + c->prompt_index - off, 0);
+		if (c->prompt_index == strlen(c->prompt_buffer))
+			ch = ' ';
+		else {
+			if (c->prompt_flags & PROMPT_HIDDEN)
+				ch = '*';
+			else
+				ch = c->prompt_buffer[c->prompt_index];
+		}
+		if (ch == '\0')
+			ch = ' ';
+		gc.attr ^= GRID_ATTR_REVERSE;
+		screen_write_putc(&ctx, &gc, ch);
 	}
-	if (ch == '\0')
-		ch = ' ';
-	gc.attr ^= GRID_ATTR_REVERSE;
-	screen_write_putc(&ctx, &gc, ch);
 
 	screen_write_stop(&ctx);
 
@@ -687,32 +731,32 @@ status_prompt_key(struct client *c, int key)
 
 	size = strlen(c->prompt_buffer);
 	switch (mode_key_lookup(&c->prompt_mdata, key)) {
-	case MODEKEYCMD_LEFT:
+	case MODEKEYEDIT_CURSORLEFT:
 		if (c->prompt_index > 0) {
 			c->prompt_index--;
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
-	case MODEKEYCMD_RIGHT:
+	case MODEKEYEDIT_SWITCHMODEAPPEND:
+	case MODEKEYEDIT_CURSORRIGHT:
 		if (c->prompt_index < size) {
 			c->prompt_index++;
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
-	case MODEKEYCMD_STARTOFLINE:
-	case MODEKEYCMD_BACKTOINDENTATION:
+	case MODEKEYEDIT_STARTOFLINE:
 		if (c->prompt_index != 0) {
 			c->prompt_index = 0;
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
-	case MODEKEYCMD_ENDOFLINE:
+	case MODEKEYEDIT_ENDOFLINE:
 		if (c->prompt_index != size) {
 			c->prompt_index = size;
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
-	case MODEKEYCMD_COMPLETE:
+	case MODEKEYEDIT_COMPLETE:
 		if (*c->prompt_buffer == '\0')
 			break;
 
@@ -757,10 +801,11 @@ status_prompt_key(struct client *c, int key)
  		memcpy(first, s, strlen(s));
 
 		c->prompt_index = (first - c->prompt_buffer) + strlen(s);
+		xfree(s);
 
 		c->flags |= CLIENT_STATUS;
 		break;
-	case MODEKEYCMD_BACKSPACE:
+	case MODEKEYEDIT_BACKSPACE:
 		if (c->prompt_index != 0) {
 			if (c->prompt_index == size)
 				c->prompt_buffer[--c->prompt_index] = '\0';
@@ -773,7 +818,7 @@ status_prompt_key(struct client *c, int key)
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
- 	case MODEKEYCMD_DELETE:
+ 	case MODEKEYEDIT_DELETE:
 		if (c->prompt_index != size) {
 			memmove(c->prompt_buffer + c->prompt_index,
 			    c->prompt_buffer + c->prompt_index + 1,
@@ -781,7 +826,13 @@ status_prompt_key(struct client *c, int key)
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
-	case MODEKEYCMD_UP:
+	case MODEKEYEDIT_DELETETOENDOFLINE:
+		if (c->prompt_index < size) {
+			c->prompt_buffer[c->prompt_index] = '\0';
+			c->flags |= CLIENT_STATUS;
+		}
+		break;
+	case MODEKEYEDIT_HISTORYUP:
 		if (server_locked)
 			break;
 
@@ -799,7 +850,7 @@ status_prompt_key(struct client *c, int key)
 		c->prompt_index = strlen(c->prompt_buffer);
 		c->flags |= CLIENT_STATUS;
 		break;
-	case MODEKEYCMD_DOWN:
+	case MODEKEYEDIT_HISTORYDOWN:
 		if (server_locked)
 			break;
 
@@ -818,7 +869,7 @@ status_prompt_key(struct client *c, int key)
 		c->prompt_index = strlen(c->prompt_buffer);
 		c->flags |= CLIENT_STATUS;
 		break;
-	case MODEKEYCMD_PASTE:
+	case MODEKEYEDIT_PASTE:
 		if ((pb = paste_get_top(&c->session->buffers)) == NULL)
 			break;
 		if ((last = strchr(pb->data, '\n')) == NULL)
@@ -840,7 +891,7 @@ status_prompt_key(struct client *c, int key)
 
 		c->flags |= CLIENT_STATUS;
 		break;
- 	case MODEKEYCMD_CHOOSE:
+ 	case MODEKEYEDIT_ENTER:
 		if (*c->prompt_buffer != '\0') {
 			status_prompt_add_history(c);
 			if (c->prompt_callbackfn(
@@ -849,11 +900,11 @@ status_prompt_key(struct client *c, int key)
 			break;
 		}
 		/* FALLTHROUGH */
-	case MODEKEYCMD_QUIT:
+	case MODEKEYEDIT_CANCEL:
 		if (c->prompt_callbackfn(c->prompt_data, NULL) == 0)
 			status_prompt_clear(c);
 		break;
-	case MODEKEYCMD_OTHERKEY:
+	case MODEKEY_OTHER:
 		if (key < 32 || key > 126)
 			break;
 		c->prompt_buffer = xrealloc(c->prompt_buffer, 1, size + 2);

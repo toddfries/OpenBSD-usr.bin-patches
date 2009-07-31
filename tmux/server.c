@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.9 2009/07/14 19:03:16 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.15 2009/07/28 07:03:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -44,6 +44,7 @@
 /* Client list. */
 struct clients	 clients;
 
+void		 server_create_client(int);
 int		 server_create_socket(void);
 int		 server_main(int);
 void		 server_shutdown(void);
@@ -52,11 +53,10 @@ void		 server_fill_windows(struct pollfd **);
 void		 server_handle_windows(struct pollfd **);
 void		 server_fill_clients(struct pollfd **);
 void		 server_handle_clients(struct pollfd **);
-struct client	*server_accept_client(int);
+void		 server_accept_client(int);
 void		 server_handle_client(struct client *);
 void		 server_handle_window(struct window *, struct window_pane *);
-int		 server_check_window_bell(struct session *, struct window *,
-		      struct window_pane *);
+int		 server_check_window_bell(struct session *, struct window *);
 int		 server_check_window_activity(struct session *,
 		      struct window *);
 int		 server_check_window_content(struct session *, struct window *,
@@ -70,7 +70,7 @@ void		 server_second_timers(void);
 int		 server_update_socket(void);
 
 /* Create a new client. */
-struct client *
+void
 server_create_client(int fd)
 {
 	struct client	*c;
@@ -108,11 +108,10 @@ server_create_client(int fd)
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		if (ARRAY_ITEM(&clients, i) == NULL) {
 			ARRAY_SET(&clients, i, c);
-			return (c);
+			return;
 		}
 	}
 	ARRAY_ADD(&clients, c);
-	return (c);
 }
 
 /* Find client index. */
@@ -161,6 +160,7 @@ server_start(char *path)
 	ARRAY_INIT(&windows);
 	ARRAY_INIT(&clients);
 	ARRAY_INIT(&sessions);
+	mode_key_init_trees();
 	key_bindings_init();
 	utf8_build();
 
@@ -380,6 +380,7 @@ server_main(int srv_fd)
 	}
 	ARRAY_FREE(&clients);
 
+	mode_key_free_trees();
 	key_bindings_free();
 
 	close(srv_fd);
@@ -580,6 +581,7 @@ server_redraw_locked(struct client *c)
 {
 	struct screen_write_ctx	ctx;
 	struct screen		screen;
+	struct grid_cell	gc;
 	u_int			colour, xx, yy, i;
 	int    			style;
 
@@ -590,10 +592,21 @@ server_redraw_locked(struct client *c)
 	colour = options_get_number(&global_w_options, "clock-mode-colour");
 	style = options_get_number(&global_w_options, "clock-mode-style");
 
+	memcpy(&gc, &grid_default_cell, sizeof gc);
+	gc.fg = colour;
+	gc.attr |= GRID_ATTR_BRIGHT;
+
 	screen_init(&screen, xx, yy, 0);
 
 	screen_write_start(&ctx, NULL, &screen);
 	clock_draw(&ctx, colour, style);
+
+	if (password_failures != 0) {
+		screen_write_cursormove(&ctx, 0, 0);
+		screen_write_puts(
+		    &ctx, &gc, "%u failed attempts", password_failures);
+	}
+
 	screen_write_stop(&ctx);
 
 	for (i = 0; i < screen_size_y(&screen); i++)
@@ -724,7 +737,7 @@ server_handle_clients(struct pollfd **pfd)
 }
 
 /* accept(2) and create new client. */
-struct client *
+void
 server_accept_client(int srv_fd)
 {
 	struct sockaddr_storage	sa;
@@ -734,14 +747,14 @@ server_accept_client(int srv_fd)
 	fd = accept(srv_fd, (struct sockaddr *) &sa, &slen);
 	if (fd == -1) {
 		if (errno == EAGAIN || errno == EINTR || errno == ECONNABORTED)
-			return (NULL);
+			return;
 		fatal("accept failed");
 	}
 	if (sigterm) {
 		close(fd);
-		return (NULL);
+		return;
 	}
-	return (server_create_client(fd));
+	server_create_client(fd);
 }
 
 /* Input data from client. */
@@ -791,14 +804,19 @@ server_handle_client(struct client *c)
 		if (!(c->flags & CLIENT_PREFIX)) {
 			if (key == prefix)
 				c->flags |= CLIENT_PREFIX;
-			else
-				window_pane_key(wp, c, key);
+			else {
+				/* Try as a non-prefix key binding. */
+				if ((bd = key_bindings_lookup(key)) == NULL)
+					window_pane_key(wp, c, key);
+				else
+					key_bindings_dispatch(bd, c);
+			}
 			continue;
 		}
 
 		/* Prefix key already pressed. Reset prefix and lookup key. */
 		c->flags &= ~CLIENT_PREFIX;
-		if ((bd = key_bindings_lookup(key)) == NULL) {
+		if ((bd = key_bindings_lookup(key | KEYC_PREFIX)) == NULL) {
 			/* If repeating, treat this as a key, else ignore. */
 			if (c->flags & CLIENT_REPEAT) {
 				c->flags &= ~CLIENT_REPEAT;
@@ -841,7 +859,9 @@ server_handle_client(struct client *c)
 
 	/* Ensure cursor position and mode settings. */
 	status = options_get_number(&c->session->options, "status");
-	if (wp->yoff + s->cy < c->tty.sy - status)
+	if (!window_pane_visible(wp) || wp->yoff + s->cy >= c->tty.sy - status)
+		tty_cursor(&c->tty, 0, 0, 0, 0);
+	else
 		tty_cursor(&c->tty, s->cx, s->cy, wp->xoff, wp->yoff);
 
 	mode = s->mode;
@@ -909,7 +929,7 @@ server_handle_window(struct window *w, struct window_pane *wp)
 		if (s == NULL || !session_has(s, w))
 			continue;
 
-		update += server_check_window_bell(s, w, wp);
+		update += server_check_window_bell(s, w);
 		update += server_check_window_activity(s, w);
 		update += server_check_window_content(s, w, wp);
 	}
@@ -920,12 +940,11 @@ server_handle_window(struct window *w, struct window_pane *wp)
 }
 
 int
-server_check_window_bell(
-    struct session *s, struct window *w, struct window_pane *wp)
+server_check_window_bell(struct session *s, struct window *w)
 {
 	struct client	*c;
 	u_int		 i;
-	int		 action;
+	int		 action, visual;
 
 	if (!(w->flags & WINDOW_BELL))
 		return (0);
@@ -938,19 +957,38 @@ server_check_window_bell(
 	case BELL_ANY:
 		if (s->flags & SESSION_UNATTACHED)
 			break;
+		visual = options_get_number(&s->options, "visual-bell");
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 			c = ARRAY_ITEM(&clients, i);
-			if (c != NULL && c->session == s)
+			if (c == NULL || c->session != s)
+				continue;
+			if (!visual) {
 				tty_putcode(&c->tty, TTYC_BEL);
+				continue;
+			}
+ 			if (c->session->curw->window == w) {
+				status_message_set(c, "Bell in current window");
+				continue;
+			}
+			status_message_set(c, "Bell in window %u",
+			    winlink_find_by_window(&s->windows, w)->idx);
 		}
 		break;
 	case BELL_CURRENT:
-		if (w->active != wp)
+		if (s->flags & SESSION_UNATTACHED)
 			break;
+		visual = options_get_number(&s->options, "visual-bell");
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 			c = ARRAY_ITEM(&clients, i);
-			if (c != NULL && c->session == s)
+			if (c == NULL || c->session != s)
+				continue;
+ 			if (c->session->curw->window != w)
+				continue;
+			if (!visual) {
 				tty_putcode(&c->tty, TTYC_BEL);
+				continue;
+			}
+			status_message_set(c, "Bell in current window");
 		}
 		break;
 	}
@@ -960,13 +998,33 @@ server_check_window_bell(
 int
 server_check_window_activity(struct session *s, struct window *w)
 {
+	struct client	*c;
+	u_int		 i;
+
 	if (!(w->flags & WINDOW_ACTIVITY))
 		return (0);
+
 	if (!options_get_number(&w->options, "monitor-activity"))
 		return (0);
+
 	if (session_alert_has_window(s, w, WINDOW_ACTIVITY))
 		return (0);
+	if (s->curw->window == w)
+		return (0);
+
 	session_alert_add(s, w, WINDOW_ACTIVITY);
+	if (s->flags & SESSION_UNATTACHED)
+		return (0);
+ 	if (options_get_number(&s->options, "visual-activity")) {
+		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+			c = ARRAY_ITEM(&clients, i);
+			if (c == NULL || c->session != s)
+				continue;
+			status_message_set(c, "Activity in window %u",
+			    winlink_find_by_window(&s->windows, w)->idx);
+		}
+	}
+
 	return (1);
 }
 
@@ -974,20 +1032,39 @@ int
 server_check_window_content(
     struct session *s, struct window *w, struct window_pane *wp)
 {
-	char	*found, *ptr;
+	struct client	*c;
+	u_int		 i;
+	char		*found, *ptr;
+	
+	if (!(w->flags & WINDOW_ACTIVITY))	/* activity for new content */
+		return (0);
 
-	if (!(w->flags & WINDOW_CONTENT))
+	ptr = options_get_string(&w->options, "monitor-content");
+	if (ptr == NULL || *ptr == '\0')
 		return (0);
-	if ((ptr = options_get_string(&w->options, "monitor-content")) == NULL)
-		return (0);
-	if (*ptr == '\0')
-		return (0);
+
 	if (session_alert_has_window(s, w, WINDOW_CONTENT))
 		return (0);
+	if (s->curw->window == w)
+		return (0);
+
 	if ((found = window_pane_search(wp, ptr, NULL)) == NULL)
 		return (0);
-	session_alert_add(s, w, WINDOW_CONTENT);
     	xfree(found);
+
+	session_alert_add(s, w, WINDOW_CONTENT);
+	if (s->flags & SESSION_UNATTACHED)
+		return (0);
+ 	if (options_get_number(&s->options, "visual-content")) {
+		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+			c = ARRAY_ITEM(&clients, i);
+			if (c == NULL || c->session != s)
+				continue;
+			status_message_set(c, "Content in window %u",
+			    winlink_find_by_window(&s->windows, w)->idx);
+		}
+	}
+
 	return (1);
 }
 
@@ -1016,9 +1093,9 @@ server_check_window(struct window *w)
 		 * pane dies).
 		 */
 		if (wp->fd == -1 && !flag) {
+			layout_close_pane(wp);
 			window_remove_pane(w, wp);
 			server_redraw_window(w);
-			layout_refresh(w, 0);
 		} else 
 			destroyed = 0;
 		wp = wq;
