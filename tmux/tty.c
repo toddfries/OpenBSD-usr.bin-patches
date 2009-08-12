@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.16 2009/07/27 11:33:21 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.24 2009/08/12 09:41:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -38,16 +38,19 @@ void	tty_attributes(struct tty *, const struct grid_cell *);
 void	tty_attributes_fg(struct tty *, const struct grid_cell *);
 void	tty_attributes_bg(struct tty *, const struct grid_cell *);
 
-void	tty_redraw_region(struct tty *, struct tty_ctx *);
+void	tty_redraw_region(struct tty *, const struct tty_ctx *);
 void	tty_emulate_repeat(
 	    struct tty *, enum tty_code_code, enum tty_code_code, u_int);
 void	tty_cell(struct tty *,
     	    const struct grid_cell *, const struct grid_utf8 *);
 
 void
-tty_init(struct tty *tty, char *path, char *term)
+tty_init(struct tty *tty, int fd, char *path, char *term)
 {
 	tty->path = xstrdup(path);
+	tty->fd = fd;
+	tty->log_fd = -1;
+
 	if (term == NULL || *term == '\0')
 		tty->termname = xstrdup("unknown");
 	else
@@ -57,14 +60,16 @@ tty_init(struct tty *tty, char *path, char *term)
 }
 
 int
-tty_open(struct tty *tty, char **cause)
+tty_open(struct tty *tty, const char *overrides, char **cause)
 {
-	int		 mode;
+	int	mode;
 
-	tty->fd = open(tty->path, O_RDWR|O_NONBLOCK);
 	if (tty->fd == -1) {
-		xasprintf(cause, "%s: %s", tty->path, strerror(errno));
-		return (-1);
+		tty->fd = open(tty->path, O_RDWR|O_NONBLOCK);
+		if (tty->fd == -1) {
+			xasprintf(cause, "%s: %s", tty->path, strerror(errno));
+			return (-1);
+		}
 	}
 
 	if ((mode = fcntl(tty->fd, F_GETFL)) == -1)
@@ -79,8 +84,12 @@ tty_open(struct tty *tty, char **cause)
 	else
 		tty->log_fd = -1;
 
-	if ((tty->term = tty_term_find(tty->termname, tty->fd, cause)) == NULL)
-		goto error;
+	tty->term = tty_term_find(tty->termname, tty->fd, overrides, cause);
+	if (tty->term == NULL) {
+		tty_close(tty);
+		return (-1);
+	}
+	tty->flags |= TTY_OPENED;
 
 	tty->in = buffer_create(BUFSIZ);
 	tty->out = buffer_create(BUFSIZ);
@@ -94,12 +103,6 @@ tty_open(struct tty *tty, char **cause)
 	tty_fill_acs(tty);
 
 	return (0);
-
-error:
-	close(tty->fd);
-	tty->fd = -1;
-
-	return (-1);
 }
 
 void
@@ -148,12 +151,18 @@ tty_start_tty(struct tty *tty)
 	tty->rupper = UINT_MAX;
 
 	tty->mode = MODE_CURSOR;
+
+	tty->flags |= TTY_STARTED;
 }
 
 void
 tty_stop_tty(struct tty *tty)
 {
 	struct winsize	ws;
+
+	if (!(tty->flags & TTY_STARTED))
+		return;
+	tty->flags &= ~TTY_STARTED;
 
 	/*
 	 * Be flexible about error handling and try not kill the server just
@@ -280,33 +289,35 @@ tty_get_acs(struct tty *tty, u_char ch)
 }
 
 void
-tty_close(struct tty *tty, int no_stop)
+tty_close(struct tty *tty)
 {
-	if (tty->fd == -1)
-		return;
-
 	if (tty->log_fd != -1) {
 		close(tty->log_fd);
 		tty->log_fd = -1;
 	}
 
-	if (!no_stop)
-		tty_stop_tty(tty);
+	tty_stop_tty(tty);
 
-	tty_term_free(tty->term);
-	tty_keys_free(tty);
+	if (tty->flags & TTY_OPENED) {
+		tty_term_free(tty->term);
+		tty_keys_free(tty);
 
-	close(tty->fd);
-	tty->fd = -1;
+		buffer_destroy(tty->in);
+		buffer_destroy(tty->out);
 
-	buffer_destroy(tty->in);
-	buffer_destroy(tty->out);
+		tty->flags &= ~TTY_OPENED;
+	}
+
+	if (tty->fd != -1) {
+		close(tty->fd);
+		tty->fd = -1;
+	}
 }
 
 void
-tty_free(struct tty *tty, int no_stop)
+tty_free(struct tty *tty)
 {
-	tty_close(tty, no_stop);
+	tty_close(tty);
 
 	if (tty->path != NULL)
 		xfree(tty->path);
@@ -450,7 +461,7 @@ tty_emulate_repeat(
  * width of the terminal.
  */
 void
-tty_redraw_region(struct tty *tty, struct tty_ctx *ctx)
+tty_redraw_region(struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -485,8 +496,8 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 	u_int			 i, sx;
 
 	sx = screen_size_x(s);
-	if (sx > s->grid->size[s->grid->hsize + py])
-		sx = s->grid->size[s->grid->hsize + py];
+	if (sx > s->grid->linedata[s->grid->hsize + py].cellsize)
+		sx = s->grid->linedata[s->grid->hsize + py].cellsize;
 	if (sx > tty->sx)
 		sx = tty->sx;
 
@@ -521,7 +532,8 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 }
 
 void
-tty_write(void (*cmdfn)(struct tty *, struct tty_ctx *), struct tty_ctx *ctx)
+tty_write(void (*cmdfn)(
+    struct tty *, const struct tty_ctx *), const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 	struct client		*c;
@@ -552,10 +564,11 @@ tty_write(void (*cmdfn)(struct tty *, struct tty_ctx *), struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_insertcharacter(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_insertcharacter(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
+	u_int			 i;
 
 	if (wp->xoff != 0 || screen_size_x(s) < tty->sx) {
 		tty_draw_line(tty, wp->screen, ctx->ocy, wp->xoff, wp->yoff);
@@ -570,14 +583,14 @@ tty_cmd_insertcharacter(struct tty *tty, struct tty_ctx *ctx)
 		tty_emulate_repeat(tty, TTYC_ICH, TTYC_ICH1, ctx->num);
 	else {
 		tty_putcode(tty, TTYC_SMIR);
-		while (ctx->num-- > 0)
+		for (i = 0; i < ctx->num; i++)
 			tty_putc(tty, ' ');
 		tty_putcode(tty, TTYC_RMIR);
 	}
 }
 
 void
-tty_cmd_deletecharacter(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_deletecharacter(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -594,7 +607,7 @@ tty_cmd_deletecharacter(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_insertline(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -614,7 +627,7 @@ tty_cmd_insertline(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_deleteline(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_deleteline(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -634,7 +647,7 @@ tty_cmd_deleteline(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearline(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearline(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -653,7 +666,7 @@ tty_cmd_clearline(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearendofline(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearendofline(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -672,7 +685,7 @@ tty_cmd_clearendofline(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearstartofline(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	u_int		 	 i;
@@ -690,7 +703,7 @@ tty_cmd_clearstartofline(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_reverseindex(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -712,7 +725,7 @@ tty_cmd_reverseindex(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_linefeed(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -734,7 +747,7 @@ tty_cmd_linefeed(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearendofscreen(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -769,7 +782,7 @@ tty_cmd_clearendofscreen(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearstartofscreen(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearstartofscreen(struct tty *tty, const struct tty_ctx *ctx)
 {
  	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -798,7 +811,7 @@ tty_cmd_clearstartofscreen(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_clearscreen(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_clearscreen(struct tty *tty, const struct tty_ctx *ctx)
 {
  	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -827,7 +840,7 @@ tty_cmd_clearscreen(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_alignmenttest(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_alignmenttest(struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
@@ -845,7 +858,7 @@ tty_cmd_alignmenttest(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_cell(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 
@@ -855,7 +868,7 @@ tty_cmd_cell(struct tty *tty, struct tty_ctx *ctx)
 }
 
 void
-tty_cmd_utf8character(struct tty *tty, struct tty_ctx *ctx)
+tty_cmd_utf8character(struct tty *tty, const struct tty_ctx *ctx)
 {
 	u_char	*ptr = ctx->ptr;
 	size_t	 i;
@@ -950,19 +963,33 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc)
 {
 	struct grid_cell	*tc = &tty->cell;
 	u_char			 changed;
-	u_int			 fg, bg;
+	u_int			 fg, bg, attr;
+
+	/*
+	 * If no setab, try to use the reverse attribute as a best-effort for a
+	 * non-default background. This is a bit of a hack but it doesn't do
+	 * any serious harm and makes a couple of applications happier.
+	 */
+	fg = gc->fg; bg = gc->bg; attr = gc->attr;
+	if (!tty_term_has(tty->term, TTYC_SETAB)) {
+		if (attr & GRID_ATTR_REVERSE) {
+			if (fg != 7 && fg != 8)
+				attr &= ~GRID_ATTR_REVERSE;
+		} else {
+			if (bg != 0 && bg != 8)
+				attr |= GRID_ATTR_REVERSE;
+		}
+	}
 
 	/* If any bits are being cleared, reset everything. */
-	if (tc->attr & ~gc->attr)
+	if (tc->attr & ~attr)
 		tty_reset(tty);
 
 	/* Filter out attribute bits already set. */
-	changed = gc->attr & ~tc->attr;
-	tc->attr = gc->attr;
+	changed = attr & ~tc->attr;
+	tc->attr = attr;
 
 	/* Set the attributes. */
-	fg = gc->fg;
-	bg = gc->bg;
 	if (changed & GRID_ATTR_BRIGHT)
 		tty_putcode(tty, TTYC_BOLD);
 	if (changed & GRID_ATTR_DIM)

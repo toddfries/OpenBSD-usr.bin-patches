@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-server-info.c,v 1.5 2009/07/28 06:48:44 nicm Exp $ */
+/* $OpenBSD: cmd-server-info.c,v 1.7 2009/08/11 17:18:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -57,6 +57,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	struct tty_term_code_entry	*ent;
 	struct utsname			 un;
 	struct grid			*gd;
+	struct grid_line		*gl;
 	u_int		 		 i, j, k;
 	char				 out[80];
 	char				*tim;
@@ -89,7 +90,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 			continue;
 
 		ctx->print(ctx, "%2d: %s (%d, %d): %s [%ux%u %s] "
-		    "[flags=0x%x/0x%x]", i, c->tty.path, c->fd, c->tty.fd,
+		    "[flags=0x%x/0x%x]", i, c->tty.path, c->ibuf.fd, c->tty.fd,
 		    c->session->name, c->tty.sx, c->tty.sy, c->tty.termname,
 		    c->flags, c->tty.flags);
 	}
@@ -120,15 +121,16 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 				lines = ulines = size = usize = 0;
 				gd = wp->base.grid;
 				for (k = 0; k < gd->hsize + gd->sy; k++) {
-					if (gd->data[k] != NULL) {
+					gl = &gd->linedata[k];
+					if (gl->celldata != NULL) {
 						lines++;
-						size += gd->size[k] *
-						    sizeof (**gd->data);
+						size += gl->cellsize *
+						    sizeof *gl->celldata;
 					}
-					if (gd->udata[k] != NULL) {
+					if (gl->utf8data != NULL) {
 						ulines++;
-						usize += gd->usize[k] *
-						    sizeof (**gd->udata);
+						usize += gl->utf8size *
+						    sizeof *gl->utf8data;
 					}
 				}
 				ctx->print(ctx, "%6u: %s %lu %d %u/%u, %zu "

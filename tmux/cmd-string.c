@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-string.c,v 1.4 2009/07/13 18:49:36 nicm Exp $ */
+/* $OpenBSD: cmd-string.c,v 1.6 2009/08/08 21:52:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -59,20 +59,10 @@ int
 cmd_string_parse(const char *s, struct cmd_list **cmdlist, char **cause)
 {
 	size_t		p;
-	int		ch, argc, rval, have_arg;
-	char	      **argv, *buf, *t, *u;
+	int		ch, i, argc, rval, have_arg;
+	char	      **argv, *buf, *t;
+	const char     *whitespace, *equals;
 	size_t		len;
-
-	if ((t = strchr(s, ' ')) == NULL && (t = strchr(s, '\t')) == NULL)
-		t = strchr(s, '\0');
-	if ((u = strchr(s, '=')) != NULL && u < t) {
-		if (putenv(xstrdup(s)) != 0) {
-			xasprintf(cause, "assignment failed: %s", s);
-			return (-1);
-		}
-		*cmdlist = NULL;
-		return (0);
-	}
 
 	argv = NULL;
 	argc = 0;
@@ -147,6 +137,18 @@ cmd_string_parse(const char *s, struct cmd_list **cmdlist, char **cause)
 			if (argc == 0)
 				goto out;
 
+			for (i = 0; i < argc; i++) {
+				equals = strchr(argv[i], '=');
+				whitespace = argv[i] + strcspn(argv[i], " \t");
+				if (equals == NULL || equals > whitespace)
+					break;
+				environ_put(&global_environ, argv[i]);
+				memmove(&argv[i], &argv[i + 1], argc - i - 1);
+				argc--;
+			}
+			if (argc == 0)
+				goto out;
+
 			*cmdlist = cmd_list_parse(argc, argv, cause);
 			if (*cmdlist == NULL)
 				goto out;
@@ -215,6 +217,9 @@ cmd_string_string(const char *s, size_t *p, char endch, int esc)
                         switch (ch = cmd_string_getc(s, p)) {
 			case EOF:
 				goto error;
+			case 'e':
+				ch = '\033';
+				break;
                         case 'r':
                                 ch = '\r';
                                 break;

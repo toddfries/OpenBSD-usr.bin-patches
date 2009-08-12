@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.11 2009/07/29 14:17:26 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.14 2009/08/11 17:18:35 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,25 +26,20 @@
 
 int	server_lock_callback(void *, const char *);
 
-const char **
-server_fill_environ(struct session *s)
+void
+server_fill_environ(struct session *s, struct environ *env)
 {
-	static const char *env[] = { NULL /* TMUX= */, NULL /* TERM */, NULL };
-	static char	tmuxvar[MAXPATHLEN + 256], termvar[256];
-	u_int		idx;
+	char		 tmuxvar[MAXPATHLEN], *term;
+	u_int		 idx;
 
 	if (session_index(s, &idx) != 0)
 		fatalx("session not found");
-
 	xsnprintf(tmuxvar, sizeof tmuxvar,
-	    "TMUX=%s,%ld,%u", socket_path, (long) getpid(), idx);
-	env[0] = tmuxvar;
+	    "%s,%ld,%u", socket_path, (long) getpid(), idx);
+	environ_set(env, "TMUX", tmuxvar);
 
-	xsnprintf(termvar, sizeof termvar,
-	    "TERM=%s", options_get_string(&s->options, "default-terminal"));
-	env[1] = termvar;
-
-	return (env);
+	term = options_get_string(&s->options, "default-terminal");
+	environ_set(env, "TERM", term);
 }
 
 void
@@ -60,16 +55,12 @@ void
 server_write_client(
     struct client *c, enum msgtype type, const void *buf, size_t len)
 {
-	struct hdr	 hdr;
+	struct imsgbuf	*ibuf = &c->ibuf;
 
-	log_debug("writing %d to client %d", type, c->fd);
-
-	hdr.type = type;
-	hdr.size = len;
-
-	buffer_write(c->out, &hdr, sizeof hdr);
-	if (buf != NULL && len > 0)
-		buffer_write(c->out, buf, len);
+	if (c->flags & CLIENT_BAD)
+		return;
+	log_debug("writing %d to client %d", type, c->ibuf.fd);
+	imsg_compose(ibuf, type, PROTOCOL_VERSION, -1, -1, (void *) buf, len);
 }
 
 void

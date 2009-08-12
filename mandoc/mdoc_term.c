@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.40 2009/07/26 23:39:54 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.49 2009/08/09 21:59:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -27,7 +27,6 @@
 #include "mdoc.h"
 
 /* FIXME: macro arguments can be escaped. */
-/* FIXME: support more offset/width tokens. */
 
 #define	TTYPE_PROG	  0
 #define	TTYPE_CMD_FLAG	  1
@@ -66,7 +65,7 @@ const	int ttypes[TTYPE_NMAX] = {
 	TERMP_UNDER, 		/* TTYPE_FUNC_ARG */
 	TERMP_UNDER, 		/* TTYPE_LINK */
 	TERMP_BOLD,	 	/* TTYPE_SSECTION */
-	TERMP_UNDER, 		/* TTYPE_FILE */
+	TERMP_UNDER,		/* TTYPE_FILE */
 	TERMP_UNDER, 		/* TTYPE_EMPH */
 	TERMP_BOLD,	 	/* TTYPE_CONFIG */
 	TERMP_BOLD,	 	/* TTYPE_CMD */
@@ -98,6 +97,7 @@ struct	termact {
 
 static	void	  termp____post(DECL_ARGS);
 static	void	  termp__t_post(DECL_ARGS);
+static	void	  termp_an_post(DECL_ARGS);
 static	void	  termp_aq_post(DECL_ARGS);
 static	void	  termp_bd_post(DECL_ARGS);
 static	void	  termp_bl_post(DECL_ARGS);
@@ -124,6 +124,7 @@ static	void	  termp_vt_post(DECL_ARGS);
 
 static	int	  termp__j_pre(DECL_ARGS);
 static	int	  termp__t_pre(DECL_ARGS);
+static	int	  termp_an_pre(DECL_ARGS);
 static	int	  termp_ap_pre(DECL_ARGS);
 static	int	  termp_aq_pre(DECL_ARGS);
 static	int	  termp_ar_pre(DECL_ARGS);
@@ -191,7 +192,7 @@ static const struct termact termacts[MDOC_MAX] = {
 	{ NULL, NULL }, /* El */
 	{ termp_it_pre, termp_it_post }, /* It */
 	{ NULL, NULL }, /* Ad */ 
-	{ NULL, NULL }, /* An */
+	{ termp_an_pre, termp_an_post }, /* An */
 	{ termp_ar_pre, NULL }, /* Ar */
 	{ termp_cd_pre, NULL }, /* Cd */
 	{ termp_cm_pre, NULL }, /* Cm */
@@ -305,7 +306,7 @@ static	int	  arg_getattr(int, const struct mdoc_node *);
 static	size_t	  arg_offset(const struct mdoc_argv *);
 static	size_t	  arg_width(const struct mdoc_argv *, int);
 static	int	  arg_listtype(const struct mdoc_node *);
-static	int	  fmt_block_vspace(struct termp *,
+static	void	  fmt_block_vspace(struct termp *,
 			const struct mdoc_node *,
 			const struct mdoc_node *);
 static	void  	  print_node(DECL_ARGS);
@@ -656,7 +657,7 @@ arg_getattrs(const int *keys, int *vals,
 
 
 /* ARGSUSED */
-static int
+static void
 fmt_block_vspace(struct termp *p, 
 		const struct mdoc_node *bl, 
 		const struct mdoc_node *node)
@@ -665,23 +666,48 @@ fmt_block_vspace(struct termp *p,
 
 	term_newln(p);
 
-	if (arg_hasattr(MDOC_Compact, bl))
-		return(1);
+	if (MDOC_Bl == bl->tok && arg_hasattr(MDOC_Compact, bl))
+		return;
+	assert(node);
+
+	/*
+	 * Search through our prior nodes.  If we follow a `Ss' or `Sh',
+	 * then don't vspace.
+	 */
 
 	for (n = node; n; n = n->parent) {
 		if (MDOC_BLOCK != n->type)
 			continue;
 		if (MDOC_Ss == n->tok)
-			break;
+			return;
 		if (MDOC_Sh == n->tok)
-			break;
+			return;
 		if (NULL == n->prev)
 			continue;
-		term_vspace(p);
 		break;
 	}
 
-	return(1);
+	/* 
+	 * XXX - not documented: a `-column' does not ever assert vspace
+	 * within the list.
+	 */
+
+	if (MDOC_Bl == bl->tok && arg_hasattr(MDOC_Column, bl))
+		if (node->prev && MDOC_It == node->prev->tok)
+			return;
+
+	/*
+	 * XXX - not documented: a `-diag' without a body does not
+	 * assert a vspace prior to the next element. 
+	 */
+	if (MDOC_Bl == bl->tok && arg_hasattr(MDOC_Diag, bl)) 
+		if (node->prev && MDOC_It == node->prev->tok) {
+			assert(node->prev->body);
+			if (NULL == node->prev->body->child)
+				return;
+		}
+
+	term_vspace(p);
 }
 
 
@@ -721,8 +747,10 @@ termp_it_pre(DECL_ARGS)
 	int		        i, type, keys[3], vals[3];
 	size_t		        width, offset;
 
-	if (MDOC_BLOCK == node->type)
-		return(fmt_block_vspace(p, node->parent->parent, node));
+	if (MDOC_BLOCK == node->type) {
+		fmt_block_vspace(p, node->parent->parent, node);
+		return(1);
+	}
 
 	bl = node->parent->parent->parent;
 
@@ -751,11 +779,27 @@ termp_it_pre(DECL_ARGS)
 	case (MDOC_Column):
 		if (MDOC_BODY == node->type)
 			break;
-		for (i = 0, n = node->prev; n; n = n->prev, i++)
+		/* 
+		 * Work around groff's column handling.  The offset is
+		 * equal to the sum of all widths leading to the current
+		 * column (plus the -offset value).  If this column
+		 * exceeds the stated number of columns, the width is
+		 * set as 0, else it's the stated column width (later
+		 * the 0 will be adjusted to default 10 or, if in the
+		 * last column case, set to stretch to the margin).
+		 */
+		for (i = 0, n = node->prev; n && n && 
+				i < (int)bl->args[vals[2]].argv->sz; 
+				n = n->prev, i++)
 			offset += arg_width 
 				(&bl->args->argv[vals[2]], i);
-		assert(i < (int)bl->args->argv[vals[2]].sz);
-		width = arg_width(&bl->args->argv[vals[2]], i);
+
+		/* Whether exceeds maximum column. */
+		if (i < (int)bl->args[vals[2]].argv->sz)
+			width = arg_width(&bl->args->argv[vals[2]], i);
+		else
+			width = 0;
+
 		if (vals[1] >= 0) 
 			offset += arg_offset(&bl->args->argv[vals[1]]);
 		break;
@@ -790,6 +834,8 @@ termp_it_pre(DECL_ARGS)
 		if (0 == width)
 			width = 8;
 		break;
+	case (MDOC_Column):
+		/* FALLTHROUGH */
 	case (MDOC_Tag):
 		if (0 == width)
 			width = 10;
@@ -803,17 +849,22 @@ termp_it_pre(DECL_ARGS)
 	 * while diagonal bodies need two.
 	 */
 
+	p->flags |= TERMP_NOSPACE;
+
 	switch (type) {
+	case (MDOC_Diag):
+		if (MDOC_BODY == node->type)
+			term_word(p, "\\ \\ ");
+		break;
 	case (MDOC_Inset):
 		if (MDOC_BODY == node->type) 
-			p->flags &= ~TERMP_NOSPACE;
-		else
-			p->flags |= TERMP_NOSPACE;
+			term_word(p, "\\ ");
 		break;
 	default:
-		p->flags |= TERMP_NOSPACE;
 		break;
 	}
+
+	p->flags |= TERMP_NOSPACE;
 
 	/*
 	 * Style flags.  Diagnostic heads need TTYPE_DIAG.
@@ -855,12 +906,26 @@ termp_it_pre(DECL_ARGS)
 		else
 			p->flags |= TERMP_NOLPAD;
 
-		if (MDOC_HEAD == node->type)
+		if (MDOC_HEAD != node->type)
+			break;
+
+		/*
+		 * This is ugly.  If `-hang' is specified and the body
+		 * is a `Bl' or `Bd', then we want basically to nullify
+		 * the "overstep" effect in term_flushln() and treat
+		 * this as a `-ohang' list instead.
+		 */
+		if (node->next->child && 
+				(MDOC_Bl == node->next->child->tok ||
+				 MDOC_Bd == node->next->child->tok)) {
+			p->flags &= ~TERMP_NOBREAK;
+			p->flags &= ~TERMP_NOLPAD;
+		} else
 			p->flags |= TERMP_HANG;
 		break;
 	case (MDOC_Tag):
 		if (MDOC_HEAD == node->type)
-			p->flags |= TERMP_NOBREAK;
+			p->flags |= TERMP_NOBREAK | TERMP_TWOSPACE;
 		else
 			p->flags |= TERMP_NOLPAD;
 
@@ -897,6 +962,17 @@ termp_it_pre(DECL_ARGS)
 	p->offset += offset;
 
 	switch (type) {
+	case (MDOC_Hang):
+		/*
+		 * Same stipulation as above, regarding `-hang'.  We
+		 * don't want to recalculate rmargin and offsets when
+		 * using `Bd' or `Bl' within `-hang' overstep lists.
+		 */
+		if (MDOC_HEAD == node->type && node->next->child &&
+				(MDOC_Bl == node->next->child->tok || 
+				 MDOC_Bd == node->next->child->tok))
+			break;
+		/* FALLTHROUGH */
 	case (MDOC_Bullet):
 		/* FALLTHROUGH */
 	case (MDOC_Dash):
@@ -905,16 +981,23 @@ termp_it_pre(DECL_ARGS)
 		/* FALLTHROUGH */
 	case (MDOC_Hyphen):
 		/* FALLTHROUGH */
-	case (MDOC_Hang):
-		/* FALLTHROUGH */
 	case (MDOC_Tag):
+		assert(width);
 		if (MDOC_HEAD == node->type)
 			p->rmargin = p->offset + width;
 		else 
 			p->offset += width;
 		break;
 	case (MDOC_Column):
+		assert(width);
 		p->rmargin = p->offset + width;
+		/* 
+		 * XXX - this behaviour is not documented: the
+		 * right-most column is filled to the right margin.
+		 */
+		if (MDOC_HEAD == node->type &&
+				MDOC_BODY == node->next->type)
+			p->rmargin = p->maxrmargin;
 		break;
 	default:
 		break;
@@ -991,10 +1074,9 @@ termp_it_post(DECL_ARGS)
 	assert(-1 != type);
 
 	switch (type) {
-	case (MDOC_Diag):
-		term_word(p, "\\ ");
-		/* FALLTHROUGH */
 	case (MDOC_Item):
+		/* FALLTHROUGH */
+	case (MDOC_Diag):
 		/* FALLTHROUGH */
 	case (MDOC_Inset):
 		if (MDOC_BODY == node->type)
@@ -1041,6 +1123,65 @@ termp_fl_pre(DECL_ARGS)
 	term_word(p, "\\-");
 	p->flags |= TERMP_NOSPACE;
 	return(1);
+}
+
+
+/* ARGSUSED */
+static int
+termp_an_pre(DECL_ARGS)
+{
+
+	if (NULL == node->child)
+		return(1);
+
+	/*
+	 * XXX: this is poorly documented.  If not in the AUTHORS
+	 * section, `An -split' will cause newlines to occur before the
+	 * author name.  If in the AUTHORS section, by default, the
+	 * first `An' invocation is nosplit, then all subsequent ones,
+	 * regardless of whether interspersed with other macros/text,
+	 * are split.  -split, in this case, will override the condition
+	 * of the implied first -nosplit.
+	 */
+	
+	if (node->sec == SEC_AUTHORS) {
+		if ( ! (TERMP_ANPREC & p->flags)) {
+			if (TERMP_SPLIT & p->flags)
+				term_newln(p);
+			return(1);
+		}
+		if (TERMP_NOSPLIT & p->flags)
+			return(1);
+		term_newln(p);
+		return(1);
+	}
+
+	if (TERMP_SPLIT & p->flags)
+		term_newln(p);
+
+	return(1);
+}
+
+
+/* ARGSUSED */
+static void
+termp_an_post(DECL_ARGS)
+{
+
+	if (node->child) {
+		if (SEC_AUTHORS == node->sec)
+			p->flags |= TERMP_ANPREC;
+		return;
+	}
+
+	if (arg_getattr(MDOC_Split, node) > -1) {
+		p->flags &= ~TERMP_NOSPLIT;
+		p->flags |= TERMP_SPLIT;
+	} else {
+		p->flags &= ~TERMP_SPLIT;
+		p->flags |= TERMP_NOSPLIT;
+	}
+
 }
 
 
@@ -1511,17 +1652,15 @@ termp_bd_pre(DECL_ARGS)
 	 * line.  Blank lines are allowed.
 	 */
 
-	if (MDOC_BLOCK == node->type)
-		return(fmt_block_vspace(p, node, node));
-	else if (MDOC_BODY != node->type)
+	if (MDOC_BLOCK == node->type) {
+		fmt_block_vspace(p, node, node);
+		return(1);
+	} else if (MDOC_BODY != node->type)
 		return(1);
 
-	/* FIXME: display type should be mandated by parser. */
+	assert(node->parent->args);
 
-	if (NULL == node->parent->args)
-		errx(1, "missing display type");
-
-	for (type = -1, i = 0; 
+	for (type = -1, i = 0; -1 == type && 
 			i < (int)node->parent->args->argc; i++) {
 		switch (node->parent->args->argv[i].arg) {
 		case (MDOC_Ragged):
@@ -1532,22 +1671,17 @@ termp_bd_pre(DECL_ARGS)
 			/* FALLTHROUGH */
 		case (MDOC_Literal):
 			type = node->parent->args->argv[i].arg;
-			i = (int)node->parent->args->argc;
 			break;
 		default:
 			break;
 		}
 	}
-
-	if (NULL == node->parent->args)
-		errx(1, "missing display type");
+	
+	assert(type > -1);
 
 	i = arg_getattr(MDOC_Offset, node->parent);
-	if (-1 != i) {
-		if (1 != node->parent->args->argv[i].sz)
-			errx(1, "expected single value");
+	if (-1 != i)
 		p->offset += arg_offset(&node->parent->args->argv[i]);
-	}
 
 	switch (type) {
 	case (MDOC_Literal):
@@ -1558,21 +1692,11 @@ termp_bd_pre(DECL_ARGS)
 		return(1);
 	}
 
-	/*
-	 * Tricky.  Iterate through all children.  If we're on a
-	 * different parse line, append a newline and then the contents.
-	 * Ew.
-	 */
-
-	ln = node->child ? node->child->line : 0;
-
 	for (node = node->child; node; node = node->next) {
-		if (ln < node->line) {
-			term_flushln(p);
-			p->flags |= TERMP_NOSPACE;
-		}
-		ln = node->line;
+		p->flags |= TERMP_NOSPACE;
 		print_node(p, pair, meta, node);
+		if (node->next)
+			term_flushln(p);
 	}
 
 	return(0);
@@ -1586,6 +1710,7 @@ termp_bd_post(DECL_ARGS)
 
 	if (MDOC_BODY != node->type) 
 		return;
+	p->flags |= TERMP_NOSPACE;
 	term_flushln(p);
 }
 
@@ -1689,6 +1814,16 @@ termp_sq_post(DECL_ARGS)
 
 /* ARGSUSED */
 static int
+termp_pa_pre(DECL_ARGS)
+{
+
+	pair->flag |= ttypes[TTYPE_FILE];
+	return(1);
+}
+
+
+/* ARGSUSED */
+static int
 termp_pf_pre(DECL_ARGS)
 {
 
@@ -1737,16 +1872,6 @@ termp_ss_post(DECL_ARGS)
 
 	if (MDOC_HEAD == node->type)
 		term_newln(p);
-}
-
-
-/* ARGSUSED */
-static int
-termp_pa_pre(DECL_ARGS)
-{
-
-	pair->flag |= ttypes[TTYPE_FILE];
-	return(1);
 }
 
 
@@ -1813,8 +1938,9 @@ static void
 termp_in_post(DECL_ARGS)
 {
 
-	p->flags |= TERMP_NOSPACE;
+	p->flags |= TERMP_NOSPACE | ttypes[TTYPE_INCLUDE];
 	term_word(p, ">");
+	p->flags &= ~ttypes[TTYPE_INCLUDE];
 
 	if (SEC_SYNOPSIS != node->sec)
 		return;

@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.15 2009/07/28 07:03:32 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.20 2009/08/11 22:34:17 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -85,9 +85,7 @@ server_create_client(int fd)
 		fatal("fcntl failed");
 
 	c = xcalloc(1, sizeof *c);
-	c->fd = fd;
-	c->in = buffer_create(BUFSIZ);
-	c->out = buffer_create(BUFSIZ);
+	imsg_init(&c->ibuf, fd);
 
 	ARRAY_INIT(&c->prompt_hdata);
 
@@ -112,6 +110,7 @@ server_create_client(int fd)
 		}
 	}
 	ARRAY_ADD(&clients, c);
+	log_debug("new client %d", fd);
 }
 
 /* Find client index. */
@@ -131,9 +130,10 @@ server_client_index(struct client *c)
 int
 server_start(char *path)
 {
-	int	pair[2], srv_fd, null_fd;
-	char   *cause;
-	char	rpathbuf[MAXPATHLEN];
+	struct client	*c;
+	int		 pair[2], srv_fd;
+	char		*cause;
+	char		 rpathbuf[MAXPATHLEN];
 
 	/* The first client is special and gets a socketpair; create it. */
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pair) != 0)
@@ -154,8 +154,11 @@ server_start(char *path)
 	 * Must daemonise before loading configuration as the PID changes so
 	 * $TMUX would be wrong for sessions created in the config file.
 	 */
-	if (daemon(1, 1) != 0)
+	if (daemon(1, 0) != 0)
 		fatal("daemon failed");
+
+	logfile("server");
+	log_debug("server started, pid %ld", (long) getpid());
 
 	ARRAY_INIT(&windows);
 	ARRAY_INIT(&clients);
@@ -171,44 +174,36 @@ server_start(char *path)
 	start_time = time(NULL);
 	socket_path = path;
 
-	if (access(SYSTEM_CFG, R_OK) != 0) {
-		if (errno != ENOENT) {
-			log_warn("%s", SYSTEM_CFG);
-			exit(1);
-		}
-	} else {
-		if (load_cfg(SYSTEM_CFG, &cause) != 0) {
-			log_warnx("%s", cause);
-			exit(1);
-		}
-	}
-	if (cfg_file != NULL && load_cfg(cfg_file, &cause) != 0) {
-		log_warnx("%s", cause);
-		exit(1);
-	}
-	logfile("server");
-
-	/*
-	 * Close stdin/stdout/stderr. Can't let daemon() do this as they are
-	 * needed until now to print configuration file errors.
-	 */
-        if ((null_fd = open(_PATH_DEVNULL, O_RDWR)) != -1) {
-                dup2(null_fd, STDIN_FILENO);
-                dup2(null_fd, STDOUT_FILENO);
-                dup2(null_fd, STDERR_FILENO);
-                if (null_fd > 2)
-                        close(null_fd);
-        }
-
-	log_debug("server started, pid %ld", (long) getpid());
-	log_debug("socket path %s", socket_path);
-
 	if (realpath(socket_path, rpathbuf) == NULL)
 		strlcpy(rpathbuf, socket_path, sizeof rpathbuf);
+	log_debug("socket path %s", socket_path);
 	setproctitle("server (%s)", rpathbuf);
 
 	srv_fd = server_create_socket();
 	server_create_client(pair[1]);
+
+	if (access(SYSTEM_CFG, R_OK) != 0) {
+		if (errno != ENOENT) {
+			xasprintf(
+			    &cause, "%s: %s", strerror(errno), SYSTEM_CFG);
+			goto error;
+		}
+	} else if (load_cfg(SYSTEM_CFG, &cause) != 0)
+		goto error;
+	if (cfg_file != NULL && load_cfg(cfg_file, &cause) != 0)
+		goto error;
+
+	exit(server_main(srv_fd));
+
+error:
+	/* Write the error and shutdown the server. */
+	c = ARRAY_FIRST(&clients);
+
+	server_write_error(c, cause);
+	xfree(cause);
+
+	server_shutdown();
+	c->flags |= CLIENT_BAD;
 
 	exit(server_main(srv_fd));
 }
@@ -263,6 +258,7 @@ server_main(int srv_fd)
 	time_t		 now, last;
 
 	siginit();
+	log_debug("server socket is %d", srv_fd);
 
 	last = time(NULL);
 
@@ -419,8 +415,13 @@ server_shutdown(void)
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
-		if (c != NULL)
-			server_write_client(c, MSG_SHUTDOWN, NULL, 0);
+		if (c != NULL) {
+			if (c->flags & CLIENT_BAD)
+				server_lost_client(c);
+			else
+				server_write_client(c, MSG_SHUTDOWN, NULL, 0);
+			c->flags |= CLIENT_BAD;
+		}
 	}
 }
 
@@ -671,9 +672,10 @@ server_fill_clients(struct pollfd **pfd)
 		if (c == NULL)
 			(*pfd)->fd = -1;
 		else {
-			(*pfd)->fd = c->fd;
-			(*pfd)->events = POLLIN;
-			if (BUFFER_USED(c->out) > 0)
+			(*pfd)->fd = c->ibuf.fd;
+			if (!(c->flags & CLIENT_BAD))
+				(*pfd)->events |= POLLIN;
+			if (c->ibuf.w.queued > 0)
 				(*pfd)->events |= POLLOUT;
 		}
 		(*pfd)++;
@@ -716,12 +718,32 @@ server_handle_clients(struct pollfd **pfd)
 		c = ARRAY_ITEM(&clients, i);
 
 		if (c != NULL) {
-			if (buffer_poll(*pfd, c->in, c->out) != 0) {
+			if ((*pfd)->revents & (POLLERR|POLLNVAL|POLLHUP)) {
 				server_lost_client(c);
 				(*pfd) += 2;
 				continue;
-			} else
-				server_msg_dispatch(c);
+			}
+
+			if ((*pfd)->revents & POLLOUT) {
+				if (msgbuf_write(&c->ibuf.w) < 0) {
+					server_lost_client(c);
+					(*pfd) += 2;
+					continue;
+				}
+			}
+
+			if (c->flags & CLIENT_BAD) {
+				if (c->ibuf.w.queued == 0)
+					server_lost_client(c);
+				(*pfd) += 2;
+				continue;
+			} else if ((*pfd)->revents & POLLIN) {
+				if (server_msg_dispatch(c) != 0) {
+					server_lost_client(c);
+					(*pfd) += 2;
+					continue;
+				}
+			}
 		}
 		(*pfd)++;
 
@@ -859,6 +881,7 @@ server_handle_client(struct client *c)
 
 	/* Ensure cursor position and mode settings. */
 	status = options_get_number(&c->session->options, "status");
+	tty_region(&c->tty, 0, c->tty.sy - 1, 0);
 	if (!window_pane_visible(wp) || wp->yoff + s->cy >= c->tty.sy - status)
 		tty_cursor(&c->tty, 0, 0, 0, 0);
 	else
@@ -880,8 +903,9 @@ server_lost_client(struct client *c)
 		if (ARRAY_ITEM(&clients, i) == c)
 			ARRAY_SET(&clients, i, NULL);
 	}
+	log_debug("lost client %d", c->ibuf.fd);
 
-	tty_free(&c->tty, c->flags & CLIENT_SUSPENDED);
+	tty_free(&c->tty);
 
 	screen_free(&c->status);
 
@@ -902,9 +926,8 @@ server_lost_client(struct client *c)
 	if (c->cwd != NULL)
 		xfree(c->cwd);
 
-	close(c->fd);
-	buffer_destroy(c->in);
-	buffer_destroy(c->out);
+	close(c->ibuf.fd);
+	imsg_clear(&c->ibuf);
 	xfree(c);
 
 	recalculate_sizes();

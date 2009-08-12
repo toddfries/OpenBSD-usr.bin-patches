@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.14 2009/07/26 23:48:01 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.19 2009/08/09 21:59:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -60,7 +60,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_eoln, MDOC_PROLOGUE }, /* Os */
 	{ blk_full, 0 }, /* Sh */
 	{ blk_full, 0 }, /* Ss */ 
-	{ in_line, 0 }, /* Pp */ 
+	{ in_line_eoln, 0 }, /* Pp */ 
 	{ blk_part_imp, MDOC_PARSED }, /* D1 */
 	{ blk_part_imp, MDOC_PARSED }, /* Dl */
 	{ blk_full, MDOC_EXPLICIT }, /* Bd */
@@ -71,7 +71,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Ad */ 
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* An */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Ar */
-	{ in_line_eoln, MDOC_CALLABLE }, /* Cd */
+	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Cd */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Cm */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Dv */ 
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Er */ 
@@ -161,7 +161,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ obsolete, 0 }, /* Fr */
 	{ in_line_eoln, 0 }, /* Ud */
 	{ in_line_eoln, 0 }, /* Lb */
-	{ in_line, 0 }, /* Lp */ 
+	{ in_line_eoln, 0 }, /* Lp */ 
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Lk */ 
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Mt */ 
 	{ blk_part_imp, MDOC_CALLABLE | MDOC_PARSED }, /* Brq */
@@ -742,17 +742,17 @@ in_line(MACRO_PROT_ARGS)
 	 * usually because of reserved words) to squeak by.
 	 */
 	switch (tok) {
-	case (MDOC_Lp):
+	case (MDOC_An):
 		/* FALLTHROUGH */
-	case (MDOC_Pp):
-		/* FALLTHROUGH */
-	case (MDOC_Nm):
+	case (MDOC_Ar):
 		/* FALLTHROUGH */
 	case (MDOC_Fl):
 		/* FALLTHROUGH */
 	case (MDOC_Lk):
 		/* FALLTHROUGH */
-	case (MDOC_Ar):
+	case (MDOC_Nm):
+		/* FALLTHROUGH */
+	case (MDOC_Pa):
 		nc = 1;
 		break;
 	default:
@@ -1389,78 +1389,44 @@ obsolete(MACRO_PROT_ARGS)
 }
 
 
+/*
+ * Phrases occur within `Bl -column' entries, separated by `Ta' or tabs.
+ * They're unusual because they're basically free-form text until a
+ * macro is encountered.
+ */
 static int
 phrase(struct mdoc *mdoc, int line, int ppos, char *buf)
 {
-	int		 i, la, c, quoted;
+	int		  c, w, la, pos;
+	char		 *p;
 
-	/*
-	 * Parse over words in a phrase.  We have to handle this
-	 * specially because we assume no calling context -- in normal
-	 * circumstances, we switch argument parsing based on whether
-	 * the parent macro accepts quotes, tabs, etc.  Here, anything
-	 * goes.
-	 */
+	for (pos = ppos; ; ) {
+		la = pos;
 
-	for (i = ppos; buf[i]; ) {
-		assert(' ' != buf[i]);
-		la = i;
-		quoted = 0;
+		/* Note: no calling context! */
+		w = mdoc_zargs(mdoc, line, &pos, buf, &p);
 
-		/* 
-		 * Read to next token.  If quoted (check not escaped),
-		 * scan ahead to next unescaped quote.  If not quoted or
-		 * escape-quoted, then scan ahead to next space.
-		 */
+		if (ARGS_ERROR == w)
+			return(0);
+		if (ARGS_EOLN == w)
+			break;
 
-		if ((i && '\"' == buf[i] && '\\' != buf[i - 1]) || 
-				(0 == i && '\"' == buf[i])) {
-			for (la = ++i; buf[i]; i++) 
-				if ('\"' != buf[i])
-					continue;
-				else if ('\\' != buf[i - 1])
-					break;
-			if (0 == buf[i]) 
-				return(mdoc_perr(mdoc, line, la, EQUOTPHR));
-			quoted = 1;
-		} else
-			for ( ; buf[i]; i++)
-				if (i && ' ' == buf[i]) {
-					if ('\\' != buf[i - 1])
-						break;
-				} else if (' ' == buf[i])
-					break;
+		c = ARGS_QWORD == w ? MDOC_MAX :
+			mdoc_hash_find(mdoc->htab, p);
 
-		/* If not end-of-line, terminate argument. */
-
-		if (buf[i])
-			buf[i++] = 0;
-
-		/* Read to next argument. */
-
-		for ( ; buf[i] && ' ' == buf[i]; i++)
-			/* Spin. */ ;
-
-		/* 
-		 * If we're a non-quoted string, try to look up the
-		 * value as a macro and execute it, if found.
-		 */
-
-		c = quoted ? MDOC_MAX :
-			mdoc_hash_find(mdoc->htab, &buf[la]);
-
-		if (MDOC_MAX != c) {
-			if ( ! mdoc_macro(mdoc, c, line, la, &i, buf))
+		if (MDOC_MAX != c && -1 != c) {
+			if ( ! mdoc_macro(mdoc, c, line, la, &pos, buf))
 				return(0);
-			return(append_delims(mdoc, line, &i, buf));
-		}
+			return(append_delims(mdoc, line, &pos, buf));
+		} else if (-1 == c)
+			return(0);
 
-		/* A regular word or quoted string. */
-
-		if ( ! mdoc_word_alloc(mdoc, line, la, &buf[la]))
+		if ( ! mdoc_word_alloc(mdoc, line, la, p))
 			return(0);
 		mdoc->next = MDOC_NEXT_SIBLING;
 	}
 
 	return(1);
 }
+
+

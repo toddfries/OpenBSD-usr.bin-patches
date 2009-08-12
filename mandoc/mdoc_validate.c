@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.31 2009/07/26 01:59:46 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.34 2009/08/09 21:49:45 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -908,7 +908,7 @@ post_an(POST_ARGS)
 	if (mdoc->last->args) {
 		if (NULL == mdoc->last->child)
 			return(1);
-		return(mdoc_nerr(mdoc, mdoc->last, ELINE));
+		return(mdoc_nerr(mdoc, mdoc->last, ENOLINE));
 	}
 
 	if (mdoc->last->child)
@@ -1024,11 +1024,20 @@ post_it(POST_ARGS)
 		c = mdoc->last->child;
 		for (i = 0; c && MDOC_HEAD == c->type; c = c->next)
 			i++;
-		if (i == cols)
+
+		if (i < cols || i == (cols + 1)) {
+			if ( ! mdoc_vwarn(mdoc, mdoc->last->line, 
+					mdoc->last->pos, "column "
+					"mismatch: have %d, want %d", 
+					i, cols))
+				return(0);
 			break;
-		return(mdoc_verr(mdoc, mdoc->last->line, mdoc->last->pos,
-				"column mismatch (have %d, want %d)", 
-				i, cols));
+		} else if (i == cols)
+			break;
+
+		return(mdoc_verr(mdoc, mdoc->last->line, 
+				mdoc->last->pos, "column mismatch: "
+				"have %d, want %d", i, cols));
 	default:
 		break;
 	}
@@ -1206,6 +1215,7 @@ post_sh_body(POST_ARGS)
 			return(0);
 	}
 
+	assert(n);
 	if (MDOC_BLOCK == n->type && MDOC_Nd == n->tok)
 		return(1);
 	return(mdoc_nwarn(mdoc, mdoc->last, ENAMESECINC));

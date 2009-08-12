@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.10 2009/07/21 19:54:22 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.12 2009/08/08 15:57:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -635,7 +635,7 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 	case '\0':	/* NUL */
 		break;
 	case '\n':	/* LF */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case '\r':	/* CR */
 		screen_write_carriagereturn(&ictx->ctx);
@@ -659,7 +659,7 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 		} while (s->cx < screen_size_x(s) - 1);
 		break;
 	case '\013':	/* VT */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case '\016':	/* SO */
 		ictx->cell.attr |= GRID_ATTR_CHARSET;
@@ -682,11 +682,11 @@ input_handle_c1_control(u_char ch, struct input_ctx *ictx)
 
 	switch (ch) {
 	case 'D':	/* IND */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case 'E': 	/* NEL */
 		screen_write_carriagereturn(&ictx->ctx);
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case 'H':	/* HTS */
 		if (s->cx < screen_size_x(s))
@@ -1189,7 +1189,9 @@ input_handle_sequence_sm(struct input_ctx *ictx)
 			    wp->saved_grid, 0, s->grid, screen_hsize(s), sy);
 			wp->saved_cx = s->cx;
 			wp->saved_cy = s->cy;
-			
+			memcpy(&wp->saved_cell,
+			    &ictx->cell, sizeof wp->saved_cell);
+
 			grid_view_clear(s->grid, 0, 0, sx, sy);
 
 			wp->base.grid->flags &= ~GRID_HISTORY;
@@ -1261,7 +1263,7 @@ input_handle_sequence_rm(struct input_ctx *ictx)
 			if (sy > wp->saved_grid->sy)
 				screen_resize(s, sx, wp->saved_grid->sy);
 
-			/* Restore the grid and cursor position. */
+			/* Restore the grid, cursor position and cell. */
 			grid_duplicate_lines(
 			    s->grid, screen_hsize(s), wp->saved_grid, 0, sy);
 			s->cx = wp->saved_cx;
@@ -1270,6 +1272,7 @@ input_handle_sequence_rm(struct input_ctx *ictx)
 			s->cy = wp->saved_cy;
 			if (s->cy > screen_size_y(s) - 1)
 				s->cy = screen_size_y(s) - 1;
+			memcpy(&ictx->cell, &wp->saved_cell, sizeof ictx->cell);
 
 			/*
 			 * Turn history back on (so resize can use it) and then
@@ -1326,7 +1329,6 @@ input_handle_sequence_dsr(struct input_ctx *ictx)
 			break;
 		}
 	}
-
 }
 
 void

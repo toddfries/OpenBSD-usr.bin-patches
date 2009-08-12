@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.24 2009/07/30 07:04:50 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.32 2009/08/12 09:14:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -44,6 +44,7 @@ volatile sig_atomic_t sigusr2;
 char		*cfg_file;
 struct options	 global_s_options;	/* session options */
 struct options	 global_w_options;	/* window options */
+struct environ	 global_environ;
 
 int		 server_locked;
 u_int		 password_failures;
@@ -59,6 +60,7 @@ __dead void	 usage(void);
 char 		*makesockpath(const char *);
 int		 prepare_unlock(enum msgtype *, void **, size_t *, int);
 int		 prepare_cmd(enum msgtype *, void **, size_t *, int, char **);
+int		 dispatch_imsg(struct client_ctx *, int *);
 
 __dead void
 usage(void)
@@ -77,8 +79,7 @@ logfile(const char *name)
 
 	log_close();
 	if (debug_level > 0) {
-		xasprintf(
-		    &path, "%s-%s-%ld.log", __progname, name, (long) getpid());
+		xasprintf(&path, "tmux-%s-%ld.log", name, (long) getpid());
 		log_open_file(debug_level, path);
 		xfree(path);
 	}
@@ -182,7 +183,7 @@ makesockpath(const char *label)
 	u_int		uid;
 
 	uid = getuid();
-	xsnprintf(base, MAXPATHLEN, "%s/%s-%d", _PATH_TMP, __progname, uid);
+	xsnprintf(base, MAXPATHLEN, "%s/tmux-%d", _PATH_TMP, uid);
 
 	if (mkdir(base, S_IRWXU) != 0 && errno != EEXIST)
 		return (NULL);
@@ -259,14 +260,13 @@ main(int argc, char **argv)
  	struct cmd		*cmd;
 	struct pollfd	 	 pfd;
 	enum msgtype		 msg;
-	struct hdr	 	 hdr;
 	struct passwd		*pw;
-	struct msg_print_data	 printdata;
-	char			*s, *path, *label, *home, *cause;
+	char			*s, *path, *label, *home, *cause, **var;
 	char			 cwd[MAXPATHLEN];
 	void			*buf;
 	size_t			 len;
 	int	 		 retcode, opt, flags, unlock, cmdflags = 0;
+	int			 nfds;
 
 	unlock = flags = 0;
 	label = path = NULL;
@@ -320,6 +320,10 @@ main(int argc, char **argv)
 	log_open_tty(debug_level);
 	siginit();
 
+	environ_init(&global_environ);
+ 	for (var = environ; *var != NULL; var++)
+		environ_put(&global_environ, *var);
+
 	if (!(flags & IDENTIFY_UTF8)) {
 		/*
 		 * If the user has set whichever of LC_ALL, LC_CTYPE or LANG
@@ -332,7 +336,8 @@ main(int argc, char **argv)
 			if ((s = getenv("LC_CTYPE")) == NULL)
 				s = getenv("LANG");
 		}
-		if (s != NULL && strcasestr(s, "UTF-8") != NULL)
+		if (s != NULL && (strcasestr(s, "UTF-8") != NULL ||
+		    strcasestr(s, "UTF8") != NULL))
 			flags |= IDENTIFY_UTF8;
 	}
 
@@ -344,7 +349,7 @@ main(int argc, char **argv)
 	options_set_number(&global_s_options, "display-time", 750);
 	options_set_number(&global_s_options, "history-limit", 2000);
 	options_set_number(&global_s_options, "lock-after-time", 0);
-	options_set_number(&global_s_options, "message-attr", GRID_ATTR_REVERSE);
+	options_set_number(&global_s_options, "message-attr", 0);
 	options_set_number(&global_s_options, "message-bg", 3);
 	options_set_number(&global_s_options, "message-fg", 0);
 	options_set_number(&global_s_options, "prefix", '\002');
@@ -352,21 +357,30 @@ main(int argc, char **argv)
 	options_set_number(&global_s_options, "set-remain-on-exit", 0);
 	options_set_number(&global_s_options, "set-titles", 0);
 	options_set_number(&global_s_options, "status", 1);
-	options_set_number(&global_s_options, "status-attr", GRID_ATTR_REVERSE);
+	options_set_number(&global_s_options, "status-attr", 0);
 	options_set_number(&global_s_options, "status-bg", 2);
 	options_set_number(&global_s_options, "status-fg", 0);
 	options_set_number(&global_s_options, "status-interval", 15);
 	options_set_number(&global_s_options, "status-keys", MODEKEY_EMACS);
 	options_set_number(&global_s_options, "status-justify", 0);
-	options_set_number(&global_s_options, "status-left-length", 10);
-	options_set_number(&global_s_options, "status-right-length", 40);
 	options_set_string(&global_s_options, "status-left", "[#S]");
+	options_set_number(&global_s_options, "status-left-attr", 0);
+	options_set_number(&global_s_options, "status-left-fg", 8);
+	options_set_number(&global_s_options, "status-left-bg", 8);
+	options_set_number(&global_s_options, "status-left-length", 10);
 	options_set_string(
 	    &global_s_options, "status-right", "\"#22T\" %%H:%%M %%d-%%b-%%y");
+	options_set_number(&global_s_options, "status-right-attr", 0);
+	options_set_number(&global_s_options, "status-right-fg", 8);
+	options_set_number(&global_s_options, "status-right-bg", 8);
+	options_set_number(&global_s_options, "status-right-length", 40);
 	if (flags & IDENTIFY_UTF8)
 		options_set_number(&global_s_options, "status-utf8", 1);
 	else
 		options_set_number(&global_s_options, "status-utf8", 0);
+	options_set_string(&global_s_options,
+	    "terminal-overrides", "*88col*:colors=88,*256col*:colors=256");
+	options_set_string(&global_s_options, "update-environment", "DISPLAY");
 	options_set_number(&global_s_options, "visual-activity", 0);
 	options_set_number(&global_s_options, "visual-bell", 0);
 	options_set_number(&global_s_options, "visual-content", 0);
@@ -380,7 +394,7 @@ main(int argc, char **argv)
 	options_set_number(&global_w_options, "force-width", 0);
 	options_set_number(&global_w_options, "main-pane-width", 81);
 	options_set_number(&global_w_options, "main-pane-height", 24);
-	options_set_number(&global_w_options, "mode-attr", GRID_ATTR_REVERSE);
+	options_set_number(&global_w_options, "mode-attr", 0);
 	options_set_number(&global_w_options, "mode-bg", 3);
 	options_set_number(&global_w_options, "mode-fg", 0);
 	options_set_number(&global_w_options, "mode-keys", MODEKEY_EMACS);
@@ -447,7 +461,7 @@ main(int argc, char **argv)
 	if (unlock)
 		cmdflags &= ~CMD_STARTSERVER;
 	else if (argc == 0)
-		cmdflags |= CMD_STARTSERVER;
+		cmdflags |= CMD_STARTSERVER|CMD_SENDENVIRON;
 	else {
 		/*
 		 * It sucks parsing the command string twice (in client and
@@ -460,10 +474,10 @@ main(int argc, char **argv)
 		}
 		cmdflags &= ~CMD_STARTSERVER;
 		TAILQ_FOREACH(cmd, cmdlist, qentry) {
-			if (cmd->entry->flags & CMD_STARTSERVER) {
+			if (cmd->entry->flags & CMD_STARTSERVER)
 				cmdflags |= CMD_STARTSERVER;
-				break;
-			}
+			if (cmd->entry->flags & CMD_SENDENVIRON)
+				cmdflags |= CMD_SENDENVIRON;
 		}
 		cmd_list_free(cmdlist);
 	}
@@ -478,58 +492,92 @@ main(int argc, char **argv)
 
 	retcode = 0;
 	for (;;) {
-		pfd.fd = cctx.srv_fd;
+		pfd.fd = cctx.ibuf.fd;
 		pfd.events = POLLIN;
-		if (BUFFER_USED(cctx.srv_out) > 0)
+		if (cctx.ibuf.w.queued != 0)
 			pfd.events |= POLLOUT;
 
-		if (poll(&pfd, 1, INFTIM) == -1) {
+		if ((nfds = poll(&pfd, 1, INFTIM)) == -1) {
 			if (errno == EAGAIN || errno == EINTR)
 				continue;
 			fatal("poll failed");
 		}
-
-		if (buffer_poll(&pfd, cctx.srv_in, cctx.srv_out) != 0)
-			goto out;
-
-	restart:
-		if (BUFFER_USED(cctx.srv_in) < sizeof hdr)
+		if (nfds == 0)
 			continue;
-		memcpy(&hdr, BUFFER_OUT(cctx.srv_in), sizeof hdr);
-		if (BUFFER_USED(cctx.srv_in) < (sizeof hdr) + hdr.size)
-			continue;
-		buffer_remove(cctx.srv_in, sizeof hdr);
 
-		switch (hdr.type) {
-		case MSG_EXIT:
-		case MSG_SHUTDOWN:
-			goto out;
-		case MSG_ERROR:
-			retcode = 1;
-			/* FALLTHROUGH */
-		case MSG_PRINT:
-			if (hdr.size < sizeof printdata)
-				fatalx("bad MSG_PRINT size");
-			buffer_read(cctx.srv_in, &printdata, sizeof printdata);
+		if (pfd.revents & (POLLERR|POLLHUP|POLLNVAL))
+			fatalx("socket error");
 
-			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
-			log_info("%s", printdata.msg);
-			goto restart;
-		case MSG_READY:
-			retcode = client_main(&cctx);
-			goto out;
-		default:
-			fatalx("unexpected command");
+                if (pfd.revents & POLLIN) {
+			if (dispatch_imsg(&cctx, &retcode) != 0)
+				break;
+		}
+
+		if (pfd.revents & POLLOUT) {
+			if (msgbuf_write(&cctx.ibuf.w) < 0)
+				fatalx("msgbuf_write failed");
 		}
 	}
 
-out:
 	options_free(&global_s_options);
 	options_free(&global_w_options);
 
-	close(cctx.srv_fd);
-	buffer_destroy(cctx.srv_in);
-	buffer_destroy(cctx.srv_out);
-
 	return (retcode);
+}
+
+int
+dispatch_imsg(struct client_ctx *cctx, int *retcode)
+{
+	struct imsg		imsg;
+	ssize_t			n, datalen;
+	struct msg_print_data	printdata;
+
+        if ((n = imsg_read(&cctx->ibuf)) == -1 || n == 0)
+		fatalx("imsg_read failed");
+
+	for (;;) {
+		if ((n = imsg_get(&cctx->ibuf, &imsg)) == -1)
+			fatalx("imsg_get failed");
+		if (n == 0)
+			return (0);
+		datalen = imsg.hdr.len - IMSG_HEADER_SIZE;
+
+		switch (imsg.hdr.type) {
+		case MSG_EXIT:
+		case MSG_SHUTDOWN:
+			if (datalen != 0)
+				fatalx("bad MSG_EXIT size");
+
+			return (-1);
+		case MSG_ERROR:
+			*retcode = 1;
+			/* FALLTHROUGH */
+		case MSG_PRINT:
+			if (datalen != sizeof printdata)
+				fatalx("bad MSG_PRINT size");
+			memcpy(&printdata, imsg.data, sizeof printdata);
+			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
+
+			log_info("%s", printdata.msg);
+			break;
+		case MSG_READY:
+			if (datalen != 0)
+				fatalx("bad MSG_READY size");
+
+			*retcode = client_main(cctx);
+			return (-1);
+		case MSG_VERSION:
+			if (datalen != 0)
+				fatalx("bad MSG_VERSION size");
+
+			log_warnx("protocol version mismatch (client %u, "
+			    "server %u)", PROTOCOL_VERSION, imsg.hdr.peerid);
+			*retcode = 1;
+			return (-1);
+		default:
+			fatalx("unexpected message");
+		}
+
+		imsg_free(&imsg);
+	}
 }

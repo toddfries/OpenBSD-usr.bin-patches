@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-attach-session.c,v 1.6 2009/07/26 12:58:44 nicm Exp $ */
+/* $OpenBSD: cmd-attach-session.c,v 1.8 2009/08/08 21:52:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,7 +29,7 @@ int	cmd_attach_session_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_attach_session_entry = {
 	"attach-session", "attach",
 	"[-d] " CMD_TARGET_SESSION_USAGE,
-       	CMD_CANTNEST|CMD_STARTSERVER, CMD_CHFLAG('d'),
+       	CMD_CANTNEST|CMD_STARTSERVER|CMD_SENDENVIRON, CMD_CHFLAG('d'),
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_attach_session_exec,
@@ -43,7 +43,8 @@ cmd_attach_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_target_data	*data = self->data;
 	struct session		*s;
 	struct client		*c;
-	char			*cause;
+	const char		*update;
+	char			*overrides, *cause;
 	u_int			 i;
 
 	if (ARRAY_LENGTH(&sessions) == 0) {
@@ -80,7 +81,9 @@ cmd_attach_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 			return (-1);
 		}
 
-		if (tty_open(&ctx->cmdclient->tty, &cause) != 0) {
+		overrides =
+		    options_get_string(&s->options, "terminal-overrides");
+		if (tty_open(&ctx->cmdclient->tty, overrides, &cause) != 0) {
 			ctx->error(ctx, "terminal open failed: %s", cause);
 			xfree(cause);
 			return (-1);
@@ -91,6 +94,10 @@ cmd_attach_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 		ctx->cmdclient->session = s;
 		server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
+
+		update = options_get_string(&s->options, "update-environment");
+		environ_update(update, &ctx->cmdclient->environ, &s->environ);
+
 		server_redraw_client(ctx->cmdclient);
 	}
 	recalculate_sizes();
