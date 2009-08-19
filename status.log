@@ -1,68 +1,81 @@
 # On branch master
+# Changes to be committed:
+#   (use "git reset HEAD <file>..." to unstage)
+#
+#	deleted:    mkdep/Makefile.orig
+#	deleted:    mkdep/mkdep.gcc.sh.orig
+#
 # Changed but not updated:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   ftp/fetch.c
-#	modified:   ftp/ftp.1
-#	modified:   ftp/main.c
-#	modified:   login/login.c
-#	modified:   mandoc/Makefile
-#	modified:   mandoc/man.3
-#	modified:   mandoc/man.7
-#	modified:   mandoc/mandoc.1
-#	modified:   mandoc/mdoc.3
-#	modified:   mandoc/mdoc.7
-#	modified:   mandoc/mdoc.h
-#	modified:   mandoc/mdoc_action.c
-#	modified:   mandoc/mdoc_hash.c
-#	modified:   mandoc/mdoc_macro.c
-#	modified:   mandoc/mdoc_term.c
-#	modified:   mandoc/mdoc_validate.c
-#	modified:   mandoc/st.in
-#	modified:   mandoc/term.c
-#	modified:   mandoc/term.h
-#	modified:   mg/theo.c
-#	modified:   mklocale/Makefile
-#	modified:   mklocale/ldef.h
-#	modified:   mklocale/lex.l
-#	modified:   mklocale/yacc.y
-#	modified:   netstat/if.c
-#	modified:   netstat/route.c
-#	modified:   netstat/show.c
-#	modified:   sed/compile.c
-#	modified:   sed/extern.h
-#	modified:   sed/main.c
-#	modified:   sed/sed.1
+#	modified:   ar/ar.1
+#	modified:   aucat/aparams.c
+#	modified:   aucat/aparams.h
+#	modified:   aucat/aucat.c
+#	modified:   aucat/conf.h
+#	modified:   aucat/midicat.1
+#	modified:   aucat/sock.c
+#	modified:   compress/zmore.1
+#	modified:   du/du.1
+#	modified:   file/file.1
+#	modified:   fold/fold.1
+#	modified:   fstat/fstat.1
+#	modified:   lam/lam.1
+#	modified:   make/arch.c
+#	modified:   make/compat.c
+#	modified:   make/dir.c
+#	modified:   make/engine.c
+#	modified:   make/gnode.h
+#	modified:   make/job.c
+#	modified:   make/make.c
+#	modified:   make/parse.c
+#	modified:   make/targ.c
+#	modified:   make/timestamp.c
+#	modified:   midiplay/midiplay.1
+#	modified:   pr/pr.1
+#	modified:   rev/rev.1
+#	modified:   soelim/soelim.1
+#	modified:   sort/sort.1
+#	modified:   ssh/auth.h
+#	modified:   ssh/sftp-client.c
+#	modified:   ssh/sftp-client.h
 #	modified:   ssh/sftp.1
 #	modified:   ssh/sftp.c
+#	modified:   ssh/sshd_config.5
 #	modified:   status.log
-#	modified:   systat/iostat.c
-#	modified:   telnet/main.c
-#	modified:   tmux/Makefile
-#	modified:   tmux/cfg.c
-#	modified:   tmux/client-fn.c
-#	modified:   tmux/client.c
-#	modified:   tmux/cmd-attach-session.c
-#	modified:   tmux/cmd-choose-window.c
-#	modified:   tmux/cmd-generic.c
-#	modified:   tmux/cmd-list-windows.c
+#	modified:   strings/strings.1
+#	modified:   systat/if.c
+#	modified:   systat/sensors.c
+#	modified:   systat/systat.1
+#	modified:   systat/systat.h
+#	modified:   systat/vmstat.c
+#	modified:   tcpbench/tcpbench.1
+#	modified:   tcpbench/tcpbench.c
+#	modified:   tee/tee.1
+#	modified:   tmux/cmd-break-pane.c
+#	modified:   tmux/cmd-clock-mode.c
+#	modified:   tmux/cmd-command-prompt.c
+#	modified:   tmux/cmd-confirm-before.c
+#	modified:   tmux/cmd-copy-mode.c
+#	modified:   tmux/cmd-link-window.c
+#	modified:   tmux/cmd-list-buffers.c
+#	modified:   tmux/cmd-move-window.c
 #	modified:   tmux/cmd-new-session.c
+#	modified:   tmux/cmd-new-window.c
 #	modified:   tmux/cmd-respawn-window.c
+#	modified:   tmux/cmd-scroll-mode.c
+#	modified:   tmux/cmd-select-prompt.c
+#	modified:   tmux/cmd-send-keys.c
+#	modified:   tmux/cmd-send-prefix.c
 #	modified:   tmux/cmd-server-info.c
 #	modified:   tmux/cmd-set-option.c
-#	modified:   tmux/cmd-set-window-option.c
+#	modified:   tmux/cmd-show-buffer.c
 #	modified:   tmux/cmd-split-window.c
-#	modified:   tmux/cmd-string.c
-#	modified:   tmux/cmd.c
-#	modified:   tmux/grid.c
 #	modified:   tmux/input.c
-#	modified:   tmux/options-cmd.c
-#	modified:   tmux/procname.c
-#	modified:   tmux/screen-redraw.c
+#	modified:   tmux/mode-key.c
+#	modified:   tmux/names.c
 #	modified:   tmux/screen-write.c
-#	modified:   tmux/screen.c
-#	modified:   tmux/server-fn.c
 #	modified:   tmux/server-msg.c
 #	modified:   tmux/server.c
 #	modified:   tmux/session.c
@@ -70,23 +83,14 @@
 #	modified:   tmux/tmux.1
 #	modified:   tmux/tmux.c
 #	modified:   tmux/tmux.h
-#	modified:   tmux/tty-term.c
 #	modified:   tmux/tty.c
-#	modified:   tmux/window-choose.c
 #	modified:   tmux/window-copy.c
 #	modified:   tmux/window-more.c
 #	modified:   tmux/window-scroll.c
 #	modified:   tmux/window.c
+#	modified:   unvis/unvis.1
 #	modified:   up.log
-#	modified:   wall/wall.c
+#	modified:   vis/vis.1
+#	modified:   wc/wc.1
+#	modified:   xstr/xstr.1
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	tmux/cmd-set-environment.c
-#	tmux/cmd-show-environment.c
-#	tmux/environ.c
-#	tmux/imsg-buffer.c
-#	tmux/imsg.c
-#	tmux/imsg.h
-no changes added to commit (use "git add" and/or "git commit -a")

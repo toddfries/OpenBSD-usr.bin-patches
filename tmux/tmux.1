@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.67 2009/08/10 17:14:55 jmc Exp $
+.\" $OpenBSD: tmux.1,v 1.72 2009/08/18 16:21:04 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 10 2009 $
+.Dd $Mdocdate: August 18 2009 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -398,6 +398,10 @@ is given.
 and
 .Ar command
 are the name of and command to execute in the initial window.
+.Pp
+If run from a terminal, any
+.Xr termios 4
+special characters are saved and used for new windows in the new session.
 .It Ic refresh-client Op Fl t Ar target-client
 .D1 (alias: Ic refresh )
 Refresh the current client if bound to a key, or a single client if one is given
@@ -471,23 +475,28 @@ option).
 The following keys are supported as appropriate for the mode:
 .Bl -column "FunctionXXXXXXXXXXXX" "viXXXXXX" "emacs" -offset indent
 .It Sy "Function" Ta Sy "vi" Ta Sy "emacs"
-.It Li "Start of line" Ta "0" Ta "C-a"
 .It Li "Back to indentation" Ta "^" Ta "M-m"
 .It Li "Clear selection" Ta "Escape" Ta "C-g"
 .It Li "Copy selection" Ta "Enter" Ta "M-w"
 .It Li "Cursor down" Ta "j" Ta "Down"
-.It Li "End of line" Ta "$" Ta "C-e"
 .It Li "Cursor left" Ta "h" Ta "Left"
+.It Li "Cursor right" Ta "l" Ta "Right"
+.It Li "Cursor up" Ta "k" Ta "Up"
+.It Li "Delete entire line" Ta "d" Ta "C-u"
+.It Li "Delete to end of line" Ta "D" Ta "C-k"
+.It Li "End of line" Ta "$" Ta "C-e"
+.It Li "Goto line" Ta "g" Ta "g"
 .It Li "Next page" Ta "C-f" Ta "Page down"
 .It Li "Next word" Ta "w" Ta "M-f"
+.It Li "Paste buffer" Ta "p" Ta "C-y"
 .It Li "Previous page" Ta "C-u" Ta "Page up"
 .It Li "Previous word" Ta "b" Ta "M-b"
 .It Li "Quit mode" Ta "q" Ta "Escape"
-.It Li "Cursor right" Ta "l" Ta "Right"
+.It Li "Search again" Ta "n" Ta "n"
+.It Li "Search backward" Ta "?" Ta "C-r"
+.It Li "Search forward" Ta "/" Ta "C-s"
+.It Li "Start of line" Ta "0" Ta "C-a"
 .It Li "Start selection" Ta "Space" Ta "C-Space"
-.It Li "Cursor up" Ta "k" Ta "Up"
-.It Li "Delete to end of line" Ta "D" Ta "C-k"
-.It Li "Paste buffer" Ta "p" Ta "C-y"
 .El
 .Pp
 These key bindings are defined in a set of named tables:
@@ -519,7 +528,7 @@ The mode commands are as follows:
 .Bl -tag -width Ds
 .It Xo Ic copy-mode
 .Op Fl u
-.Op Fl t Ar target-window
+.Op Fl t Ar target-pane
 .Xc
 Enter copy mode.
 The
@@ -527,7 +536,7 @@ The
 option scrolls one page up.
 .It Xo Ic scroll-mode
 .Op Fl u
-.Op Fl t Ar target-window
+.Op Fl t Ar target-pane
 .Xc
 Enter scroll mode.
 The
@@ -961,7 +970,7 @@ are listed; this may be one of:
 or
 .Em emacs-copy .
 .It Xo Ic send-keys
-.Op Fl t Ar target-window
+.Op Fl t Ar target-pane
 .Ar key Ar ...
 .Xc
 .D1 (alias: Ic send )
@@ -975,7 +984,7 @@ or
 ) to send; if the string is not recognised as a key, it is sent as a series of
 characters.
 All arguments are sent sequentially from first to last.
-.It Ic send-prefix Op Fl t Ar target-window
+.It Ic send-prefix Op Fl t Ar target-pane
 Send the prefix key to a window as if it was pressed.
 .It Xo Ic unbind-key
 .Op Fl cn
@@ -1060,6 +1069,10 @@ options - it is not possible to unset a global option.
 .Pp
 Available session options are:
 .Bl -tag -width Ds
+.It Ic base-index Ar index
+Set the base index from which an unused index should be searched when a new
+window is created.
+The default is zero.
 .It Xo Ic bell-action
 .Op Ic any | none | current
 .Xc
@@ -1786,7 +1799,7 @@ Display the contents of the specified buffer.
 .Pp
 Miscellaneous commands are as follows:
 .Bl -tag -width Ds
-.It Ic clock-mode Op Fl t Ar target-window
+.It Ic clock-mode Op Fl t Ar target-pane
 Display a large clock.
 .It Ic if-shell Ar shell-command command
 .D1 (alias: Ic if )

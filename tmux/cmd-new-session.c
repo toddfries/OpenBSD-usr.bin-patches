@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.10 2009/08/08 21:52:43 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.13 2009/08/13 20:11:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,6 +17,12 @@
  */
 
 #include <sys/types.h>
+
+#include <string.h>
+#include <termios.h>
+
+#define TTYDEFCHARS
+#include <sys/ttydefaults.h>
 
 #include "tmux.h"
 
@@ -109,9 +115,10 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_new_session_data	*data = self->data;
 	struct session			*s;
 	struct environ			 env;
+	struct termios			 tio;
 	const char			*update;
 	char				*overrides, *cmd, *cwd, *cause;
-	int				 detached;
+	int				 detached, idx;
 	u_int				 sx, sy;
 
 	if (data->newname != NULL && session_find(data->newname) != NULL) {
@@ -192,8 +199,26 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (ctx->cmdclient != NULL)
 		environ_update(update, &ctx->cmdclient->environ, &env);
 
+	/*
+	 * Fill in the termios settings used for new windows in this session;
+	 * if there is a command client, use the control characters from it.
+	 */
+	if (ctx->cmdclient != NULL && ctx->cmdclient->tty.fd != -1) {
+		if (tcgetattr(ctx->cmdclient->tty.fd, &tio) != 0)
+			fatal("tcgetattr failed");
+	} else
+		memcpy(tio.c_cc, ttydefchars, sizeof tio.c_cc);
+	tio.c_iflag = TTYDEF_IFLAG;
+	tio.c_oflag = TTYDEF_OFLAG;
+	tio.c_lflag = TTYDEF_LFLAG;
+	tio.c_cflag = TTYDEF_CFLAG;
+	tio.c_ispeed = TTYDEF_SPEED;
+	tio.c_ospeed = TTYDEF_SPEED;
+
 	/* Create the new session. */
-	s = session_create(data->newname, cmd, cwd, &env, sx, sy, &cause);
+	idx = -1 - options_get_number(&global_s_options, "base-index");
+	s = session_create(
+	    data->newname, cmd, cwd, &env, &tio, idx, sx, sy, &cause);
 	if (s == NULL) {
 		ctx->error(ctx, "create session failed: %s", cause);
 		xfree(cause);
@@ -216,8 +241,6 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (ctx->cmdclient != NULL) {
 		if (!detached)
 			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
-		else 
-			server_write_client(ctx->cmdclient, MSG_EXIT, NULL, 0);
 	}
 	
 	/* Set the client to the new session. */
@@ -232,7 +255,7 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 	recalculate_sizes();
 
-	return (1);	/* 1 means don't tell command client to exit */
+	return (!detached);	/* 1 means don't tell command client to exit */
 }
 
 void

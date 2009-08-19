@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmstat.c,v 1.69 2009/05/03 05:01:54 drahn Exp $	*/
+/*	$OpenBSD: vmstat.c,v 1.71 2009/08/14 14:41:55 deraadt Exp $	*/
 /*	$NetBSD: vmstat.c,v 1.5 1996/05/10 23:16:40 thorpej Exp $	*/
 
 /*-
@@ -34,7 +34,7 @@
 #if 0
 static char sccsid[] = "@(#)vmstat.c	8.2 (Berkeley) 1/12/94";
 #endif
-static char rcsid[] = "$OpenBSD: vmstat.c,v 1.69 2009/05/03 05:01:54 drahn Exp $";
+static char rcsid[] = "$OpenBSD: vmstat.c,v 1.71 2009/08/14 14:41:55 deraadt Exp $";
 #endif /* not lint */
 
 /*
@@ -251,6 +251,9 @@ labelkre(void)
 	mvprintw(INTSROW, INTSCOL + 3, " Interrupts");
 	mvprintw(INTSROW + 1, INTSCOL + 9, "total");
 
+	mvprintw(LINES - 3, INTSCOL + 9, "IPKTS");
+	mvprintw(LINES - 2, INTSCOL + 9, "OPKTS");
+
 	mvprintw(VMSTATROW + 0, VMSTATCOL + 10, "forks");
 	mvprintw(VMSTATROW + 1, VMSTATCOL + 10, "fkppw");
 	mvprintw(VMSTATROW + 2, VMSTATCOL + 10, "fksvm");
@@ -371,6 +374,9 @@ showkre(void)
 	s.nchcount = nchtotal.ncs_goodhits + nchtotal.ncs_badhits +
 	    nchtotal.ncs_miss + nchtotal.ncs_long;
 
+	putint(sum.ifc_ip, LINES - 3, INTSCOL, 8);
+	putint(sum.ifc_op, LINES - 2, INTSCOL, 8);
+
 	psiz = 0;
 	f2 = 0.0;
 
@@ -465,6 +471,7 @@ showkre(void)
 	putfloat((nchtotal.ncs_miss + nchtotal.ncs_long - nchtotal.ncs_pass2) *
 	    100.0 / nz(s.nchcount), NAMEIROW + 2, NAMEICOL + 45, 4, 0, 1);
 #undef nz
+
 }
 
 int
@@ -693,6 +700,7 @@ read_vm(void)
 	if (state == TIME)
 		copyinfo(&s3, &s1);
 	fetchkre();
+	fetchifstat();
 	if (state == TIME)
 		dkswap();
 	num_disp = 0;

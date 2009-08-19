@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.79 2009/08/12 09:41:59 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.86 2009/08/18 21:41:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -369,6 +369,7 @@ enum mode_key_cmd {
 	MODEKEYEDIT_CURSORLEFT,
 	MODEKEYEDIT_CURSORRIGHT,
 	MODEKEYEDIT_DELETE,
+	MODEKEYEDIT_DELETELINE,
 	MODEKEYEDIT_DELETETOENDOFLINE,
 	MODEKEYEDIT_ENDOFLINE,
 	MODEKEYEDIT_ENTER,
@@ -388,18 +389,24 @@ enum mode_key_cmd {
 	MODEKEYCHOICE_UP,
 
 	/* Copy keys. */
-	MODEKEYCOPY_CANCEL,
 	MODEKEYCOPY_BACKTOINDENTATION,
+	MODEKEYCOPY_CANCEL,
 	MODEKEYCOPY_CLEARSELECTION,
 	MODEKEYCOPY_COPYSELECTION,
 	MODEKEYCOPY_DOWN,
 	MODEKEYCOPY_ENDOFLINE,
+	MODEKEYCOPY_GOTOLINE,
+	MODEKEYCOPY_HALFPAGEDOWN,
+	MODEKEYCOPY_HALFPAGEUP,
 	MODEKEYCOPY_LEFT,
 	MODEKEYCOPY_NEXTPAGE,
 	MODEKEYCOPY_NEXTWORD,
 	MODEKEYCOPY_PREVIOUSPAGE,
 	MODEKEYCOPY_PREVIOUSWORD,
 	MODEKEYCOPY_RIGHT,
+	MODEKEYCOPY_SEARCHAGAIN,
+	MODEKEYCOPY_SEARCHDOWN,
+	MODEKEYCOPY_SEARCHUP,
 	MODEKEYCOPY_STARTOFLINE,
 	MODEKEYCOPY_STARTSELECTION,
 	MODEKEYCOPY_UP,
@@ -610,6 +617,7 @@ struct input_ctx {
 	u_char		*buf;
 	size_t		 len;
 	size_t		 off;
+	size_t		 was;
 
 	struct grid_cell cell;
 
@@ -803,6 +811,8 @@ struct session {
 #define SESSION_UNATTACHED 0x1	/* not attached to any clients */
 	int		 flags;
 
+	struct termios   tio;
+
 	struct environ	 environ;
 };
 ARRAY_DECL(sessions, struct session *);
@@ -982,9 +992,9 @@ struct cmd_ctx {
 
 	struct msg_command_data	*msgdata;
 
-	void		(*print)(struct cmd_ctx *, const char *, ...);
-	void		(*info)(struct cmd_ctx *, const char *, ...);
-	void		(*error)(struct cmd_ctx *, const char *, ...);
+	void printflike2 (*print)(struct cmd_ctx *, const char *, ...);
+	void printflike2 (*info)(struct cmd_ctx *, const char *, ...);
+	void printflike2 (*error)(struct cmd_ctx *, const char *, ...);
 };
 
 struct cmd {
@@ -1563,7 +1573,7 @@ RB_PROTOTYPE(windows, window, entry, window_cmp);
 RB_PROTOTYPE(winlinks, winlink, entry, winlink_cmp);
 struct winlink	*winlink_find_by_index(struct winlinks *, int);
 struct winlink 	*winlink_find_by_window(struct winlinks *, struct window *);
-int		 winlink_next_index(struct winlinks *);
+int		 winlink_next_index(struct winlinks *, int);
 u_int		 winlink_count(struct winlinks *);
 struct winlink	*winlink_add(struct winlinks *, struct window *, int);
 void		 winlink_remove(struct winlinks *, struct winlink *);
@@ -1574,7 +1584,8 @@ void		 winlink_stack_remove(struct winlink_stack *, struct winlink *);
 int	 	 window_index(struct window *, u_int *);
 struct window	*window_create1(u_int, u_int);
 struct window	*window_create(const char *, const char *, const char *,
-    		     struct environ *, u_int, u_int, u_int, char **);
+    		     struct environ *, struct termios *, u_int, u_int, u_int,
+		     char **);
 void		 window_destroy(struct window *);
 void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, u_int);
@@ -1586,8 +1597,8 @@ u_int		 window_count_panes(struct window *);
 void		 window_destroy_panes(struct window *);
 struct window_pane *window_pane_create(struct window *, u_int, u_int, u_int);
 void		 window_pane_destroy(struct window_pane *);
-int		 window_pane_spawn(struct window_pane *,
-		     const char *, const char *, struct environ *, char **);
+int		 window_pane_spawn(struct window_pane *, const char *,
+		     const char *, struct environ *, struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
@@ -1666,8 +1677,9 @@ void	 session_alert_cancel(struct session *, struct winlink *);
 int	 session_alert_has(struct session *, struct winlink *, int);
 int	 session_alert_has_window(struct session *, struct window *, int);
 struct session	*session_find(const char *);
-struct session	*session_create(const char *, const char *,
-    		     const char *, struct environ *, u_int, u_int, char **);
+struct session	*session_create(const char *, const char *, const char *,
+		     struct environ *, struct termios *, int, u_int, u_int,
+		     char **);
 void	 	 session_destroy(struct session *);
 int	 	 session_index(struct session *, u_int *);
 struct winlink	*session_new(struct session *,
@@ -1711,8 +1723,8 @@ void printflike1 log_warnx(const char *, ...);
 void printflike1 log_info(const char *, ...);
 void printflike1 log_debug(const char *, ...);
 void printflike1 log_debug2(const char *, ...);
-__dead void	 log_fatal(const char *, ...);
-__dead void	 log_fatalx(const char *, ...);
+__dead void printflike1 log_fatal(const char *, ...);
+__dead void printflike1 log_fatalx(const char *, ...);
 
 /* xmalloc.c */
 char		*xstrdup(const char *);

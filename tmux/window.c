@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.20 2009/08/12 09:14:25 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.22 2009/08/13 20:11:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -122,16 +122,20 @@ winlink_find_by_index(struct winlinks *wwl, int idx)
 }
 
 int
-winlink_next_index(struct winlinks *wwl)
+winlink_next_index(struct winlinks *wwl, int idx)
 {
-	u_int	i;
+	int	i;
 
-	for (i = 0; i < INT_MAX; i++) {
+	i = idx;
+	do {
 		if (winlink_find_by_index(wwl, i) == NULL)
 			return (i);
-	}
-
-	fatalx("no free indexes");
+		if (i == INT_MAX)
+			i = 0;
+		else
+			i++;
+	} while (i != idx);
+	return (-1);
 }
 
 u_int
@@ -152,13 +156,11 @@ winlink_add(struct winlinks *wwl, struct window *w, int idx)
 {
 	struct winlink	*wl;
 
-	if (idx == -1)
-		idx = winlink_next_index(wwl);
-	else if (winlink_find_by_index(wwl, idx) != NULL)
+	if (idx < 0) {
+		if ((idx = winlink_next_index(wwl, -idx - 1)) == -1)
+			return (NULL);
+	} else if (winlink_find_by_index(wwl, idx) != NULL)
 		return (NULL);
-
-	if (idx < 0)
-		fatalx("bad index");
 
 	wl = xcalloc(1, sizeof *wl);
 	wl->idx = idx;
@@ -269,7 +271,8 @@ window_create1(u_int sx, u_int sy)
 
 struct window *
 window_create(const char *name, const char *cmd, const char *cwd,
-    struct environ *env, u_int sx, u_int sy, u_int hlimit, char **cause)
+    struct environ *env, struct termios *tio, u_int sx, u_int sy, u_int hlimit,
+    char **cause)
 {
 	struct window		*w;
 	struct window_pane	*wp;
@@ -277,7 +280,7 @@ window_create(const char *name, const char *cmd, const char *cwd,
 	w = window_create1(sx, sy);
 	wp = window_add_pane(w, hlimit);
 	layout_init(w);
-	if (window_pane_spawn(wp, cmd, cwd, env, cause) != 0) {
+	if (window_pane_spawn(wp, cmd, cwd, env, tio, cause) != 0) {
 		window_destroy(w);
 		return (NULL);
 	}
@@ -470,8 +473,8 @@ window_pane_destroy(struct window_pane *wp)
 }
 
 int
-window_pane_spawn(struct window_pane *wp,
-    const char *cmd, const char *cwd, struct environ *env, char **cause)
+window_pane_spawn(struct window_pane *wp, const char *cmd,
+    const char *cwd, struct environ *env, struct termios *tio, char **cause)
 {
 	struct winsize	 	 ws;
 	int		 	 mode;
@@ -505,7 +508,7 @@ window_pane_spawn(struct window_pane *wp,
 	tv.tv_usec = NAME_INTERVAL * 1000L;
 	timeradd(&wp->window->name_timer, &tv, &wp->window->name_timer);
 
- 	switch (wp->pid = forkpty(&wp->fd, wp->tty, NULL, &ws)) {
+ 	switch (wp->pid = forkpty(&wp->fd, wp->tty, tio, &ws)) {
 	case -1:
 		wp->fd = -1;
 		xasprintf(cause, "%s: %s", cmd, strerror(errno));

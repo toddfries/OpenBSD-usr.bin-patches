@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.24 2009/08/08 20:36:42 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.26 2009/08/18 07:23:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -854,6 +854,11 @@ status_prompt_key(struct client *c, int key)
 			c->flags |= CLIENT_STATUS;
 		}
 		break;
+	case MODEKEYEDIT_DELETELINE:
+		*c->prompt_buffer = '\0';
+		c->prompt_index = 0;
+		c->flags |= CLIENT_STATUS;
+		break;
 	case MODEKEYEDIT_DELETETOENDOFLINE:
 		if (c->prompt_index < size) {
 			c->prompt_buffer[c->prompt_index] = '\0';
@@ -920,14 +925,11 @@ status_prompt_key(struct client *c, int key)
 		c->flags |= CLIENT_STATUS;
 		break;
  	case MODEKEYEDIT_ENTER:
-		if (*c->prompt_buffer != '\0') {
+		if (*c->prompt_buffer != '\0')
 			status_prompt_add_history(c);
-			if (c->prompt_callbackfn(
-			    c->prompt_data, c->prompt_buffer) == 0)
-				status_prompt_clear(c);
-			break;
-		}
-		/* FALLTHROUGH */
+		if (c->prompt_callbackfn(c->prompt_data, c->prompt_buffer) == 0)
+			status_prompt_clear(c);
+		break;
 	case MODEKEYEDIT_CANCEL:
 		if (c->prompt_callbackfn(c->prompt_data, NULL) == 0)
 			status_prompt_clear(c);

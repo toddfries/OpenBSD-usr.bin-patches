@@ -1,4 +1,4 @@
-/* $OpenBSD: session.c,v 1.3 2009/08/08 21:52:43 nicm Exp $ */
+/* $OpenBSD: session.c,v 1.5 2009/08/13 20:11:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -113,7 +113,8 @@ session_find(const char *name)
 /* Create a new session. */
 struct session *
 session_create(const char *name, const char *cmd, const char *cwd,
-    struct environ *env, u_int sx, u_int sy, char **cause)
+    struct environ *env, struct termios *tio, int idx, u_int sx, u_int sy,
+    char **cause)
 {
 	struct session	*s;
 	u_int		 i;
@@ -131,6 +132,7 @@ session_create(const char *name, const char *cmd, const char *cwd,
 	environ_init(&s->environ);
 	if (env != NULL)
 		environ_copy(env, &s->environ);
+	memcpy(&s->tio, tio, sizeof s->tio);
 
 	s->sx = sx;
 	s->sy = sy;
@@ -148,11 +150,11 @@ session_create(const char *name, const char *cmd, const char *cwd,
 		s->name = xstrdup(name);
 	else
 		xasprintf(&s->name, "%u", i);
-	if (session_new(s, NULL, cmd, cwd, -1, cause) == NULL) {
+	if (session_new(s, NULL, cmd, cwd, idx, cause) == NULL) {
 		session_destroy(s);
 		return (NULL);
 	}
-	session_select(s, 0);
+	session_select(s, RB_ROOT(&s->windows)->idx);
 
 	log_debug("session %s created", s->name);
 
@@ -200,7 +202,7 @@ session_index(struct session *s, u_int *i)
 
 /* Create a new window on a session. */
 struct winlink *
-session_new(struct session *s,
+session_new(struct session *s, 
     const char *name, const char *cmd, const char *cwd, int idx, char **cause)
 {
 	struct window	*w;
@@ -213,7 +215,8 @@ session_new(struct session *s,
 	server_fill_environ(s, &env);
 
 	hlimit = options_get_number(&s->options, "history-limit");
-	w = window_create(name, cmd, cwd, &env, s->sx, s->sy, hlimit, cause);
+	w = window_create(
+	    name, cmd, cwd, &env, &s->tio, s->sx, s->sy, hlimit, cause);
 	if (w == NULL) {
 		environ_free(&env);
 		return (NULL);
