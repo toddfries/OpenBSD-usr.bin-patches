@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.23 2009/08/18 09:51:51 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.25 2009/08/21 07:33:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -97,6 +97,9 @@ struct window_copy_mode_data {
 	u_int		cx;
 	u_int		cy;
 
+	u_int		lastcx; /* position in last line with content */
+	u_int		lastsx; /* size of last line with content */
+
 	enum window_copy_input_type inputtype;
 	const char     *inputprompt;
 	char   	       *inputstr;
@@ -118,6 +121,9 @@ window_copy_init(struct window_pane *wp)
 	data->oy = 0;
 	data->cx = wp->base.cx;
 	data->cy = wp->base.cy;
+
+	data->lastcx = 0;
+	data->lastsx = 0;
 
 	data->inputtype = WINDOW_COPY_OFF;
 	data->inputprompt = NULL;
@@ -504,6 +510,8 @@ window_copy_search_rl(struct grid *gd,
 	u_int	ax, bx, px;
 
 	for (ax = last + 1; ax > first; ax--) {
+		if (gd->sx - (ax - 1) < sgd->sx)
+			continue;
 		for (bx = 0; bx < sgd->sx; bx++) {
 			px = ax - 1 + bx;
 			if (!window_copy_search_compare(gd, px, py, sgd, bx))
@@ -1043,7 +1051,12 @@ window_copy_cursor_up(struct window_pane *wp)
 
 	oy = screen_hsize(&wp->base) + data->cy - data->oy;
 	ox = window_copy_find_length(wp, oy);
+	if (ox != 0) {
+		data->lastcx = data->cx;
+		data->lastsx = ox;
+	}
 
+	data->cx = data->lastcx;
 	if (data->cy == 0)
 		window_copy_scroll_down(wp, 1);
 	else {
@@ -1054,8 +1067,7 @@ window_copy_cursor_up(struct window_pane *wp)
 
 	py = screen_hsize(&wp->base) + data->cy - data->oy;
 	px = window_copy_find_length(wp, py);
-
-	if (data->cx >= px || data->cx >= ox)
+	if (data->cx >= data->lastsx || data->cx > px)
 		window_copy_cursor_end_of_line(wp);
 }
 
@@ -1068,7 +1080,12 @@ window_copy_cursor_down(struct window_pane *wp)
 
 	oy = screen_hsize(&wp->base) + data->cy - data->oy;
 	ox = window_copy_find_length(wp, oy);
+	if (ox != 0) {
+		data->lastcx = data->cx;
+		data->lastsx = ox;
+	}
 
+	data->cx = data->lastcx;
 	if (data->cy == screen_size_y(s) - 1)
 		window_copy_scroll_up(wp, 1);
 	else {
@@ -1079,8 +1096,7 @@ window_copy_cursor_down(struct window_pane *wp)
 
 	py = screen_hsize(&wp->base) + data->cy - data->oy;
 	px = window_copy_find_length(wp, py);
-
-	if (data->cx >= px || data->cx >= ox)
+	if (data->cx >= data->lastsx || data->cx > px)
 		window_copy_cursor_end_of_line(wp);
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.86 2009/08/18 21:41:13 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.91 2009/08/25 12:18:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -988,13 +988,18 @@ struct cmd_ctx {
 	struct client  *curclient;
 	struct client  *cmdclient;
 
-	struct session *cursession;
-
 	struct msg_command_data	*msgdata;
 
+	/* gcc2 doesn't understand attributes on function pointers... */
+#if defined(__GNUC__) && __GNUC__ >= 3
 	void printflike2 (*print)(struct cmd_ctx *, const char *, ...);
 	void printflike2 (*info)(struct cmd_ctx *, const char *, ...);
 	void printflike2 (*error)(struct cmd_ctx *, const char *, ...);
+#else
+	void (*print)(struct cmd_ctx *, const char *, ...);
+	void (*info)(struct cmd_ctx *, const char *, ...);
+	void (*error)(struct cmd_ctx *, const char *, ...);
+#endif
 };
 
 struct cmd {
@@ -1111,7 +1116,7 @@ void		 sigreset(void);
 void		 sighandler(int);
 
 /* cfg.c */
-int		 load_cfg(const char *, char **x);
+int		 load_cfg(const char *, struct cmd_ctx *, char **);
 
 /* mode-key.c */
 extern const struct mode_key_table mode_key_tables[];
@@ -1263,10 +1268,12 @@ int		 cmd_find_index(
 		     struct cmd_ctx *, const char *, struct session **);
 struct winlink	*cmd_find_pane(struct cmd_ctx *,
 		     const char *, struct session **, struct window_pane **);
+char		*cmd_template_replace(char *, const char *, int);
 extern const struct cmd_entry *cmd_table[];
 extern const struct cmd_entry cmd_attach_session_entry;
 extern const struct cmd_entry cmd_bind_key_entry;
 extern const struct cmd_entry cmd_break_pane_entry;
+extern const struct cmd_entry cmd_choose_client_entry;
 extern const struct cmd_entry cmd_choose_session_entry;
 extern const struct cmd_entry cmd_choose_window_entry;
 extern const struct cmd_entry cmd_clear_history_entry;
@@ -1440,6 +1447,7 @@ void	 status_prompt_set(struct client *, const char *,
 void	 status_prompt_clear(struct client *);
 int	 status_prompt_redraw(struct client *);
 void	 status_prompt_key(struct client *, int);
+void	 status_prompt_update(struct client *, const char *);
 
 /* resize.c */
 void	 recalculate_sizes(void);

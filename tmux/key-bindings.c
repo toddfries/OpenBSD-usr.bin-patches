@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.8 2009/07/24 14:52:47 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.10 2009/08/25 12:18:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -130,6 +130,7 @@ key_bindings_init(void)
 		{ ']', 			  0, &cmd_paste_buffer_entry },
 		{ 'c', 			  0, &cmd_new_window_entry },
 		{ 'd', 			  0, &cmd_detach_client_entry },
+		{ 'D',			  0, &cmd_choose_client_entry },
 		{ 'f', 			  0, &cmd_command_prompt_entry },
 		{ 'i',			  0, &cmd_display_message_entry },
 		{ 'l', 			  0, &cmd_last_window_entry },
@@ -143,7 +144,7 @@ key_bindings_init(void)
 		{ 'x', 			  0, &cmd_confirm_before_entry },
 		{ '{',			  0, &cmd_swap_pane_entry },
 		{ '}',			  0, &cmd_swap_pane_entry },
-		{ '\002', 		  0, &cmd_send_prefix_entry },
+		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
 		{ '1' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ '2' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ '3' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
@@ -162,7 +163,7 @@ key_bindings_init(void)
 		{ KEYC_LEFT | KEYC_CTRL,  1, &cmd_resize_pane_entry },
 		{ KEYC_RIGHT | KEYC_CTRL, 1, &cmd_resize_pane_entry },
 		{ 'o' | KEYC_ESCAPE,	  0, &cmd_rotate_window_entry },
-		{ '\017',	          0, &cmd_rotate_window_entry },
+		{ '\017', /* C-o */	  0, &cmd_rotate_window_entry },
 	};
 	u_int		 i;
 	struct cmd	*cmd;
@@ -218,7 +219,7 @@ key_bindings_error(struct cmd_ctx *ctx, const char *fmt, ...)
 void printflike2
 key_bindings_print(struct cmd_ctx *ctx, const char *fmt, ...)
 {
-	struct winlink	*wl = ctx->cursession->curw;
+	struct winlink	*wl = ctx->curclient->session->curw;
 	va_list		 ap;
 
 	if (wl->window->active->mode != &window_more_mode)
@@ -254,7 +255,6 @@ key_bindings_dispatch(struct key_binding *bd, struct client *c)
 	struct cmd_ctx	 	 ctx;
 
 	ctx.msgdata = NULL;
-	ctx.cursession = c->session;
 	ctx.curclient = c;
 
 	ctx.error = key_bindings_error;

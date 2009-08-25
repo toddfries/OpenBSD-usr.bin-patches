@@ -1,4 +1,4 @@
-.\"	$Id: mdoc.7,v 1.11 2009/08/09 21:59:41 schwarze Exp $
+.\"	$Id: mdoc.7,v 1.15 2009/08/22 23:17:40 schwarze Exp $
 .\"
 .\" Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
 .\"
@@ -14,14 +14,16 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: August 9 2009 $
+.Dd $Mdocdate: August 22 2009 $
 .Dt MDOC 7
 .Os
-.\" SECTION---------------------------------------------
+.
+.
 .Sh NAME
 .Nm mdoc
 .Nd mdoc language reference
-.\" SECTION---------------------------------------------
+.
+.
 .Sh DESCRIPTION
 The
 .Nm mdoc
@@ -35,7 +37,7 @@ The
 .Sx COMPATIBILITY
 section describes compatibility with
 .Xr groff 1 .
-.\" PARAGRAPH------------
+.
 .Pp
 An
 .Nm
@@ -48,7 +50,8 @@ prior macros:
 \&.Sh Macro lines change control state.
 Other lines are interpreted within the current state.
 .Ed
-.\" SECTION---------------------------------------------
+.
+.
 .Sh LANGUAGE SYNTAX
 .Nm
 documents may contain only graphable 7-bit ASCII characters, the space
@@ -56,15 +59,18 @@ character, and, in certain circumstances, the tab character.  All
 manuals must have
 .Ux
 line terminators.
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Comments
 Text following a
 .Sq \e" ,
 whether in a macro or free-form text line, is ignored to the end of
 line.  A macro line with only a control character and comment escape,
 .Sq \&.\e" ,
-is also ignored.
-.\" SUB-SECTION----------------------
+is also ignored.  Macro lines with only a control charater and optionally
+whitespace are stripped from input.
+.
+.
 .Ss Reserved Characters
 Within a macro line, the following characters are reserved:
 .Bl -tag -width Ds -offset indent -compact
@@ -91,7 +97,7 @@ Within a macro line, the following characters are reserved:
 .It \&|
 .Pq vertical bar
 .El
-.\" PARAGRAPH------------
+.
 .Pp
 Use of reserved characters is described in
 .Sx MACRO SYNTAX .
@@ -99,7 +105,8 @@ For general use in macro lines, these characters must either be escaped
 with a non-breaking space
 .Pq Sq \e&
 or, if applicable, an appropriate escape sequence used.
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Special Characters
 Special characters may occur in both macro and free-form lines.
 Sequences begin with the escape character
@@ -111,27 +118,50 @@ for two-character sequences; an open-bracket
 for n-character sequences (terminated at a close-bracket
 .Sq \&] ) ;
 or a single one-character sequence.  See
-.Xr mandoc_char 1
+.Xr mandoc_char 7
 for a complete list.  Examples include
 .Sq \e(em
 .Pq em-dash
 and
 .Sq \ee
 .Pq back-slash .
-.\" PARAGRAPH------------
-.Pp
-An alternative escape sequence is
-the slash-asterisk,
-.Sq \e* ,
-but this method is discouraged for compatibility reasons.
-.\" PARAGRAPH------------
-.Pp
-Terms may
-also be text-decorated using the
+.
+.
+.Ss Text Decoration
+Terms may be text-decorated using the
 .Sq \ef
 escape followed by an indicator: B (bold), I, (italic), or P and R
-(Roman, or reset).  This form is not recommended.
-.\" SUB-SECTION----------------------
+(Roman, or reset).  This form is not recommended for 
+.Nm ,
+which encourages semantic, not presentation, annotation.
+.
+.
+.Ss Predefined Strings
+Historically, 
+.Xr groff 1
+also defined a set of package-specific 
+.Dq predefined strings ,
+which, like 
+.Sx Special Characters ,
+demark special output characters and strings by way of input codes.
+Predefined strings are escaped with the slash-asterisk,
+.Sq \e* :
+single-character
+.Sq \e*X ,
+two-character
+.Sq \e*(XX ,
+and N-character
+.Sq \e*[N] .
+See
+.Xr mandoc_char 7
+for a complete list.  Examples include
+.Sq \e*(Am
+.Pq ampersand
+and
+.Sq \e*(Ba
+.Pq vertical bar .
+.
+.
 .Ss Whitespace
 In non-literal free-form lines, consecutive blocks of whitespace are
 pruned from input and added later in the output filter, if applicable:
@@ -141,25 +171,26 @@ These     spaces   are    pruned       from    input.
 These         are              not.
 \&.Ed
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 In macro lines, whitespace delimits arguments and is discarded.  If
 arguments are quoted, whitespace within the quotes is retained.
-.\" PARAGRAPH------------
+.
 .Pp
 Blank lines are only permitted within literal contexts, as are lines
 containing only whitespace.  Tab characters are only acceptable when
 delimiting
 .Sq \&Bl \-column
 or when in a literal context.
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Quotation
 Macro arguments may be quoted with a double-quote to group
 space-delimited terms or to retain blocks of whitespace.  A quoted
 argument begins with a double-quote preceded by whitespace.  The next
 double-quote not pair-wise adjacent to another double-quote terminates
 the literal, regardless of surrounding whitespace.
-.\" PARAGRAPH------------
+.
 .Pp
 This produces tokens
 .Sq a" ,
@@ -173,10 +204,11 @@ considered literal text.  Thus, the following produces
 .Bd -literal -offset indent
 \&.Em "Em a"
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 In free-form mode, quotes are regarded as opaque text.
-.\" SECTION---------------------------------------------
+.
+.
 .Sh MANUAL STRUCTURE
 Each
 .Nm
@@ -193,20 +225,61 @@ followed by
 \&.Dd $\&Mdocdate$
 \&.Dt mdoc 7
 \&.Os
+\&.
 \&.Sh NAME
-\&.Nm mdoc
-\&.Nd mdoc language reference
+\&.Nm foo
+\&.Nd a description goes here
+\&.\e\*q The next is for sections 2 & 3 only.
+\&.\e\*q .Sh LIBRARY
+\&.
+\&.Sh SYNOPSIS
+\&.Nm foo
+\&.Op Fl options
+\&.Ar
+\&.
+\&.Sh DESCRIPTION
+The
+\&.Nm
+utility processes files ...
+\&.\e\*q .Sh IMPLEMENTATION NOTES
+\&.\e\*q The next is for sections 1 & 8 only.
+\&.\e\*q .Sh EXIT STATUS
+\&.\e\*q The next is for sections 2, 3, & 9 only.
+\&.\e\*q .Sh RETURN VALUES
+\&.\e\*q The next is for sections 1, 6, 7, & 8 only.
+\&.\e\*q .Sh ENVIRONMENT
+\&.\e\*q .Sh FILES
+\&.\e\*q .Sh EXAMPLES
+\&.\e\*q The next is for sections 1, 4, 6, 7, & 8 only.
+\&.\e\*q .Sh DIAGNOSTICS
+\&.\e\*q The next is for sections 2, 3, & 9 only.
+\&.\e\*q .Sh ERRORS
+\&.\e\*q .Sh SEE ALSO
+\&.\e\*q .Xr foobar 1
+\&.\e\*q .Sh STANDARDS
+\&.\e\*q .Sh HISTORY
+\&.\e\*q .Sh AUTHORS
+\&.\e\*q .Sh CAVEATS
+\&.\e\*q .Sh BUGS
+\&.\e\*q .Sh SECURITY CONSIDERATIONS
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 Subsequent SYNOPSIS and DESCRIPTION sections are strongly encouraged,
 but non-compulsory.
-.\" SECTION---------------------------------------------
+.
+.
 .Sh MACRO SYNTAX
-Every line beginning with the control character
-.Sq \.
-is processed for macros, two- or three-character sequences.
-.\" PARAGRAPH------------
+Macros are one to three three characters in length and begin with a
+control character ,
+.Sq \&. ,
+at the beginning of the line.  An arbitrary amount of whitespace may
+sit between the control character and the macro name.  Thus,
+.Sq \&.Pp
+and
+.Sq \&.\ \ \ \&Pp
+are equivalent.  Macro names are two or three characters in length.
+.
 .Pp
 The syntax of a macro depends on its classification.  In this section,
 .Sq \-arg
@@ -217,18 +290,30 @@ parameters;
 opens the scope of a macro; and if specified,
 .Sq \&Yc
 closes it out.
-.\" PARAGRAPH------------
+.
 .Pp
 The
 .Em Callable
 column indicates that the macro may be called subsequent to the initial
-line-macro.  The
+line-macro.  If a macro is not callable, then its invocation after the
+initial line macro is interpreted as opaque text, such that
+.Sq \&.Fl Sh
+produces
+.Sq Fl Sh .
+.
+.Pp
+The
 .Em Parsable
 column indicates whether the macro may be followed by further
-(ostensibly callable) macros.  The
+(ostensibly callable) macros.  If a macro is not parsable, subsequent
+macro invocations on the line will be interpreted as opaque text.
+.
+.Pp
+The
 .Em Scope
 column, if applicable, describes closure rules.
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Block full-explicit
 Multi-line scope closed by an explicit closing macro.  All macros
 contains bodies; only
@@ -239,7 +324,7 @@ contains a head.
 \(lBbody...\(rB
 \&.Yc
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -column -compact -offset indent "MacroX" "CallableX" "ParsableX" "closed by XXX"
 .It Em Macro Ta Em Callable Ta Em Parsable Ta Em Scope
@@ -252,7 +337,8 @@ contains a head.
 .It \&Ek     Ta    \&No     Ta    \&No     Ta    opened by \&Bk
 .It \&El     Ta    \&No     Ta    \&No     Ta    opened by \&Bl
 .El
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Block full-implicit
 Multi-line scope closed by end-of-file or implicitly by another macro.
 All macros have bodies; some
@@ -270,7 +356,7 @@ may have multiple heads.
 \&.Yo \(lB\-arg \(lBparm...\(rB\(rB \(lBhead... \(lBTa head...\(rB\(rB
 \(lBbody...\(rB
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -column -compact -offset indent "MacroX" "CallableX" "ParsableX" "closed by XXXXXXXXXXX"
 .It Em Macro Ta Em Callable Ta Em Parsable Ta Em Scope
@@ -279,7 +365,8 @@ may have multiple heads.
 .It \&Sh     Ta    \&No     Ta    \&No     Ta    closed by \&Sh
 .It \&Ss     Ta    \&No     Ta    \&No     Ta    closed by \&Sh, \&Ss
 .El
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Block partial-explicit
 Like block full-explicit, but also with single-line scope.  Each
 has at least a body and, in limited circumstances, a head
@@ -294,7 +381,7 @@ and/or tail
 \&.Yo \(lB\-arg \(lBparm...\(rB\(rB \(lBhead...\(rB \
 \(lBbody...\(rB \&Yc \(lBtail...\(rB
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -column "MacroX" "CallableX" "ParsableX" "closed by XXXX" -compact -offset indent
 .It Em Macro Ta Em Callable Ta Em Parsable Ta Em Scope
@@ -323,7 +410,8 @@ and/or tail
 .It \&Xc     Ta    Yes      Ta    Yes      Ta    opened by \&Xo
 .It \&Xo     Ta    Yes      Ta    Yes      Ta    closed by \&Xc
 .El
-.\" SUB-SECTION----------------------
+.
+.
 .Ss Block partial-implicit
 Like block full-implicit, but with single-line scope closed by
 .Sx Reserved Characters
@@ -331,7 +419,7 @@ or end of line.
 .Bd -literal -offset indent
 \&.Yo \(lB\-arg \(lBval...\(rB\(rB \(lBbody...\(rB \(lBres...\(rB
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -column "MacroX" "CallableX" "ParsableX" -compact -offset indent
 .It Em Macro Ta Em Callable Ta Em Parsable
@@ -347,7 +435,8 @@ or end of line.
 .It \&Qq     Ta    Yes      Ta    Yes
 .It \&Sq     Ta    Yes      Ta    Yes
 .El
-.\" SUB-SECTION----------------------
+.
+.
 .Ss In-line
 Closed by
 .Sx Reserved Characters ,
@@ -363,7 +452,7 @@ then the macro accepts an arbitrary number of arguments.
 
 \&.Yo \(lB\-arg \(lBval...\(rB\(rB arg0 arg1 argN
 .Ed
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -column "MacroX" "CallableX" "ParsableX" "Arguments" -compact -offset indent
 .It Em Macro Ta Em Callable Ta Em Parsable Ta Em Arguments
@@ -399,7 +488,7 @@ then the macro accepts an arbitrary number of arguments.
 .It \&Er     Ta    Yes      Ta    Yes      Ta    >0
 .It \&Es     Ta    \&No     Ta    \&No     Ta    0
 .It \&Ev     Ta    Yes      Ta    Yes      Ta    n
-.It \&Ex     Ta    \&No     Ta    \&No     Ta    0
+.It \&Ex     Ta    \&No     Ta    \&No     Ta    n
 .It \&Fa     Ta    Yes      Ta    Yes      Ta    n
 .It \&Fd     Ta    \&No     Ta    \&No     Ta    >0
 .It \&Fl     Ta    Yes      Ta    Yes      Ta    n
@@ -426,7 +515,7 @@ then the macro accepts an arbitrary number of arguments.
 .It \&Pa     Ta    Yes      Ta    Yes      Ta    n
 .It \&Pf     Ta    \&No     Ta    Yes      Ta    1
 .It \&Pp     Ta    \&No     Ta    \&No     Ta    0
-.It \&Rv     Ta    \&No     Ta    \&No     Ta    0
+.It \&Rv     Ta    \&No     Ta    \&No     Ta    n
 .It \&Sm     Ta    \&No     Ta    \&No     Ta    1
 .It \&St     Ta    \&No     Ta    Yes      Ta    1
 .It \&Sx     Ta    Yes      Ta    Yes      Ta    >0
@@ -439,8 +528,9 @@ then the macro accepts an arbitrary number of arguments.
 .It \&Xr     Ta    Yes      Ta    Yes      Ta    >0, <3
 .It \&br     Ta    \&No     Ta    \&No     Ta    0
 .It \&sp     Ta    \&No     Ta    \&No     Ta    1
-.El
-.\" SECTION---------------------------------------------
+.El   
+.
+.
 .Sh COMPATIBILITY
 This section documents compatibility with other roff implementations, at
 this time limited to
@@ -451,10 +541,9 @@ refers to those versions before the
 .Pa doc.tmac
 file re-write
 .Pq somewhere between 1.15 and 1.19 .
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -dash -compact
-.\" LIST-ITEM
 .It
 The
 .Sq \-split
@@ -464,100 +553,76 @@ argument to
 .Sq \&An
 applies to the whole document, not just to the current section as it
 does in groff.
-.\" LIST-ITEM
 .It
 In quoted literals, groff allowed pair-wise double-quotes to produce a
 standalone double-quote in formatted output.  This idiosyncratic
 behaviour is no longer applicable.
-.\" LIST-ITEM
 .It
 The
 .Sq \&sp
 macro does not accept negative numbers.
-.\" LIST-ITEM
-.It
-Some character sequences in groff are not handled depending on escape
-style, e.g.,
-.Sq \e(ba
-and
-.Sq \e*(Ba
-may not be interchanged.  This is no longer the case: all character
-sequences resolve to the same symbol, regardless the escape style.
-.\" LIST-ITEM
 .It
 Blocks of whitespace are stripped from both macro and free-form text
 lines (except when in literal mode), while groff would retain whitespace
 in free-form text lines.
-.\" LIST-ITEM
 .It
 Historic groff has many un-callable macros.  Most of these (excluding
 some block-level macros) are now callable, conforming to the
 non-historic groff version.
-.\" LIST-ITEM
 .It
 The vertical bar
 .Sq \(ba
 made historic groff
 .Qq go orbital
 but is a proper delimiter in this implementation.
-.\" LIST-ITEM
 .It
 .Sq \&It \-nested
 is assumed for all lists (it wasn't in historic groff): any list may be
 nested and
 .Sq \-enum
 lists will restart the sequence only for the sub-list.
-.\" LIST-ITEM
 .It
 .Sq \&It \-column
 syntax where column widths may be preceded by other arguments (instead
 of proceeded) is not supported.
-.\" LIST-ITEM
 .It
 The
 .Sq \&At
 macro only accepts a single parameter.
-.\" LIST-ITEM
 .It
 Some manuals use
 .Sq \&Li
 incorrectly by following it with a reserved character and expecting the
 delimiter to render.  This is not supported.
-.\" LIST-ITEM
-.It
-If an special-character control character is escaped
-.Sq \e\e ,
-it will obviously not render the subsequent sequence.  Even newer
-versions of groff seem to dither on this.
-.\" LIST-ITEM
 .It
 In groff, the
 .Sq \&Fo
 macro only produces the first parameter.  This is no longer the case.
 .El
-.\" SECTION---------------------------------------------
+.
+.
 .Sh SEE ALSO
 .Xr mandoc 1 ,
 .Xr mandoc_char 7
-.\" SECTION---------------------------------------------
+.
+.
 .Sh AUTHORS
 The
 .Nm
 reference was written by
 .An Kristaps Dzonsons Aq kristaps@kth.se .
-.\" SECTION---------------------------------------------
+.
+.
 .Sh CAVEATS
 There are many ambiguous parts of mdoc.
-.\" PARAGRAPH------------
+.
 .Pp
 .Bl -dash -compact
-.\" LIST-ITEM
 .It
 .Sq \&Fa
 should be
 .Sq \&Va
 as function arguments are variables.
-.\" LIST-ITEM
 .It
 .Sq \&Ft
 should be
@@ -568,39 +633,33 @@ should be removed and
 .Sq \&Fo ,
 which ostensibly follows it, should follow the same convention as
 .Sq \&Va .
-.\" LIST-ITEM
 .It
 .Sq \&Va
 should formalise that only one or two arguments are acceptable: a
 variable name and optional, preceding type.
-.\" LIST-ITEM
 .It
 .Sq \&Fd
 is ambiguous.  It's commonly used to indicate an include file in the
 synopsis section.
 .Sq \&In
 should be used, instead.
-.\" LIST-ITEM
 .It
 Only the
 .Sq \-literal
 argument to
 .Sq \&Bd
 makes sense.  The remaining ones should be removed.
-.\" LIST-ITEM
 .It
 The
 .Sq \&Xo
 and
 .Sq \&Xc
 macros should be deprecated.
-.\" LIST-ITEM
 .It
 The
 .Sq \&Dt
 macro lacks clarity.  It should be absolutely clear which title will
 render when formatting the manual page.
-.\" LIST-ITEM
 .It
 A
 .Sq \&Lx
@@ -608,14 +667,13 @@ should be provided for Linux (\(`a la
 .Sq \&Ox ,
 .Sq \&Nx
 etc.).
-.\" LIST-ITEM
 .It
 There's no way to refer to references in
 .Sq \&Rs/Re
 blocks.
-.\" LIST-ITEM
 .It
-The \-split and \-nosplit arguments to
+The \-split and \-nosplit dictates via
 .Sq \&An
-are inane.
+are re-set when entering and leaving the AUTHORS section.
 .El
+.

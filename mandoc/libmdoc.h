@@ -1,4 +1,4 @@
-/*	$Id: libmdoc.h,v 1.17 2009/07/26 22:48:41 schwarze Exp $ */
+/*	$Id: libmdoc.h,v 1.20 2009/08/22 22:39:55 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -47,7 +47,6 @@ enum	merr {
 	EQUOTTERM,
 	EMALLOC,
 	EARGVAL,	
-	ENOCALL,
 	EBODYPROL,
 	EPROLBODY,
 	ETEXTPROL,
@@ -88,18 +87,16 @@ enum	merr {
 	ENOWIDTH,
 	EUTSNAME,
 	EOBS,
-	EMACPARM,
 	EIMPBRK,
 	EIGNE,
 	EOPEN,
 	EQUOTPHR,
 	ENOCTX,
-	ESPACE,
 	ELIB,
 	MERRMAX
 };
 
-#define	MACRO_PROT_ARGS	struct mdoc *mdoc, int tok, int line, \
+#define	MACRO_PROT_ARGS	struct mdoc *m, int tok, int line, \
 			int ppos, int *pos, char *buf
 
 struct	mdoc_macro {
@@ -174,14 +171,16 @@ void		  mdoc_argv_free(struct mdoc_arg *);
 int		  mdoc_args(struct mdoc *, int,
 			int *, char *, int, char **);
 int		  mdoc_zargs(struct mdoc *, int, 
-			int *, char *, char **);
+			int *, char *, int, char **);
+#define	ARGS_DELIM	(1 << 1)	/* See args(). */
+#define	ARGS_TABSEP	(1 << 2)	/* See args(). */
+#define	ARGS_NOWARN	(1 << 3)	/* See args(). */
 #define	ARGS_ERROR	(-1)
 #define	ARGS_EOLN	(0)
 #define	ARGS_WORD	(1)
 #define	ARGS_PUNCT	(2)
 #define	ARGS_QWORD	(3)
 #define	ARGS_PHRASE	(4)
-
 int		  mdoc_macroend(struct mdoc *);
 
 __END_DECLS

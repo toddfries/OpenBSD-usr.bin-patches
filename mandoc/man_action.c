@@ -1,4 +1,4 @@
-/*	$Id: man_action.c,v 1.4 2009/06/23 22:05:42 schwarze Exp $ */
+/*	$Id: man_action.c,v 1.7 2009/08/22 23:17:40 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -27,9 +27,9 @@ struct	actions {
 	int	(*post)(struct man *);
 };
 
-
 static	int	  post_TH(struct man *);
-static	time_t	  man_atotime(const char *);
+static	int	  post_fi(struct man *);
+static	int	  post_nf(struct man *);
 
 const	struct actions man_actions[MAN_MAX] = {
 	{ NULL }, /* br */
@@ -55,7 +55,16 @@ const	struct actions man_actions[MAN_MAX] = {
 	{ NULL }, /* RI */
 	{ NULL }, /* na */
 	{ NULL }, /* i */
+	{ NULL }, /* sp */
+	{ post_nf }, /* nf */
+	{ post_fi }, /* fi */
+	{ NULL }, /* r */
+	{ NULL }, /* RE */
+	{ NULL }, /* RS */
+	{ NULL }, /* DT */
 };
+
+static	time_t	  man_atotime(const char *);
 
 
 int
@@ -68,14 +77,39 @@ man_action_post(struct man *m)
 
 	switch (m->last->type) {
 	case (MAN_TEXT):
-		break;
+		/* FALLTHROUGH */
 	case (MAN_ROOT):
-		break;
+		return(1);
 	default:
-		if (NULL == man_actions[m->last->tok].post)
-			break;
-		return((*man_actions[m->last->tok].post)(m));
+		break;
 	}
+
+	if (NULL == man_actions[m->last->tok].post)
+		return(1);
+	return((*man_actions[m->last->tok].post)(m));
+}
+
+
+static int
+post_fi(struct man *m)
+{
+
+	if ( ! (MAN_LITERAL & m->flags))
+		if ( ! man_nwarn(m, m->last, WNLITERAL))
+			return(0);
+	m->flags &= ~MAN_LITERAL;
+	return(1);
+}
+
+
+static int
+post_nf(struct man *m)
+{
+
+	if (MAN_LITERAL & m->flags)
+		if ( ! man_nwarn(m, m->last, WOLITERAL))
+			return(0);
+	m->flags |= MAN_LITERAL;
 	return(1);
 }
 
@@ -146,12 +180,10 @@ post_TH(struct man *m)
 	 */
 
 	if (m->last->parent->child == m->last) {
-		assert(MAN_ROOT == m->last->parent->type);
 		m->last->parent->child = NULL;
 		n = m->last;
 		m->last = m->last->parent;
 		m->next = MAN_NEXT_CHILD;
-		assert(m->last == m->first);
 	} else {
 		assert(m->last->prev);
 		m->last->prev->next = NULL;

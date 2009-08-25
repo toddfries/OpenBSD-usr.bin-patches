@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-term.c,v 1.7 2009/08/05 19:05:02 nicm Exp $ */
+/* $OpenBSD: tty-term.c,v 1.9 2009/08/23 11:40:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -173,7 +173,7 @@ tty_term_override(struct tty_term *term, const char *overrides)
  			if ((ptr = strchr(entstr, '=')) != NULL) {
 				*ptr++ = '\0';
 				val = xstrdup(ptr);
-				if (strunvis(val, ptr) == NULL) {
+				if (strunvis(val, ptr) == -1) {
 					xfree(val);
 					val = xstrdup(ptr);
 				}
@@ -336,10 +336,6 @@ tty_term_find(char *name, int fd, const char *overrides, char **cause)
 	    !tty_term_has(term, TTYC_RMIR))) {
 		xasprintf(cause,
 		    "terminal does not support ich1 or ich or smir and rmir");
-		goto error;
-	}
-	if (!tty_term_has(term, TTYC_DCH1) && !tty_term_has(term, TTYC_DCH)) {
-		xasprintf(cause, "terminal does not support dch1 or dch");
 		goto error;
 	}
 

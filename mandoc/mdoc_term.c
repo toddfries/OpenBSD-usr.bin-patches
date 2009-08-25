@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.49 2009/08/09 21:59:41 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.53 2009/08/22 22:50:17 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -26,7 +26,8 @@
 #include "term.h"
 #include "mdoc.h"
 
-/* FIXME: macro arguments can be escaped. */
+#define	INDENT		  5
+#define	HALFINDENT	  3
 
 #define	TTYPE_PROG	  0
 #define	TTYPE_CMD_FLAG	  1
@@ -814,7 +815,7 @@ termp_it_pre(DECL_ARGS)
 	/* 
 	 * List-type can override the width in the case of fixed-head
 	 * values (bullet, dash/hyphen, enum).  Tags need a non-zero
-	 * offset.  FIXME: double-check that correct.
+	 * offset.
 	 */
 
 	switch (type) {
@@ -1230,23 +1231,33 @@ termp_rs_pre(DECL_ARGS)
 static int
 termp_rv_pre(DECL_ARGS)
 {
-	int		 i;
-
-	i = arg_getattr(MDOC_Std, node);
-	assert(-1 != i);
-	assert(node->args->argv[i].sz);
+	const struct mdoc_node	*nn;
 
 	term_newln(p);
 	term_word(p, "The");
 
-	p->flags |= ttypes[TTYPE_FUNC_NAME];
-	term_word(p, *node->args->argv[i].value);
-	p->flags &= ~ttypes[TTYPE_FUNC_NAME];
-	p->flags |= TERMP_NOSPACE;
+	nn = node->child;
+	assert(nn);
+	for ( ; nn; nn = nn->next) {
+		p->flags |= ttypes[TTYPE_FUNC_NAME];
+		term_word(p, nn->string);
+		p->flags &= ~ttypes[TTYPE_FUNC_NAME];
+		p->flags |= TERMP_NOSPACE;
+		if (nn->next && NULL == nn->next->next)
+			term_word(p, "(), and");
+		else if (nn->next)
+			term_word(p, "(),");
+		else
+			term_word(p, "()");
+	}
 
-       	term_word(p, "() function returns the value 0 if successful;");
-       	term_word(p, "otherwise the value -1 is returned and the");
-       	term_word(p, "global variable");
+	if (node->child->next)
+		term_word(p, "functions return");
+	else
+		term_word(p, "function returns");
+
+       	term_word(p, "the value 0 if successful; otherwise the value "
+			"-1 is returned and the global variable");
 
 	p->flags |= ttypes[TTYPE_VAR_DECL];
 	term_word(p, "errno");
@@ -1254,7 +1265,7 @@ termp_rv_pre(DECL_ARGS)
 
        	term_word(p, "is set to indicate the error.");
 
-	return(1);
+	return(0);
 }
 
 
@@ -1262,19 +1273,33 @@ termp_rv_pre(DECL_ARGS)
 static int
 termp_ex_pre(DECL_ARGS)
 {
-	int		 i;
-
-	i = arg_getattr(MDOC_Std, node);
-	assert(-1 != i);
-	assert(node->args->argv[i].sz);
+	const struct mdoc_node	*nn;
 
 	term_word(p, "The");
-	p->flags |= ttypes[TTYPE_PROG];
-	term_word(p, *node->args->argv[i].value);
-	p->flags &= ~ttypes[TTYPE_PROG];
-       	term_word(p, "utility exits 0 on success, and >0 if an error occurs.");
 
-	return(1);
+	nn = node->child;
+	assert(nn);
+	for ( ; nn; nn = nn->next) {
+		p->flags |= ttypes[TTYPE_PROG];
+		term_word(p, nn->string);
+		p->flags &= ~ttypes[TTYPE_PROG];
+		p->flags |= TERMP_NOSPACE;
+		if (nn->next && NULL == nn->next->next)
+			term_word(p, ", and");
+		else if (nn->next)
+			term_word(p, ",");
+		else
+			p->flags &= ~TERMP_NOSPACE;
+	}
+
+	if (node->child->next)
+		term_word(p, "utilities exit");
+	else
+		term_word(p, "utility exits");
+
+       	term_word(p, "0 on success, and >0 if an error occurs.");
+
+	return(0);
 }
 
 
@@ -1392,10 +1417,18 @@ termp_fd_post(DECL_ARGS)
 static int
 termp_sh_pre(DECL_ARGS)
 {
-
+	/* 
+	 * XXX: undocumented: using two `Sh' macros in sequence has no
+	 * vspace between calls, only a newline.
+	 */
 	switch (node->type) {
-	case (MDOC_HEAD):
+	case (MDOC_BLOCK):
+		if (node->prev && MDOC_Sh == node->prev->tok)
+			if (NULL == node->prev->body->child)
+				break;
 		term_vspace(p);
+		break;
+	case (MDOC_HEAD):
 		pair->flag |= ttypes[TTYPE_SECTION];
 		break;
 	case (MDOC_BODY):
@@ -1639,7 +1672,7 @@ termp_va_pre(DECL_ARGS)
 static int
 termp_bd_pre(DECL_ARGS)
 {
-	int	         i, type, ln;
+	int	         i, type;
 
 	/*
 	 * This is fairly tricky due primarily to crappy documentation.

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.13 2009/08/13 20:11:58 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.16 2009/08/23 17:37:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -114,6 +114,7 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_new_session_data	*data = self->data;
 	struct session			*s;
+	struct window			*w;
 	struct environ			 env;
 	struct termios			 tio;
 	const char			*update;
@@ -149,6 +150,27 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (ctx->cmdclient == NULL && ctx->curclient == NULL)
 		detached = 1;
 
+	/*
+	 * Fill in the termios settings used for new windows in this session;
+	 * if there is a command client, use the control characters from it.
+	 *
+	 * This is read again with tcgetattr() rather than using tty.tio as if
+	 * detached, tty_open won't be called. Because of this, it must be done
+	 * before opening the terminal as that calls tcsetattr() to prepare for
+	 * tmux taking over.
+	 */
+	if (ctx->cmdclient != NULL && ctx->cmdclient->tty.fd != -1) {
+		if (tcgetattr(ctx->cmdclient->tty.fd, &tio) != 0)
+			fatal("tcgetattr failed");
+	} else
+		memcpy(tio.c_cc, ttydefchars, sizeof tio.c_cc);
+	tio.c_iflag = TTYDEF_IFLAG;
+	tio.c_oflag = TTYDEF_OFLAG;
+	tio.c_lflag = TTYDEF_LFLAG;
+	tio.c_cflag = TTYDEF_CFLAG;
+	cfsetispeed(&tio, TTYDEF_SPEED);
+	cfsetospeed(&tio, TTYDEF_SPEED);
+
 	/* Open the terminal if necessary. */
 	if (!detached && ctx->cmdclient != NULL) {
 		if (!(ctx->cmdclient->flags & CLIENT_TERMINAL)) {
@@ -165,18 +187,22 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 		}
 	}
 
-	/* Find new session size and options. */
+	/* Get the new session working directory. */
+	if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
+		cwd = ctx->cmdclient->cwd;
+	else
+		cwd = options_get_string(&global_s_options, "default-path");
+
+	/* Find new session size. */
 	if (detached) {
 		sx = 80;
 		sy = 25;
+	} else if (ctx->cmdclient != NULL) {
+		sx = ctx->cmdclient->tty.sx;
+		sy = ctx->cmdclient->tty.sy;
 	} else {
-		if (ctx->cmdclient != NULL) {
-			sx = ctx->cmdclient->tty.sx;
-			sy = ctx->cmdclient->tty.sy;
-		} else {
-			sx = ctx->curclient->tty.sx;
-			sy = ctx->curclient->tty.sy;
-		}
+		sx = ctx->curclient->tty.sx;
+		sy = ctx->curclient->tty.sy;
 	}
 	if (sy > 0 && options_get_number(&global_s_options, "status"))
 		sy--;
@@ -184,10 +210,8 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 		sx = 1;
 	if (sy == 0)
 		sy = 1;
-	if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
-		cwd = ctx->cmdclient->cwd;
-	else
-		cwd = options_get_string(&global_s_options, "default-path");
+
+	/* Figure out the command for the new window. */
 	if (data->cmd != NULL)
 		cmd = data->cmd;
 	else
@@ -198,22 +222,6 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	update = options_get_string(&global_s_options, "update-environment");
 	if (ctx->cmdclient != NULL)
 		environ_update(update, &ctx->cmdclient->environ, &env);
-
-	/*
-	 * Fill in the termios settings used for new windows in this session;
-	 * if there is a command client, use the control characters from it.
-	 */
-	if (ctx->cmdclient != NULL && ctx->cmdclient->tty.fd != -1) {
-		if (tcgetattr(ctx->cmdclient->tty.fd, &tio) != 0)
-			fatal("tcgetattr failed");
-	} else
-		memcpy(tio.c_cc, ttydefchars, sizeof tio.c_cc);
-	tio.c_iflag = TTYDEF_IFLAG;
-	tio.c_oflag = TTYDEF_OFLAG;
-	tio.c_lflag = TTYDEF_LFLAG;
-	tio.c_cflag = TTYDEF_CFLAG;
-	tio.c_ispeed = TTYDEF_SPEED;
-	tio.c_ospeed = TTYDEF_SPEED;
 
 	/* Create the new session. */
 	idx = -1 - options_get_number(&global_s_options, "base-index");
@@ -226,26 +234,23 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 	environ_free(&env);
 
+	/* Set the initial window name if one given. */
 	if (data->winname != NULL) {
-		xfree(s->curw->window->name);
-		s->curw->window->name = xstrdup(data->winname);
-		options_set_number(
-		    &s->curw->window->options, "automatic-rename", 0);
+		w = s->curw->window;
+
+		xfree(w->name);
+		w->name = xstrdup(data->winname);
+
+		options_set_number(&w->options, "automatic-rename", 0);
 	}
 
-	/* 
-	 * If a command client exists, it is either taking this session (and
-	 * needs to get MSG_READY and stay around), or -d is given and it needs
-	 * to exit.
+	/*
+	 * Set the client to the new session. If a command client exists, it is
+	 * taking this session and needs to get MSG_READY and stay around.
 	 */
-	if (ctx->cmdclient != NULL) {
-		if (!detached)
-			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
-	}
-	
-	/* Set the client to the new session. */
  	if (!detached) {
 		if (ctx->cmdclient != NULL) {
+			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
  			ctx->cmdclient->session = s;
 			server_redraw_client(ctx->cmdclient);
 		} else {
