@@ -3,80 +3,34 @@
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   aucat/abuf.c
+#	modified:   .gitignore
+#	modified:   aucat/amsg.h
 #	modified:   aucat/aproc.h
-#	modified:   aucat/aucat.1
 #	modified:   aucat/aucat.c
-#	modified:   aucat/dev.c
-#	modified:   aucat/dev.h
 #	modified:   aucat/midi.c
 #	modified:   aucat/midi.h
+#	modified:   aucat/safile.c
 #	modified:   aucat/sock.c
 #	modified:   aucat/sock.h
-#	modified:   calendar/calendars/calendar.holiday
-#	modified:   mandoc/Makefile
-#	modified:   mandoc/ascii.c
-#	modified:   mandoc/ascii.in
-#	modified:   mandoc/libman.h
-#	modified:   mandoc/libmdoc.h
-#	modified:   mandoc/main.c
-#	modified:   mandoc/man.3
-#	modified:   mandoc/man.7
-#	modified:   mandoc/man.c
-#	modified:   mandoc/man.h
-#	modified:   mandoc/man_action.c
-#	modified:   mandoc/man_hash.c
-#	modified:   mandoc/man_macro.c
-#	modified:   mandoc/man_term.c
-#	modified:   mandoc/man_validate.c
-#	modified:   mandoc/mandoc.1
-#	modified:   mandoc/mandoc.c
-#	modified:   mandoc/mandoc_char.7
-#	modified:   mandoc/manuals.7
-#	modified:   mandoc/mdoc.7
-#	modified:   mandoc/mdoc.c
-#	modified:   mandoc/mdoc.h
-#	modified:   mandoc/mdoc_action.c
-#	modified:   mandoc/mdoc_argv.c
-#	modified:   mandoc/mdoc_macro.c
-#	modified:   mandoc/mdoc_strings.c
-#	modified:   mandoc/mdoc_term.c
-#	modified:   mandoc/mdoc_validate.c
-#	modified:   mandoc/term.c
-#	modified:   mandoc/term.h
-#	modified:   mandoc/tree.c
-#	modified:   ssh/mux.c
-#	modified:   ssh/sftp.1
+#	modified:   cap_mkdb/cap_mkdb.c
+#	modified:   du/du.c
+#	modified:   file/apprentice.c
+#	modified:   file/file.c
+#	modified:   file/file.h
+#	modified:   file/magic.c
+#	modified:   find/function.c
+#	modified:   ftp/fetch.c
+#	modified:   sendbug/sendbug.c
+#	modified:   ssh/authfd.c
+#	modified:   ssh/authfd.h
+#	modified:   ssh/sftp-server.8
+#	modified:   ssh/sftp-server.c
+#	modified:   ssh/ssh-add.c
+#	modified:   ssh/ssh-keygen.c
 #	modified:   status.log
-#	modified:   tmux/Makefile
-#	modified:   tmux/buffer.c
-#	modified:   tmux/cfg.c
-#	modified:   tmux/cmd-choose-session.c
-#	modified:   tmux/cmd-choose-window.c
-#	modified:   tmux/cmd-command-prompt.c
-#	modified:   tmux/cmd-confirm-before.c
-#	modified:   tmux/cmd-new-session.c
-#	modified:   tmux/cmd-source-file.c
-#	modified:   tmux/cmd-split-window.c
-#	modified:   tmux/cmd.c
-#	modified:   tmux/grid.c
-#	modified:   tmux/input.c
-#	modified:   tmux/key-bindings.c
-#	modified:   tmux/screen-write.c
-#	modified:   tmux/server-msg.c
-#	modified:   tmux/server.c
-#	modified:   tmux/status.c
-#	modified:   tmux/tmux.1
-#	modified:   tmux/tmux.c
-#	modified:   tmux/tmux.h
-#	modified:   tmux/tty-term.c
-#	modified:   tmux/tty.c
-#	modified:   tmux/window-copy.c
+#	modified:   tcpbench/tcpbench.c
+#	modified:   tmux/clock.c
+#	modified:   tmux/cmd-generic.c
 #	modified:   up.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	mandoc/man_argv.c
-#	tmux/cmd-choose-client.c
 no changes added to commit (use "git add" and/or "git commit -a")

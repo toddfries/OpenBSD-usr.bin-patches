@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.c,v 1.24 2009/08/21 16:48:03 ratchov Exp $	*/
+/*	$OpenBSD: sock.c,v 1.28 2009/08/28 06:37:06 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -301,7 +301,7 @@ sock_new(struct fileops *ops, int fd)
 	f->round = dev_round;
 	f->delta = 0;
 	f->tickpending = 0;
-	f->vol = ADATA_UNIT;
+	f->vol = f->lastvol = MIDI_MAXCTL;
 	f->slot = -1;
 
 	wproc = aproc_new(&wsock_ops, f->pipe.file.name);
@@ -363,11 +363,12 @@ sock_allocbuf(struct sock *f)
 }
 
 /*
- * Set volume.
+ * Set volume. Callback invoked when volume is modified externally
  */
 void
-sock_setvol(struct sock *f, int vol)
+sock_setvol(void *arg, unsigned vol)
 {
+	struct sock *f = (struct sock *)arg;
 	struct abuf *rbuf;
 
 	f->vol = vol;
@@ -376,7 +377,7 @@ sock_setvol(struct sock *f, int vol)
 		DPRINTF("sock_setvol: no read buffer yet\n");
 		return;
 	}
-	dev_setvol(rbuf, vol);
+	dev_setvol(rbuf, MIDI_TO_ADATA(vol));
 }
 
 /*
@@ -408,7 +409,7 @@ sock_attach(struct sock *f, int force)
 	    (f->mode & AMSG_REC)  ? wbuf : NULL, &f->wpar, f->xrun,
 	    f->opt->maxweight);
 	if (f->mode & AMSG_PLAY)
-		dev_setvol(rbuf, f->vol);
+		dev_setvol(rbuf, MIDI_TO_ADATA(f->vol));
 
 	/*
 	 * Send the initial position, if needed.
@@ -778,13 +779,11 @@ sock_hello(struct sock *f)
 		f->mode |= AMSG_REC;
 	}
 	if (dev_midi) {
-		f->slot = ctl_slotnew(dev_midi, p->who, f->pipe.file.rproc);
+		f->slot = ctl_slotnew(dev_midi, p->who, sock_setvol, f);
 		if (f->slot < 0) {
 			DPRINTF("sock_hello: out of mixer slots\n");
 			return 0;
 		}
-		if (f->mode & AMSG_PLAY)
-			ctl_slotvol(dev_midi, f->slot, MIDI_MAXCTL);
 	}
 	f->pstate = SOCK_INIT;
 	return 1;
@@ -926,7 +925,7 @@ sock_execmsg(struct sock *f)
 			return 0;
 		}
 		DPRINTF("sock_execmsg: SETVOL %u\n", m->u.vol.ctl);
-		sock_setvol(f, MIDI_TO_ADATA(m->u.vol.ctl));
+		sock_setvol(f, m->u.vol.ctl);
 		if (dev_midi && f->slot >= 0)
 			ctl_slotvol(dev_midi, f->slot, m->u.vol.ctl);
 		f->rtodo = sizeof(struct amsg);
@@ -948,6 +947,12 @@ sock_execmsg(struct sock *f)
 		f->rstate = SOCK_RRET;
 		f->rtodo = sizeof(struct amsg);
 		break;
+	case AMSG_BYE:
+		DPRINTFN(2, "sock_execmsg: %p: BYE\n", f);
+		if (f->pstate != SOCK_INIT)
+			DPRINTF("sock_execmsg: %p: BYE, bad state\n", f);
+		aproc_del(f->pipe.file.rproc);
+		return 0;
 	default:
 		DPRINTF("sock_execmsg: %p bogus command\n", f);
 		aproc_del(f->pipe.file.rproc);
@@ -997,6 +1002,20 @@ sock_buildmsg(struct sock *f)
 		f->wstate = SOCK_WMSG;
 		f->delta = 0;
 		f->tickpending = 0;
+		return 1;
+	}
+
+	/*
+	 * if volume changed build a SETVOL message
+	 */
+	if (f->pstate >= SOCK_START && f->vol != f->lastvol) {
+		DPRINTFN(4, "sock_buildmsg: %p: SETVOL: %d\n", f, f->vol);
+		AMSG_INIT(&f->wmsg);
+		f->wmsg.cmd = AMSG_SETVOL;
+		f->wmsg.u.vol.ctl = f->vol;
+		f->wtodo = sizeof(struct amsg);
+		f->wstate = SOCK_WMSG;
+		f->lastvol = f->vol;
 		return 1;
 	}
 
