@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.27 2009/08/19 10:39:50 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.30 2009/09/02 06:33:20 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -541,13 +541,14 @@ status_message_set(struct client *c, const char *fmt, ...)
 	status_prompt_clear(c);
 	status_message_clear(c);
 
+	va_start(ap, fmt);
+	xvasprintf(&c->message_string, fmt, ap);
+	va_end(ap);
+
 	delay = options_get_number(&c->session->options, "display-time");
 	tv.tv_sec = delay / 1000;
 	tv.tv_usec = (delay % 1000) * 1000L;
 
-	va_start(ap, fmt);
-	xvasprintf(&c->message_string, fmt, ap);
-	va_end(ap);
 	if (gettimeofday(&c->message_timer, NULL) != 0)
 		fatal("gettimeofday");
 	timeradd(&c->message_timer, &tv, &c->message_timer);
@@ -689,7 +690,7 @@ status_prompt_redraw(struct client *c)
 	struct screen_write_ctx	ctx;
 	struct session		       *s = c->session;
 	struct screen		        old_status;
-	size_t			        i, size, left, len, off, n;
+	size_t			        i, size, left, len, off;
 	char				ch;
 	struct grid_cell		gc;
 
@@ -723,13 +724,9 @@ status_prompt_redraw(struct client *c)
 				left--;
 			size = left;
 		}
-		if (c->prompt_flags & PROMPT_HIDDEN) {
-			n = strlen(c->prompt_buffer);
-			if (n > left)
-				n = left;
-			for (i = 0; i < n; i++)
-				screen_write_putc(&ctx, &gc, '*');
-		} else {
+		if (c->prompt_flags & PROMPT_HIDDEN)
+			size = 0;
+		else {
 			screen_write_puts(&ctx, &gc,
 			    "%.*s", (int) left, c->prompt_buffer + off);
 		}
@@ -738,17 +735,15 @@ status_prompt_redraw(struct client *c)
 			screen_write_putc(&ctx, &gc, ' ');
 
 		/* Draw a fake cursor. */
-		screen_write_cursormove(&ctx, len + c->prompt_index - off, 0);
-		if (c->prompt_index == strlen(c->prompt_buffer))
-			ch = ' ';
+		ch = ' ';
+		if (c->prompt_flags & PROMPT_HIDDEN)
+			screen_write_cursormove(&ctx, len, 0);
 		else {
-			if (c->prompt_flags & PROMPT_HIDDEN)
-				ch = '*';
-			else
+			screen_write_cursormove(&ctx,
+			    len + c->prompt_index - off, 0);
+			if (c->prompt_index < strlen(c->prompt_buffer))
 				ch = c->prompt_buffer[c->prompt_index];
 		}
-		if (ch == '\0')
-			ch = ' ';
 		gc.attr ^= GRID_ATTR_REVERSE;
 		screen_write_putc(&ctx, &gc, ch);
 	}
@@ -768,7 +763,7 @@ void
 status_prompt_key(struct client *c, int key)
 {
 	struct paste_buffer	*pb;
-	char   			*s, *first, *last, word[64];
+	char   			*s, *first, *last, word[64], swapc;
 	size_t			 size, n, off, idx;
 
 	size = strlen(c->prompt_buffer);
@@ -937,6 +932,18 @@ status_prompt_key(struct client *c, int key)
 		}
 
 		c->flags |= CLIENT_STATUS;
+		break;
+	case MODEKEYEDIT_TRANSPOSECHARS:
+		idx = c->prompt_index;
+		if (idx < size)
+			idx++;
+		if (idx >= 2) {
+			swapc = c->prompt_buffer[idx - 2];
+			c->prompt_buffer[idx - 2] = c->prompt_buffer[idx - 1];
+			c->prompt_buffer[idx - 1] = swapc;
+			c->prompt_index = idx;
+			c->flags |= CLIENT_STATUS;
+		}
 		break;
  	case MODEKEYEDIT_ENTER:
 		if (*c->prompt_buffer != '\0')

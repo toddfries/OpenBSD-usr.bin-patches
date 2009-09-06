@@ -4,33 +4,38 @@
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
 #	modified:   .gitignore
-#	modified:   aucat/amsg.h
-#	modified:   aucat/aproc.h
-#	modified:   aucat/aucat.c
-#	modified:   aucat/midi.c
-#	modified:   aucat/midi.h
-#	modified:   aucat/safile.c
-#	modified:   aucat/sock.c
-#	modified:   aucat/sock.h
-#	modified:   cap_mkdb/cap_mkdb.c
-#	modified:   du/du.c
-#	modified:   file/apprentice.c
-#	modified:   file/file.c
-#	modified:   file/file.h
-#	modified:   file/magic.c
-#	modified:   find/function.c
-#	modified:   ftp/fetch.c
-#	modified:   sendbug/sendbug.c
-#	modified:   ssh/authfd.c
-#	modified:   ssh/authfd.h
+#	modified:   file/magdir/erlang
+#	modified:   login/login.c
+#	modified:   mail/cmd3.c
 #	modified:   ssh/sftp-server.8
 #	modified:   ssh/sftp-server.c
-#	modified:   ssh/ssh-add.c
-#	modified:   ssh/ssh-keygen.c
+#	modified:   ssh/ssh-agent.c
 #	modified:   status.log
-#	modified:   tcpbench/tcpbench.c
-#	modified:   tmux/clock.c
-#	modified:   tmux/cmd-generic.c
+#	modified:   tmux/Makefile
+#	modified:   tmux/client.c
+#	modified:   tmux/cmd-respawn-window.c
+#	modified:   tmux/cmd-server-info.c
+#	modified:   tmux/cmd-set-option.c
+#	modified:   tmux/cmd-split-window.c
+#	modified:   tmux/cmd.c
+#	modified:   tmux/key-bindings.c
+#	modified:   tmux/mode-key.c
+#	modified:   tmux/names.c
+#	modified:   tmux/screen-redraw.c
+#	modified:   tmux/server-fn.c
+#	modified:   tmux/server-msg.c
+#	modified:   tmux/server.c
+#	modified:   tmux/session.c
+#	modified:   tmux/status.c
+#	modified:   tmux/tmux.1
+#	modified:   tmux/tmux.c
+#	modified:   tmux/tmux.h
+#	modified:   tmux/tty.c
+#	modified:   tmux/window.c
 #	modified:   up.log
 #
+# Untracked files:
+#   (use "git add <file>..." to include in what will be committed)
+#
+#	tmux/cmd-display-panes.c
 no changes added to commit (use "git add" and/or "git commit -a")

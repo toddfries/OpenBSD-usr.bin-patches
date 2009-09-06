@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.91 2009/08/25 12:18:51 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.98 2009/09/02 20:15:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -379,6 +379,7 @@ enum mode_key_cmd {
 	MODEKEYEDIT_STARTOFLINE,
 	MODEKEYEDIT_SWITCHMODE,
 	MODEKEYEDIT_SWITCHMODEAPPEND,
+	MODEKEYEDIT_TRANSPOSECHARS,
 	
 	/* Menu (choice) keys. */
 	MODEKEYCHOICE_CANCEL,
@@ -675,6 +676,7 @@ struct window_pane {
 #define PANE_REDRAW 0x1
 
 	char		*cmd;
+	char		*shell;
 	char		*cwd;
 
 	pid_t		 pid;
@@ -935,7 +937,10 @@ struct client {
 #define CLIENT_REPEAT 0x20	/* allow command to repeat within repeat time */
 #define CLIENT_SUSPENDED 0x40
 #define CLIENT_BAD 0x80
+#define CLIENT_IDENTIFY 0x100
 	int		 flags;
+
+	struct timeval	 identify_timer;
 
 	char		*message_string;
 	struct timeval	 message_timer;
@@ -968,7 +973,7 @@ struct client_ctx {
 		CCTX_DETACH,
 		CCTX_EXIT,
 		CCTX_DIED,
-		CCTX_SHUTDOWN,
+		CCTX_SHUTDOWN
 	} exittype;
 	const char	*errstr;
 };
@@ -1103,17 +1108,23 @@ extern struct options global_w_options;
 extern struct environ global_environ;
 extern char	*cfg_file;
 extern int	 server_locked;
+extern struct passwd *server_locked_pw;
 extern u_int	 password_failures;
+extern time_t	 password_backoff;
 extern char	*server_password;
 extern time_t	 server_activity;
 extern int	 debug_level;
 extern int	 be_quiet;
 extern time_t	 start_time;
 extern char 	*socket_path;
+extern int	 login_shell;
 void		 logfile(const char *);
 void		 siginit(void);
 void		 sigreset(void);
 void		 sighandler(int);
+const char	*getshell(void);
+int		 checkshell(const char *);
+int		 areshell(const char *);
 
 /* cfg.c */
 int		 load_cfg(const char *, struct cmd_ctx *, char **);
@@ -1164,6 +1175,7 @@ void 	environ_update(const char *, struct environ *, struct environ *);
 
 /* tty.c */
 u_char	tty_get_acs(struct tty *, u_char);
+void	tty_attributes(struct tty *, const struct grid_cell *);
 void	tty_reset(struct tty *);
 void	tty_region(struct tty *, u_int, u_int, u_int);
 void	tty_cursor(struct tty *, u_int, u_int, u_int, u_int);
@@ -1249,6 +1261,7 @@ void		 paste_add(struct paste_stack *, char *, u_int);
 int		 paste_replace(struct paste_stack *, u_int, char *);
 
 /* clock.c */
+extern const char clock_table[14][5][5];
 void		 clock_draw(struct screen_write_ctx *, u_int, int);
 
 /* cmd.c */
@@ -1285,6 +1298,7 @@ extern const struct cmd_entry cmd_copy_mode_entry;
 extern const struct cmd_entry cmd_delete_buffer_entry;
 extern const struct cmd_entry cmd_detach_client_entry;
 extern const struct cmd_entry cmd_display_message_entry;
+extern const struct cmd_entry cmd_display_panes_entry;
 extern const struct cmd_entry cmd_down_pane_entry;
 extern const struct cmd_entry cmd_find_window_entry;
 extern const struct cmd_entry cmd_has_session_entry;
@@ -1435,6 +1449,8 @@ void	 server_status_window(struct window *);
 void	 server_lock(void);
 int	 server_unlock(const char *);
 void	 server_kill_window(struct window *);
+void	 server_set_identify(struct client *);
+void	 server_clear_identify(struct client *);
 
 /* status.c */
 int	 status_redraw(struct client *);
@@ -1574,7 +1590,6 @@ int	 screen_check_selection(struct screen *, u_int, u_int);
 
 /* window.c */
 extern struct windows windows;
-const char	*window_default_command(void);
 int		 window_cmp(struct window *, struct window *);
 int		 winlink_cmp(struct winlink *, struct winlink *);
 RB_PROTOTYPE(windows, window, entry, window_cmp);
@@ -1592,8 +1607,8 @@ void		 winlink_stack_remove(struct winlink_stack *, struct winlink *);
 int	 	 window_index(struct window *, u_int *);
 struct window	*window_create1(u_int, u_int);
 struct window	*window_create(const char *, const char *, const char *,
-    		     struct environ *, struct termios *, u_int, u_int, u_int,
-		     char **);
+		     const char *, struct environ *, struct termios *,
+    		     u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
 void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, u_int);
@@ -1606,7 +1621,8 @@ void		 window_destroy_panes(struct window *);
 struct window_pane *window_pane_create(struct window *, u_int, u_int, u_int);
 void		 window_pane_destroy(struct window_pane *);
 int		 window_pane_spawn(struct window_pane *, const char *,
-		     const char *, struct environ *, struct termios *, char **);
+		     const char *, const char *, struct environ *,
+		     struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);

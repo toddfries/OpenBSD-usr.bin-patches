@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.24 2009/08/23 17:29:51 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.29 2009/09/05 17:42:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -202,8 +202,8 @@ error:
 	server_write_error(c, cause);
 	xfree(cause);
 
+	sigterm = 1;
 	server_shutdown();
-	c->flags |= CLIENT_BAD;
 
 	exit(server_main(srv_fd));
 }
@@ -304,7 +304,7 @@ server_main(int srv_fd)
 
 		/* Update socket permissions. */
 		xtimeout = INFTIM;
-		if (sigterm || server_update_socket() != 0)
+		if (server_update_socket() != 0)
 			xtimeout = POLL_TIMEOUT;
 
 		/* Do the poll. */
@@ -420,7 +420,6 @@ server_shutdown(void)
 				server_lost_client(c);
 			else
 				server_write_client(c, MSG_SHUTDOWN, NULL, 0);
-			c->flags |= CLIENT_BAD;
 		}
 	}
 }
@@ -606,6 +605,8 @@ server_redraw_locked(struct client *c)
 		screen_write_cursormove(&ctx, 0, 0);
 		screen_write_puts(
 		    &ctx, &gc, "%u failed attempts", password_failures);
+		if (time(NULL) < password_backoff)
+			screen_write_puts(&ctx, &gc, "; sleeping");
 	}
 
 	screen_write_stop(&ctx);
@@ -631,6 +632,9 @@ server_check_timers(struct client *c)
 
 	if (gettimeofday(&tv, NULL) != 0)
 		fatal("gettimeofday");
+
+	if (c->flags & CLIENT_IDENTIFY && timercmp(&tv, &c->identify_timer, >))
+		server_clear_identify(c);
 
 	if (c->message_string != NULL && timercmp(&tv, &c->message_timer, >))
 		status_message_clear(c);
@@ -809,6 +813,7 @@ server_handle_client(struct client *c)
 		wp = c->session->curw->window->active;	/* could die */
 
 		status_message_clear(c);
+		server_clear_identify(c);
 		if (c->prompt_string != NULL) {
 			status_prompt_key(c, key);
 			continue;
@@ -915,7 +920,12 @@ server_lost_client(struct client *c)
 	}
 	log_debug("lost client %d", c->ibuf.fd);
 
-	tty_free(&c->tty);
+	/*
+	 * If CLIENT_TERMINAL hasn't been set, then tty_init hasn't been called
+	 * and tty_free might close an unrelated fd.
+	 */
+	if (c->flags & CLIENT_TERMINAL)
+		tty_free(&c->tty);
 
 	screen_free(&c->status);
 
@@ -1175,6 +1185,7 @@ void
 server_second_timers(void)
 {
 	struct window		*w;
+	struct client		*c;
 	struct window_pane	*wp;
 	u_int		 	 i;
 	int			 xtimeout;
@@ -1183,6 +1194,7 @@ server_second_timers(void)
 	time_t		 	 t;
 
 	t = time(NULL);
+
 	xtimeout = options_get_number(&global_s_options, "lock-after-time");
 	if (xtimeout > 0 && t > server_activity + xtimeout)
 		server_lock();
@@ -1196,6 +1208,14 @@ server_second_timers(void)
 			if (wp->mode != NULL && wp->mode->timer != NULL)
 				wp->mode->timer(wp);
 		}
+	}
+
+	if (password_backoff != 0 && t >= password_backoff) {
+		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+			if ((c = ARRAY_ITEM(&clients, i)) != NULL)
+				server_redraw_client(c);
+		}
+		password_backoff = 0;
 	}
 
 	/* Check for a minute having passed. */

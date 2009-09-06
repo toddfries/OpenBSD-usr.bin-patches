@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.14 2009/08/12 06:04:28 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.17 2009/09/02 23:49:25 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -152,11 +152,20 @@ int
 client_main(struct client_ctx *cctx)
 {
 	struct pollfd	 pfd;
-	int		 nfds;
+	int		 n, nfds;
 
 	siginit();
 
 	logfile("client");
+
+	/*
+	 * imsg_read in the first client poll loop (before the terminal has
+	 * been initialiased) may have read messages into the buffer after the
+	 * MSG_READY switched to here. Process anything outstanding now so poll
+	 * doesn't hang waiting for messages that have already arrived.
+	 */
+	if (client_msg_dispatch(cctx) != 0)
+		goto out;
 
 	for (;;) {
 		if (sigterm)
@@ -190,6 +199,10 @@ client_main(struct client_ctx *cctx)
 			fatalx("socket error");
 
 		if (pfd.revents & POLLIN) {
+			if ((n = imsg_read(&cctx->ibuf)) == -1 || n == 0) {
+				cctx->exittype = CCTX_DIED;
+				break;
+			}
 			if (client_msg_dispatch(cctx) != 0)
 				break;
 		}
@@ -202,6 +215,7 @@ client_main(struct client_ctx *cctx)
 		}
 	}
 
+out:
  	if (sigterm) {
  		printf("[terminated]\n");
  		return (1);
@@ -214,13 +228,17 @@ client_main(struct client_ctx *cctx)
 		printf("[server exited]\n");
 		return (0);
 	case CCTX_EXIT:
+		if (cctx->errstr != NULL) {
+			printf("[error: %s]\n", cctx->errstr);
+			return (1);
+		}
 		printf("[exited]\n");
 		return (0);
 	case CCTX_DETACH:
 		printf("[detached]\n");
 		return (0);
 	default:
-		printf("[error: %s]\n", cctx->errstr);
+		printf("[unknown error]\n");
 		return (1);
 	}
 }
@@ -248,11 +266,6 @@ client_msg_dispatch(struct client_ctx *cctx)
 	struct msg_print_data	 printdata;
 	ssize_t			 n, datalen;
 
-	if ((n = imsg_read(&cctx->ibuf)) == -1 || n == 0) {
-		cctx->exittype = CCTX_DIED;
-		return (-1);
-	}
-
 	for (;;) {
 		if ((n = imsg_get(&cctx->ibuf, &imsg)) == -1)
 			fatalx("imsg_get failed");
@@ -274,6 +287,7 @@ client_msg_dispatch(struct client_ctx *cctx)
 			memcpy(&printdata, imsg.data, sizeof printdata);
 
 			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
+			/* Error string used after exit message from server. */
 			cctx->errstr = xstrdup(printdata.msg);
 			imsg_free(&imsg);
 			return (-1);

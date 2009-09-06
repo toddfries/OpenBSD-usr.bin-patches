@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.14 2009/08/11 17:18:35 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.18 2009/09/05 17:42:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,8 @@
 
 #include <sys/types.h>
 
+#include <login_cap.h>
+#include <pwd.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -159,11 +161,19 @@ server_status_window(struct window *w)
 void
 server_lock(void)
 {
-	struct client	*c;
-	u_int		 i;
+	struct client	       *c;
+	static struct passwd   *pw, pwstore;
+	static char		pwbuf[_PW_BUF_LEN];
+	u_int			i;
 
 	if (server_locked)
 		return;
+
+	if (getpwuid_r(getuid(), &pwstore, pwbuf, sizeof pwbuf, &pw) != 0) {
+		server_locked_pw = NULL;
+		return;
+	}
+	server_locked_pw = pw;
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
@@ -172,9 +182,10 @@ server_lock(void)
 
 		status_prompt_clear(c);
 		status_prompt_set(c,
-		    "Password: ", server_lock_callback, NULL, c, PROMPT_HIDDEN);
+		    "Password:", server_lock_callback, NULL, c, PROMPT_HIDDEN);
   		server_redraw_client(c);
 	}
+
 	server_locked = 1;
 }
 
@@ -188,12 +199,16 @@ int
 server_unlock(const char *s)
 {
 	struct client	*c;
+	login_cap_t	*lc;
 	u_int		 i;
 	char		*out;
+	u_int		 failures, tries, backoff;
 
-	if (!server_locked)
+	if (!server_locked || server_locked_pw == NULL)
 		return (0);
 	server_activity = time(NULL);
+	if (server_activity < password_backoff)
+		return (-2);
 
 	if (server_password != NULL) {
 		if (s == NULL)
@@ -214,10 +229,13 @@ server_unlock(const char *s)
 
 	server_locked = 0;
 	password_failures = 0;
+	password_backoff = 0;
 	return (0);
 
 wrong:
 	password_failures++;
+	password_backoff = 0;
+
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
 		if (c == NULL || c->prompt_buffer == NULL)
@@ -228,6 +246,24 @@ wrong:
   		server_redraw_client(c);
 	}
 
+	/*
+	 * Start slowing down after "login-backoff" attempts and reset every
+	 * "login-tries" attempts.
+	 */
+	lc = login_getclass(server_locked_pw->pw_class);
+	if (lc != NULL) {
+		tries = login_getcapnum(lc, (char *) "login-tries", 10, 10);
+		backoff = login_getcapnum(lc, (char *) "login-backoff", 3, 3);
+	} else {
+		tries = 10;
+		backoff = 3;
+	}
+	failures = password_failures % tries;
+	if (failures > backoff) {
+		password_backoff = 
+		    server_activity + ((failures - backoff) * tries / 2);
+		return (-2);
+	}
 	return (-1);
 }
 
@@ -262,4 +298,33 @@ server_kill_window(struct window *w)
 		}
 	}
 	recalculate_sizes();
+}
+
+void
+server_set_identify(struct client *c)
+{
+	struct timeval	tv;
+	int		delay;
+
+	delay = options_get_number(&c->session->options, "display-panes-time");
+	tv.tv_sec = delay / 1000;
+	tv.tv_usec = (delay % 1000) * 1000L;
+
+	if (gettimeofday(&c->identify_timer, NULL) != 0)
+		fatal("gettimeofday");
+	timeradd(&c->identify_timer, &tv, &c->identify_timer);
+
+	c->flags |= CLIENT_IDENTIFY;
+	c->tty.flags |= (TTY_FREEZE|TTY_NOCURSOR);
+	server_redraw_client(c);
+}
+
+void
+server_clear_identify(struct client *c)
+{
+	if (c->flags & CLIENT_IDENTIFY) {
+		c->flags &= ~CLIENT_IDENTIFY;
+		c->tty.flags &= ~(TTY_FREEZE|TTY_NOCURSOR);
+		server_redraw_client(c);
+	}
 }
