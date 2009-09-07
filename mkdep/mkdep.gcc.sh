@@ -38,82 +38,30 @@
 # This is needed, since "cc -M -o out" writes to the file "out", not to
 # stdout.
 #
-set -A cargs
 scanfordasho() {
 	while [ $# != 0 ]
 	do case "$1" in
-		-o|--output)	
+		-o)	
 			file="$2"; shift; shift ;;
 		-o*)
 			file="${1#-o}"; shift ;;
-		# List options that take files, filled in at build time
-		%ARGLIST%)
-			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
-			cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
-			shift; shift ;;
-
-		# Any options single or double that don't take files
-		-*)
-			cargs[${#cargs[*]}]=$(echo "$1" | sed 's/"/\\"/g')
-
-			# If a non file and not a -* then its a flag arg
-			if ! [ -f "$2" -a "${2}" = "${2#-*}" ]; then
-				cargs[${#cargs[*]}]=$(echo "$2" | sed 's/"/\\"/g')
-				shift
-			fi
-			shift ;;
 		*)
-			files[${#files[*]}]="$1"; shift;;
+			shift ;;
 		esac
 	done
-}
-checkflags() {
-	if [ "$MAKEFLAGS" ]; then
-		set -- $MAKEFLAGS
-		while [ $# != 0 ]; do case "$1" in
-			-j)
-				concurrence="-j$2"; shift; shift ;;
-			-j*)
-				concurrence="$1"; shift ;;
-			*)
-				shift ;;
-			esac
-		done
-	fi
 }
 
 D=.depend			# default dependency file is .depend
 append=0
-debug=0
 pflag=
-args="$@"
-
-# if nothing else, fallback on hw.ncpu
-# use cmdline -j# if provided
-# permit MAKEFLAGS to over-ride all
-ncpu=$(sysctl -n hw.ncpu)
-# Per Kettenis, set max default upper bounds at 16, so we do not run out of
-# processes
-[ ncpu -gt 16 ] && ncpu=16
-if [ ncpu -gt 1 ]; then
-	concurrence="-j$ncpu"
-else
-	concurrence=""
-fi
 
 while :
-do
-	case "$1" in
+	do case "$1" in
 		# -a appends to the depend file
 		-a)
 			append=1
 			shift ;;
 
-		# debug mode
-		-d)
-			debug=1
-			shift ;;
-	
 		# -f allows you to select a makefile name
 		-f)
 			D=$2
@@ -124,75 +72,54 @@ do
 		-p)
 			pflag=p
 			shift ;;
-		# the -j flag mimics make's -j flag, sets concurrency
-		-j)
-			concurrence="-j$2"; shift; shift;;
-		-j*)
-			concurrence="-j$1"; shift ;;
 		*)
 			break ;;
 	esac
 done
 
-checkflags
-
 if [ $# = 0 ] ; then
 	echo 'usage: mkdep [-ap] [-f file] [flags] file ...'
 	exit 1
 fi
-if [ debug -gt 0 ]; then
-	at=""
-	echo "# DEBUG: mkdep $args"
-	rm=":"
-else
-	at="@"
-	rm="rm"
-fi
 
 scanfordasho "$@"
 
-DIR=`mktemp -d /tmp/mkdep.XXXXXXXXXX` || exit 1
+TMP=`mktemp /tmp/mkdep.XXXXXXXXXX` || exit 1
 
-trap '$rm -rf $DIR ; trap 2 ; kill -2 $$' 1 2 3 13 15
+trap 'rm -f $TMP ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
-{
-	if [ x$pflag = x ]; then
-		echo "SUBST=	${at}sed -e 's; \./; ;g'"
-	else
-		echo "SUBST=	${at}sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g'"
-	fi
+if [ "x$file" = x ]; then
+	${CC:-cc} -M "$@"
+else
+	${CC:-cc} -M "$@" && cat "$file"
+fi |
+if [ x$pflag = x ]; then
+	sed -e 's; \./; ;g' > $TMP
+else
+	sed -e 's;\.o[ ]*:; :;' -e 's; \./; ;g' > $TMP
+fi
 
-	echo default:: depend
-	i=0
-	while [ i -lt ${#cargs[*]} ]
-	do
-		echo "CCDEP+=\"${cargs[$i]}\""
-		let i=i+1
-	done
-
-	i=0
-	while [ i -lt ${#files[*]} ]
-	do
-		ARG="${files[$i]}"
-		NAME="$i.${ARG##*/}"
-		echo "TMPDEP+= $DIR/${NAME}.dep\n$DIR/${NAME}.dep: $ARG"
-		echo -n "\t${at}${CC:-cc} -M \${CCDEP} $ARG > $DIR/${NAME}.dep"
-		echo " || : > $DIR/${NAME}.dep"
-		let i=i+1
-	done
-	echo depend: \${TMPDEP}
-	if [ $append = 1 ]; then
-		echo "\t${at}\${SUBST} \${.ALLSRC} >> $D"
-	else
-		echo "\t${at}\${SUBST} \${.ALLSRC} >  $D"
-	fi
-} > $DIR/Makefile
-
-if ! make $concurrence -rf $DIR/Makefile; then
+if [ $? != 0 ]; then
 	echo 'mkdep: compile failed.'
-	$rm -rf $DIR $D
+	rm -f $TMP
 	exit 1
 fi
 
-$rm -rf $DIR
+if [ $append = 1 ]; then
+	cat $TMP >> $D
+	if [ $? != 0 ]; then
+		echo 'mkdep: append failed.'
+		rm -f $TMP
+		exit 1
+	fi
+else
+	mv -f $TMP $D
+	if [ $? != 0 ]; then
+		echo 'mkdep: rename failed.'
+		rm -f $TMP
+		exit 1
+	fi
+fi
+
+rm -f $TMP
 exit 0
