@@ -3,39 +3,38 @@
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   .gitignore
-#	modified:   file/magdir/erlang
-#	modified:   login/login.c
-#	modified:   mail/cmd3.c
-#	modified:   ssh/sftp-server.8
-#	modified:   ssh/sftp-server.c
-#	modified:   ssh/ssh-agent.c
+#	modified:   dc/bcode.c
+#	modified:   newsyslog/newsyslog.c
 #	modified:   status.log
-#	modified:   tmux/Makefile
-#	modified:   tmux/client.c
-#	modified:   tmux/cmd-respawn-window.c
+#	modified:   tcpbench/tcpbench.c
+#	modified:   tmux/clock.c
+#	modified:   tmux/cmd-choose-client.c
+#	modified:   tmux/cmd-choose-session.c
+#	modified:   tmux/cmd-choose-window.c
+#	modified:   tmux/cmd-copy-buffer.c
+#	modified:   tmux/cmd-list-buffers.c
+#	modified:   tmux/cmd-load-buffer.c
+#	modified:   tmux/cmd-new-session.c
+#	modified:   tmux/cmd-paste-buffer.c
+#	modified:   tmux/cmd-save-buffer.c
 #	modified:   tmux/cmd-server-info.c
-#	modified:   tmux/cmd-set-option.c
-#	modified:   tmux/cmd-split-window.c
-#	modified:   tmux/cmd.c
-#	modified:   tmux/key-bindings.c
-#	modified:   tmux/mode-key.c
-#	modified:   tmux/names.c
+#	modified:   tmux/cmd-set-buffer.c
+#	modified:   tmux/cmd-show-buffer.c
+#	modified:   tmux/colour.c
+#	modified:   tmux/paste.c
 #	modified:   tmux/screen-redraw.c
+#	modified:   tmux/screen-write.c
 #	modified:   tmux/server-fn.c
-#	modified:   tmux/server-msg.c
 #	modified:   tmux/server.c
 #	modified:   tmux/session.c
 #	modified:   tmux/status.c
 #	modified:   tmux/tmux.1
-#	modified:   tmux/tmux.c
 #	modified:   tmux/tmux.h
 #	modified:   tmux/tty.c
-#	modified:   tmux/window.c
+#	modified:   tmux/window-choose.c
+#	modified:   tmux/window-copy.c
+#	modified:   tmux/window-more.c
+#	modified:   tmux/window-scroll.c
 #	modified:   up.log
 #
-# Untracked files:
-#   (use "git add <file>..." to include in what will be committed)
-#
-#	tmux/cmd-display-panes.c
 no changes added to commit (use "git add" and/or "git commit -a")

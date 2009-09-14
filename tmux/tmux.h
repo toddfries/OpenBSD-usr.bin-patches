@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.98 2009/09/02 20:15:49 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.103 2009/09/12 13:01:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -772,6 +772,7 @@ struct layout_cell {
 /* Paste buffer. */
 struct paste_buffer {
      	char		*data;
+	size_t		 size;
 	struct timeval	 tv;
 };
 ARRAY_DECL(paste_stack, struct paste_buffer *);
@@ -811,11 +812,14 @@ struct session {
 	SLIST_HEAD(, session_alert) alerts;
 
 #define SESSION_UNATTACHED 0x1	/* not attached to any clients */
+#define SESSION_DEAD 0x2
 	int		 flags;
 
 	struct termios   tio;
 
 	struct environ	 environ;
+
+	int		 references;
 };
 ARRAY_DECL(sessions, struct session *);
 
@@ -938,6 +942,7 @@ struct client {
 #define CLIENT_SUSPENDED 0x40
 #define CLIENT_BAD 0x80
 #define CLIENT_IDENTIFY 0x100
+#define CLIENT_DEAD 0x200
 	int		 flags;
 
 	struct timeval	 identify_timer;
@@ -962,6 +967,8 @@ struct client {
 	struct mode_key_data prompt_mdata;
 
 	struct session	*session;
+
+	int		 references;
 };
 ARRAY_DECL(clients, struct client *);
 
@@ -1257,8 +1264,8 @@ struct paste_buffer *paste_get_top(struct paste_stack *);
 struct paste_buffer *paste_get_index(struct paste_stack *, u_int);
 int	     	 paste_free_top(struct paste_stack *);
 int		 paste_free_index(struct paste_stack *, u_int);
-void		 paste_add(struct paste_stack *, char *, u_int);
-int		 paste_replace(struct paste_stack *, u_int, char *);
+void		 paste_add(struct paste_stack *, u_char *, size_t, u_int);
+int		 paste_replace(struct paste_stack *, u_int, u_char *, size_t);
 
 /* clock.c */
 extern const char clock_table[14][5][5];
@@ -1427,6 +1434,7 @@ const char *key_string_lookup_key(int);
 
 /* server.c */
 extern struct clients clients;
+extern struct clients dead_clients;
 int	 server_client_index(struct client *);
 int	 server_start(char *);
 
@@ -1449,6 +1457,7 @@ void	 server_status_window(struct window *);
 void	 server_lock(void);
 int	 server_unlock(const char *);
 void	 server_kill_window(struct window *);
+void	 server_destroy_session(struct session *);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
 
@@ -1478,7 +1487,9 @@ void	 input_key(struct window_pane *, int);
 void	 input_mouse(struct window_pane *, u_char, u_char, u_char);
 
 /* colour.c */
-const char *colour_tostring(u_char);
+void	 colour_set_fg(struct grid_cell *, int);
+void	 colour_set_bg(struct grid_cell *, int);
+const char *colour_tostring(int);
 int	 colour_fromstring(const char *);
 u_char	 colour_256to16(u_char);
 u_char	 colour_256to88(u_char);
@@ -1533,6 +1544,9 @@ char	*grid_view_string_cells(struct grid *, u_int, u_int, u_int);
 void	 screen_write_start(
     	     struct screen_write_ctx *, struct window_pane *, struct screen *);
 void	 screen_write_stop(struct screen_write_ctx *);
+size_t printflike2 screen_write_cstrlen(int, const char *, ...);
+void printflike5 screen_write_cnputs(struct screen_write_ctx *,
+    ssize_t, struct grid_cell *, int, const char *, ...);
 size_t printflike2 screen_write_strlen(int, const char *, ...);
 void printflike3 screen_write_puts(struct screen_write_ctx *,
     	     struct grid_cell *, const char *, ...);
@@ -1540,6 +1554,8 @@ void printflike5 screen_write_nputs(struct screen_write_ctx *,
     ssize_t, struct grid_cell *, int, const char *, ...);
 void	 screen_write_vnputs(struct screen_write_ctx *,
 	     ssize_t, struct grid_cell *, int, const char *, va_list);
+void	 screen_write_parsestyle(
+    	     struct grid_cell *, struct grid_cell *, const char *);
 void	 screen_write_putc(
     	     struct screen_write_ctx *, struct grid_cell *, u_char);
 void	 screen_write_copy(struct screen_write_ctx *,
@@ -1696,6 +1712,7 @@ char 		*default_window_name(struct window *);
 
 /* session.c */
 extern struct sessions sessions;
+extern struct sessions dead_sessions;
 void	 session_alert_add(struct session *, struct window *, int);
 void	 session_alert_cancel(struct session *, struct winlink *);
 int	 session_alert_has(struct session *, struct winlink *, int);

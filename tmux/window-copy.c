@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.25 2009/08/21 07:33:58 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.27 2009/09/10 17:16:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -660,14 +660,15 @@ window_copy_write_line(
 {
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
+	struct options			*oo = &wp->window->options;
 	struct grid_cell		 gc;
 	char				 hdr[32];
 	size_t	 			 last, xoff = 0, size = 0;
 
 	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.fg = options_get_number(&wp->window->options, "mode-fg");
-	gc.bg = options_get_number(&wp->window->options, "mode-bg");
-	gc.attr |= options_get_number(&wp->window->options, "mode-attr");
+	colour_set_fg(&gc, options_get_number(oo, "mode-fg"));
+	colour_set_bg(&gc, options_get_number(oo, "mode-bg"));
+	gc.attr |= options_get_number(oo, "mode-attr");
 
 	last = screen_size_y(s) - 1;
 	if (py == 0) {
@@ -765,6 +766,7 @@ window_copy_update_selection(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
+	struct options			*oo = &wp->window->options;
 	struct grid_cell		 gc;
 	u_int				 sx, sy, ty;
 
@@ -773,9 +775,9 @@ window_copy_update_selection(struct window_pane *wp)
 
 	/* Set colours. */
 	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.fg = options_get_number(&wp->window->options, "mode-fg");
-	gc.bg = options_get_number(&wp->window->options, "mode-bg");
-	gc.attr |= options_get_number(&wp->window->options, "mode-attr");
+	colour_set_fg(&gc, options_get_number(oo, "mode-fg"));
+	colour_set_bg(&gc, options_get_number(oo, "mode-bg"));
+	gc.attr |= options_get_number(oo, "mode-attr");
 
 	/* Find top of screen. */
 	ty = screen_hsize(&wp->base) - data->oy;
@@ -849,13 +851,16 @@ window_copy_copy_selection(struct window_pane *wp, struct client *c)
 		window_copy_copy_line(wp, &buf, &off, ey, 0, ex);
 	}
 
-	/* Terminate buffer, overwriting final \n. */
-	if (off != 0)
-		buf[off - 1] = '\0';
+	/* Don't bother if no data. */
+	if (off == 0) {
+		xfree(buf);
+		return;
+	}
+	off--;	/* remove final \n */
 
 	/* Add the buffer to the stack. */
 	limit = options_get_number(&c->session->options, "buffer-limit");
-	paste_add(&c->session->buffers, buf, limit);
+	paste_add(&c->session->buffers, buf, off, limit);
 }
 
 void

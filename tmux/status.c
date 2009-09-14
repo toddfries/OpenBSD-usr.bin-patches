@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.30 2009/09/02 06:33:20 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.33 2009/09/10 17:16:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -66,8 +66,8 @@ status_redraw(struct client *c)
 	if (gettimeofday(&c->status_timer, NULL) != 0)
 		fatal("gettimeofday");
 	memcpy(&stdgc, &grid_default_cell, sizeof gc);
-	stdgc.fg = options_get_number(&s->options, "status-fg");
-	stdgc.bg = options_get_number(&s->options, "status-bg");
+	colour_set_fg(&stdgc, options_get_number(&s->options, "status-fg"));
+	colour_set_bg(&stdgc, options_get_number(&s->options, "status-bg"));
 	stdgc.attr |= options_get_number(&s->options, "status-attr");
 
 	/* 
@@ -79,19 +79,19 @@ status_redraw(struct client *c)
 	memcpy(&sr_stdgc, &stdgc, sizeof sr_stdgc);
 	sl_fg = options_get_number(&s->options, "status-left-fg");
 	if (sl_fg != 8)
-		sl_stdgc.fg = sl_fg;
+		colour_set_fg(&sl_stdgc, sl_fg);
 	sl_bg = options_get_number(&s->options, "status-left-bg");
 	if (sl_bg != 8)
-		sl_stdgc.bg = sl_bg;		
+		colour_set_bg(&sl_stdgc, sl_bg);
 	sl_attr = options_get_number(&s->options, "status-left-attr");
 	if (sl_attr != 0)
 		sl_stdgc.attr = sl_attr;
 	sr_fg = options_get_number(&s->options, "status-right-fg");
 	if (sr_fg != 8)
-		sr_stdgc.fg = sr_fg;
+		colour_set_fg(&sr_stdgc, sr_fg);
 	sr_bg = options_get_number(&s->options, "status-right-bg");
 	if (sr_bg != 8)
-		sr_stdgc.bg = sr_bg;
+		colour_set_bg(&sr_stdgc, sr_bg);
 	sr_attr = options_get_number(&s->options, "status-right-attr");
 	if (sr_attr != 0)
 		sr_stdgc.attr = sr_attr;
@@ -107,14 +107,14 @@ status_redraw(struct client *c)
 	left = status_replace(s, options_get_string(
 	    &s->options, "status-left"), c->status_timer.tv_sec);
 	llen = options_get_number(&s->options, "status-left-length");
-	llen2 = screen_write_strlen(utf8flag, "%s", left);
+	llen2 = screen_write_cstrlen(utf8flag, "%s", left);
 	if (llen2 < llen)
 		llen = llen2;
 
 	right = status_replace(s, options_get_string(
 	    &s->options, "status-right"), c->status_timer.tv_sec);
 	rlen = options_get_number(&s->options, "status-right-length");
-	rlen2 = screen_write_strlen(utf8flag, "%s", right);
+	rlen2 = screen_write_cstrlen(utf8flag, "%s", right);
 	if (rlen2 < rlen)
 		rlen = rlen2;
 
@@ -192,7 +192,7 @@ draw:
 	screen_write_start(&ctx, NULL, &c->status);
 	if (llen != 0) {
  		screen_write_cursormove(&ctx, 0, yy);
-		screen_write_nputs(&ctx, llen, &sl_stdgc, utf8flag, "%s", left);
+		screen_write_cnputs(&ctx, llen, &sl_stdgc, utf8flag, "%s", left);
 		screen_write_putc(&ctx, &stdgc, ' ');
 		if (larrow)
 			screen_write_putc(&ctx, &stdgc, ' ');
@@ -266,7 +266,7 @@ draw:
 	if (rlen != 0) {
 		screen_write_cursormove(&ctx, c->tty.sx - rlen - 1, yy);
 		screen_write_putc(&ctx, &stdgc, ' ');
-		screen_write_nputs(&ctx, rlen, &sr_stdgc, utf8flag, "%s", right);
+		screen_write_cnputs(&ctx, rlen, &sr_stdgc, utf8flag, "%s", right);
 	}
 
 	/* Draw the arrows. */
@@ -400,6 +400,20 @@ status_replace(struct session *s, const char *fmt, time_t t)
 					len--;
 				}
 				break;
+			case '[':
+				/* 
+				 * Embedded style, handled at display time.
+				 * Leave present and skip input until ].
+				 */
+				*optr++ = '#';
+
+				iptr--;	/* include [ */
+				while (*iptr != ']' && *iptr != '\0') {
+					if (optr >= out + (sizeof out) - 1)
+						break;
+					*optr++ = *iptr++;
+				}
+				break;
 			case '#':
 				*optr++ = '#';
 				break;
@@ -487,16 +501,17 @@ status_width(struct winlink *wl)
 char *
 status_print(struct session *s, struct winlink *wl, struct grid_cell *gc)
 {
-	char   *text, flag;
-	u_char	fg, bg, attr;
+	struct options	*oo = &wl->window->options;
+	char   		*text, flag;
+	u_char		 fg, bg, attr;
 
-	fg = options_get_number(&wl->window->options, "window-status-fg");
+	fg = options_get_number(oo, "window-status-fg");
 	if (fg != 8)
-		gc->fg = fg;
-	bg = options_get_number(&wl->window->options, "window-status-bg");
+		colour_set_fg(gc, fg);
+	bg = options_get_number(oo, "window-status-bg");
 	if (bg != 8)
-		gc->bg = bg;
-	attr = options_get_number(&wl->window->options, "window-status-attr");
+		colour_set_bg(gc, bg);
+	attr = options_get_number(oo, "window-status-attr");
 	if (attr != 0)
 		gc->attr = attr;
 
@@ -504,13 +519,13 @@ status_print(struct session *s, struct winlink *wl, struct grid_cell *gc)
  	if (wl == SLIST_FIRST(&s->lastw))
 		flag = '-';
 	if (wl == s->curw) {
-		fg = options_get_number(&wl->window->options, "window-status-current-fg");
+		fg = options_get_number(oo, "window-status-current-fg");
 		if (fg != 8)
-			gc->fg = fg;
-		bg = options_get_number(&wl->window->options, "window-status-current-bg");
+			colour_set_fg(gc, fg);
+		bg = options_get_number(oo, "window-status-current-bg");
 		if (bg != 8)
-			gc->bg = bg;
-		attr = options_get_number(&wl->window->options, "window-status-current-attr");
+			colour_set_bg(gc, bg);
+		attr = options_get_number(oo, "window-status-current-attr");
 		if (attr != 0)
 			gc->attr = attr;
 		flag = '*';
@@ -592,8 +607,8 @@ status_message_redraw(struct client *c)
 		len = c->tty.sx;
 
 	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.fg = options_get_number(&s->options, "message-fg");
-	gc.bg = options_get_number(&s->options, "message-bg");
+	colour_set_fg(&gc, options_get_number(&s->options, "message-fg"));
+	colour_set_bg(&gc, options_get_number(&s->options, "message-bg"));
 	gc.attr |= options_get_number(&s->options, "message-attr");
 
 	screen_write_start(&ctx, NULL, &c->status);
@@ -705,8 +720,8 @@ status_prompt_redraw(struct client *c)
 		len = c->tty.sx;
 
 	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.fg = options_get_number(&s->options, "message-fg");
-	gc.bg = options_get_number(&s->options, "message-bg");
+	colour_set_fg(&gc, options_get_number(&s->options, "message-fg"));
+	colour_set_bg(&gc, options_get_number(&s->options, "message-bg"));
 	gc.attr |= options_get_number(&s->options, "message-attr");
 
 	screen_write_start(&ctx, NULL, &c->status);
@@ -914,9 +929,10 @@ status_prompt_key(struct client *c, int key)
 	case MODEKEYEDIT_PASTE:
 		if ((pb = paste_get_top(&c->session->buffers)) == NULL)
 			break;
-		if ((last = strchr(pb->data, '\n')) == NULL)
-			last = strchr(pb->data, '\0');
-		n = last - pb->data;
+		for (n = 0; n < pb->size; n++) {
+			if (pb->data[n] < 32 || pb->data[n] == 127)
+				break;
+		}
 
 		c->prompt_buffer = xrealloc(c->prompt_buffer, 1, size + n + 1);
 		if (c->prompt_index == size) {

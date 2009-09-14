@@ -136,11 +136,10 @@ usage(void)
 {
 	fprintf(stderr,
 	    "usage: tcpbench -l\n"
-	    "       tcpbench [-v] [-B buf] [-k kvars] [-n connections]"
-	    " [-p port] [-r rate] [-V rdomain]\n"
-	    "                [-S space] hostname\n"
-	    "       tcpbench -s [-v] [-B buf] [-k kvars] [-p port] [-r rate]"
-	    " [-S space] [-V rdomain]\n");
+	    "       tcpbench [-v] [-B buf] [-k kvars] [-n connections] [-p port]\n"
+	    "                [-r rate] [-S space] [-V rdomain] hostname\n"
+	    "       tcpbench -s [-v] [-B buf] [-k kvars] [-p port]\n"
+	    "                [-r rate] [-S space] [-V rdomain]\n");
 	exit(1);
 }
 
@@ -737,40 +736,18 @@ serverloop(kvm_t *kvmh, u_long ktcbtab, struct addrinfo *aitop)
 	exit(1);
 }
 
-static void __dead
-clientloop(kvm_t *kvmh, u_long ktcbtab, const char *host, const char *port, int nconn)
+void
+clientconnect(struct addrinfo *aitop, struct pollfd *pfd, int nconn)
 {
-	struct addrinfo *aitop, *ai, hints;
-	struct statctx *psc;
-	struct pollfd *pfd;
-	char tmp[128], *buf;
-	int i, r, herr, sock = -1;
-	u_int scnt = 0;
-	ssize_t n;
+	char tmp[128];
+	struct addrinfo *ai;
+	int i, r, sock;
 
-	if ((buf = malloc(Bflag)) == NULL)
-		err(1, "malloc");
-
-	if ((pfd = calloc(nconn, sizeof(*pfd))) == NULL)
-		err(1, "clientloop pfd calloc");
-	if ((psc = calloc(nconn, sizeof(*psc))) == NULL)
-		err(1, "clientloop psc calloc");
-	
 	for (i = 0; i < nconn; i++) {
-		bzero(&hints, sizeof(hints));
-		hints.ai_socktype = SOCK_STREAM;
-		hints.ai_flags = 0;
-		if ((herr = getaddrinfo(host, port, &hints, &aitop)) != 0) {
-			if (herr == EAI_SYSTEM)
-				err(1, "getaddrinfo");
-			else
-				errx(1, "c getaddrinfo: %s", gai_strerror(herr));
-		}
-
 		for (sock = -1, ai = aitop; ai != NULL; ai = ai->ai_next) {
 			saddr_ntop(ai->ai_addr, ai->ai_addrlen, tmp,
 			    sizeof(tmp));
-			if (vflag && scnt == 0)
+			if (vflag && i == 0)
 				fprintf(stderr, "Trying %s\n", tmp);
 			if ((sock = socket(ai->ai_family, ai->ai_socktype,
 			    ai->ai_protocol)) == -1) {
@@ -802,7 +779,6 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, const char *host, const char *port, int 
 			}
 			break;
 		}
-		freeaddrinfo(aitop);
 		if (sock == -1)
 			errx(1, "No host found");
 
@@ -814,13 +790,36 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, const char *host, const char *port, int 
 
 		pfd[i].fd = sock;
 		pfd[i].events = POLLOUT;
+	}
+	freeaddrinfo(aitop);
+
+	if (vflag && nconn > 1)
+		fprintf(stderr, "%u connections established\n", nconn);
+}
+
+static void __dead
+clientloop(kvm_t *kvmh, u_long ktcbtab, struct addrinfo *aitop, int nconn)
+{
+	struct statctx *psc;
+	struct pollfd *pfd;
+	char *buf;
+	int i, sock = -1;
+	ssize_t n;
+
+	if ((pfd = calloc(nconn, sizeof(*pfd))) == NULL)
+		err(1, "clientloop pfd calloc");
+	if ((psc = calloc(nconn, sizeof(*psc))) == NULL)
+		err(1, "clientloop psc calloc");
+	
+	clientconnect(aitop, pfd, nconn);
+
+	for (i = 0; i < nconn; i++) {
 		stats_prepare(psc + i, sock, kvmh, ktcbtab);
 		mainstats.nconns++;
-		scnt++;
 	}
 
-	if (vflag && scnt > 1)
-		fprintf(stderr, "%u connections established\n", scnt);
+	if ((buf = malloc(Bflag)) == NULL)
+		err(1, "malloc");
 	arc4random_buf(buf, Bflag);
 
 	print_header();
@@ -828,7 +827,7 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, const char *host, const char *port, int 
 
 	while (!done) {
 		if (proc_slice) {
-			process_slice(psc, scnt);
+			process_slice(psc, nconn);
 			stats_cleanslice();
 			proc_slice = 0;
 		}
@@ -964,16 +963,15 @@ main(int argc, char **argv)
 	if (!sflag)
 		host = argv[0];
 
-	if (sflag) {
-		bzero(&hints, sizeof(hints));
-		hints.ai_socktype = SOCK_STREAM;
+	bzero(&hints, sizeof(hints));
+	hints.ai_socktype = SOCK_STREAM;
+	if (sflag)
 		hints.ai_flags = AI_PASSIVE;
-		if ((herr = getaddrinfo(host, port, &hints, &aitop)) != 0) {
-			if (herr == EAI_SYSTEM)
-				err(1, "getaddrinfo");
-			else
-				errx(1, "s getaddrinfo: %s", gai_strerror(herr));
-		}
+	if ((herr = getaddrinfo(host, port, &hints, &aitop)) != 0) {
+		if (herr == EAI_SYSTEM)
+			err(1, "getaddrinfo");
+		else
+			errx(1, "getaddrinfo: %s", gai_strerror(herr));
 	}
 
 	if (kflag) {
@@ -1004,7 +1002,7 @@ main(int argc, char **argv)
 	if (sflag)
 		serverloop(kvmh, nl[0].n_value, aitop);
 	else
-		clientloop(kvmh, nl[0].n_value, host, port, nconn);
+		clientloop(kvmh, nl[0].n_value, aitop, nconn);
 
 	return 0;
 }

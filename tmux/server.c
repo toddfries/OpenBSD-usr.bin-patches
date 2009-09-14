@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.29 2009/09/05 17:42:16 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.35 2009/09/12 13:09:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -43,6 +43,7 @@
 
 /* Client list. */
 struct clients	 clients;
+struct clients	 dead_clients;
 
 void		 server_create_client(int);
 int		 server_create_socket(void);
@@ -61,6 +62,7 @@ int		 server_check_window_activity(struct session *,
 		      struct window *);
 int		 server_check_window_content(struct session *, struct window *,
 		      struct window_pane *);
+void		 server_clean_dead(void);
 void		 server_lost_client(struct client *);
 void	 	 server_check_window(struct window *);
 void		 server_check_redraw(struct client *);
@@ -85,6 +87,7 @@ server_create_client(int fd)
 		fatal("fcntl failed");
 
 	c = xcalloc(1, sizeof *c);
+	c->references = 0;
 	imsg_init(&c->ibuf, fd);
 
 	ARRAY_INIT(&c->prompt_hdata);
@@ -162,7 +165,9 @@ server_start(char *path)
 
 	ARRAY_INIT(&windows);
 	ARRAY_INIT(&clients);
+	ARRAY_INIT(&dead_clients);
 	ARRAY_INIT(&sessions);
+	ARRAY_INIT(&dead_sessions);
 	mode_key_init_trees();
 	key_bindings_init();
 	utf8_build();
@@ -344,6 +349,9 @@ server_main(int srv_fd)
 
 		/* Collect any unset key bindings. */
 		key_bindings_clean();
+
+		/* Collect dead clients and sessions. */
+		server_clean_dead();
 		
 		/*
 		 * If we have no sessions and clients left, let's get out
@@ -593,7 +601,7 @@ server_redraw_locked(struct client *c)
 	style = options_get_number(&global_w_options, "clock-mode-style");
 
 	memcpy(&gc, &grid_default_cell, sizeof gc);
-	gc.fg = colour;
+	colour_set_fg(&gc, colour);
 	gc.attr |= GRID_ATTR_BRIGHT;
 
 	screen_init(&screen, xx, yy, 0);
@@ -787,6 +795,7 @@ server_accept_client(int srv_fd)
 void
 server_handle_client(struct client *c)
 {
+	struct window		*w;
 	struct window_pane	*wp;
 	struct screen		*s;
 	struct timeval	 	 tv;
@@ -810,8 +819,18 @@ server_handle_client(struct client *c)
 
 		if (c->session == NULL)
 			return;
-		wp = c->session->curw->window->active;	/* could die */
+		w = c->session->curw->window;
+		wp = w->active;	/* could die */
 
+		/* Special case: number keys jump to pane in identify mode. */
+		if (c->flags & CLIENT_IDENTIFY && key >= '0' && key <= '9') {	
+			wp = window_pane_at_index(w, key - '0');
+			if (wp != NULL && window_pane_visible(wp))
+				window_set_active_pane(w, wp);
+			server_clear_identify(c);
+			continue;
+		}
+		
 		status_message_clear(c);
 		server_clear_identify(c);
 		if (c->prompt_string != NULL) {
@@ -948,9 +967,43 @@ server_lost_client(struct client *c)
 
 	close(c->ibuf.fd);
 	imsg_clear(&c->ibuf);
-	xfree(c);
+
+	for (i = 0; i < ARRAY_LENGTH(&dead_clients); i++) {
+		if (ARRAY_ITEM(&dead_clients, i) == NULL) {
+			ARRAY_SET(&dead_clients, i, c);
+			break;
+		}
+	}
+	if (i == ARRAY_LENGTH(&dead_clients))
+		ARRAY_ADD(&dead_clients, c);
+	c->flags |= CLIENT_DEAD;
 
 	recalculate_sizes();
+}
+
+/* Free dead, unreferenced clients and sessions. */
+void
+server_clean_dead(void)
+{
+	struct session	*s;
+	struct client	*c;
+	u_int		 i;
+
+	for (i = 0; i < ARRAY_LENGTH(&dead_sessions); i++) {
+		s = ARRAY_ITEM(&dead_sessions, i);
+		if (s == NULL || s->references != 0)
+			continue;
+		ARRAY_SET(&dead_sessions, i, NULL);
+		xfree(s);
+	}
+
+	for (i = 0; i < ARRAY_LENGTH(&dead_clients); i++) {
+		c = ARRAY_ITEM(&dead_clients, i);
+		if (c == NULL || c->references != 0)
+			continue;
+		ARRAY_SET(&dead_clients, i, NULL);
+		xfree(c);
+	}
 }
 
 /* Handle window data. */
@@ -1117,10 +1170,9 @@ server_check_window(struct window *w)
 {
 	struct window_pane	*wp, *wq;
 	struct options		*oo = &w->options;
-	struct client		*c;
 	struct session		*s;
 	struct winlink		*wl;
-	u_int		 	 i, j;
+	u_int		 	 i;
 	int		 	 destroyed;
 
 	destroyed = 1;
@@ -1158,21 +1210,11 @@ server_check_window(struct window *w)
 		RB_FOREACH(wl, winlinks, &s->windows) {
 			if (wl->window != w)
 				continue;
-			destroyed = session_detach(s, wl);
-			for (j = 0; j < ARRAY_LENGTH(&clients); j++) {
-				c = ARRAY_ITEM(&clients, j);
-				if (c == NULL || c->session != s)
-					continue;
-				if (!destroyed) {
-					server_redraw_client(c);
-					continue;
-				}
-				c->session = NULL;
-				server_write_client(c, MSG_EXIT, NULL, 0);
-			}
-			/* If the session was destroyed, bail now. */
-			if (destroyed)
+			if (session_detach(s, wl)) {
+				server_destroy_session(s);
 				break;
+			}
+			server_redraw_session(s);
 			goto restart;
 		}
 	}
@@ -1228,8 +1270,8 @@ server_second_timers(void)
 	/* If locked, redraw all clients. */
 	if (server_locked) {
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-			if (ARRAY_ITEM(&clients, i) != NULL)
-				server_redraw_client(ARRAY_ITEM(&clients, i));
+			if ((c = ARRAY_ITEM(&clients, i)) != NULL)
+				server_redraw_client(c);
 		}
 	}
 }

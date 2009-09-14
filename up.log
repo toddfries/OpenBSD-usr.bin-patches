@@ -1,48 +1,36 @@
-Host key fingerprint is 3f:44:14:35:1b:65:cc:cb:da:17:6d:1d:e1:b4:a6:36
-+--[ RSA 1024]----+
-|          oo++oo.|
-|         .   ==..|
-|          . .. =+|
-|         .    =.+|
-|        S .  E ..|
-|         o  o o .|
-|          o    . |
-|           .     |
-|                 |
-+-----------------+
-
 ? .git
 ? .gitignore
 ? status.log
 ? up.log
 ? vi/build/obj
-P file/magdir/erlang
-P login/login.c
-P mail/cmd3.c
-M mkdep/Makefile
-M mkdep/mkdep.gcc.sh
-P ssh/sftp-server.8
-P ssh/sftp-server.c
-P ssh/ssh-agent.c
-P tmux/Makefile
-P tmux/client.c
-U tmux/cmd-display-panes.c
-P tmux/cmd-respawn-window.c
+P dc/bcode.c
+P newsyslog/newsyslog.c
+P tcpbench/tcpbench.c
+P tmux/clock.c
+P tmux/cmd-choose-client.c
+P tmux/cmd-choose-session.c
+P tmux/cmd-choose-window.c
+P tmux/cmd-copy-buffer.c
+P tmux/cmd-list-buffers.c
+P tmux/cmd-load-buffer.c
+P tmux/cmd-new-session.c
+P tmux/cmd-paste-buffer.c
+P tmux/cmd-save-buffer.c
 P tmux/cmd-server-info.c
-P tmux/cmd-set-option.c
-P tmux/cmd-split-window.c
-P tmux/cmd.c
-P tmux/key-bindings.c
-P tmux/mode-key.c
-P tmux/names.c
+P tmux/cmd-set-buffer.c
+P tmux/cmd-show-buffer.c
+P tmux/colour.c
+P tmux/paste.c
 P tmux/screen-redraw.c
+P tmux/screen-write.c
 P tmux/server-fn.c
-P tmux/server-msg.c
 P tmux/server.c
 P tmux/session.c
 P tmux/status.c
 P tmux/tmux.1
-P tmux/tmux.c
 P tmux/tmux.h
 P tmux/tty.c
-P tmux/window.c
+P tmux/window-choose.c
+P tmux/window-copy.c
+P tmux/window-more.c
+P tmux/window-scroll.c
