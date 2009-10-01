@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.42 2009/09/04 15:15:24 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.46 2009/09/23 12:03:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -46,11 +46,6 @@ struct options	 global_s_options;	/* session options */
 struct options	 global_w_options;	/* window options */
 struct environ	 global_environ;
 
-int		 server_locked;
-struct passwd	*server_locked_pw;
-u_int		 password_failures;
-time_t		 password_backoff;
-char		*server_password;
 time_t		 server_activity;
 
 int		 debug_level;
@@ -61,15 +56,15 @@ int		 login_shell;
 
 __dead void	 usage(void);
 char 		*makesockpath(const char *);
-int		 prepare_unlock(enum msgtype *, void **, size_t *, int);
 int		 prepare_cmd(enum msgtype *, void **, size_t *, int, char **);
-int		 dispatch_imsg(struct client_ctx *, int *);
+int		 dispatch_imsg(struct client_ctx *, const char *, int *);
+__dead void	 shell_exec(const char *, const char *);
 
 __dead void
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: %s [-28dlqUuv] [-f file] [-L socket-name]\n"
+	    "usage: %s [-28dlquv] [-c shell-command] [-f file] [-L socket-name]\n"
 	    "            [-S socket-path] [command [flags]]\n",
 	    __progname);
 	exit(1);
@@ -251,35 +246,6 @@ makesockpath(const char *label)
 }
 
 int
-prepare_unlock(enum msgtype *msg, void **buf, size_t *len, int argc)
-{
-	static struct msg_unlock_data	 unlockdata;
-	char				*pass;
-
-	if (argc != 0) {
-		log_warnx("can't specify a command when unlocking");
-		return (-1);
-	}
-	
-	if ((pass = getpass("Password:")) == NULL)
-		return (-1);
-
-	if (strlen(pass) >= sizeof unlockdata.pass) {
-		log_warnx("password too long");
-		return (-1);
-	}
-		
-	strlcpy(unlockdata.pass, pass, sizeof unlockdata.pass);
-	memset(pass, 0, strlen(pass));
-
-	*buf = &unlockdata;
-	*len = sizeof unlockdata;
-
-	*msg = MSG_UNLOCK;
-	return (0);
-}
-
-int
 prepare_cmd(enum msgtype *msg, void **buf, size_t *len, int argc, char **argv)
 {
 	static struct msg_command_data	 cmddata;
@@ -309,17 +275,18 @@ main(int argc, char **argv)
 	enum msgtype		 msg;
 	struct passwd		*pw;
 	struct options		*so, *wo;
-	char			*s, *path, *label, *home, *cause, **var;
-	char			 cwd[MAXPATHLEN];
+	struct keylist		*keylist;
+	char			*s, *shellcmd, *path, *label, *home, *cause;
+	char			 cwd[MAXPATHLEN], **var;
 	void			*buf;
 	size_t			 len;
-	int	 		 retcode, opt, flags, unlock, cmdflags = 0;
+	int	 		 retcode, opt, flags, cmdflags = 0;
 	int			 nfds;
 
-	unlock = flags = 0;
-	label = path = NULL;
+	flags = 0;
+	shellcmd = label = path = NULL;
 	login_shell = (**argv == '-');
-	while ((opt = getopt(argc, argv, "28df:lL:qS:uUv")) != -1) {
+	while ((opt = getopt(argc, argv, "28c:df:lL:qS:uUv")) != -1) {
 		switch (opt) {
 		case '2':
 			flags |= IDENTIFY_256COLOURS;
@@ -328,6 +295,11 @@ main(int argc, char **argv)
 		case '8':
 			flags |= IDENTIFY_88COLOURS;
 			flags &= ~IDENTIFY_256COLOURS;
+			break;
+		case 'c':
+			if (shellcmd != NULL)
+				xfree(shellcmd);
+			shellcmd = xstrdup(optarg);
 			break;
 		case 'd':
 			flags |= IDENTIFY_HASDEFAULTS;
@@ -356,9 +328,6 @@ main(int argc, char **argv)
 		case 'u':
 			flags |= IDENTIFY_UTF8;
 			break;
-		case 'U':
-			unlock = 1;
-			break;
 		case 'v':
 			debug_level++;
 			break;
@@ -368,6 +337,9 @@ main(int argc, char **argv)
         }
 	argc -= optind;
 	argv += optind;
+
+	if (shellcmd != NULL && argc != 0)
+		usage();
 
 	log_open_tty(debug_level);
 	siginit();
@@ -406,13 +378,14 @@ main(int argc, char **argv)
 	options_set_number(so, "display-time", 750);
 	options_set_number(so, "history-limit", 2000);
 	options_set_number(so, "lock-after-time", 0);
+	options_set_string(so, "lock-command", "lock -np");
 	options_set_number(so, "message-attr", 0);
 	options_set_number(so, "message-bg", 3);
 	options_set_number(so, "message-fg", 0);
-	options_set_number(so, "prefix", '\002');
 	options_set_number(so, "repeat-time", 500);
 	options_set_number(so, "set-remain-on-exit", 0);
 	options_set_number(so, "set-titles", 0);
+	options_set_string(so, "set-titles-string", "#S:#I:#W - \"#T\"");
 	options_set_number(so, "status", 1);
 	options_set_number(so, "status-attr", 0);
 	options_set_number(so, "status-bg", 2);
@@ -437,6 +410,11 @@ main(int argc, char **argv)
 	options_set_number(so, "visual-activity", 0);
 	options_set_number(so, "visual-bell", 0);
 	options_set_number(so, "visual-content", 0);
+
+	keylist = xmalloc(sizeof *keylist);
+	ARRAY_INIT(keylist);
+	ARRAY_ADD(keylist, '\002');
+	options_set_data(so, "prefix", keylist, xfree);
 
 	options_init(&global_w_options, NULL);
 	wo = &global_w_options;
@@ -508,16 +486,15 @@ main(int argc, char **argv)
 	}
 	xfree(label);
 
-	if (unlock) {
-		if (prepare_unlock(&msg, &buf, &len, argc) != 0)
-			exit(1);
-	} else {
-		if (prepare_cmd(&msg, &buf, &len, argc, argv) != 0)
-			exit(1);
-	}
+	if (shellcmd != NULL) {
+		msg = MSG_SHELL;
+		buf = NULL;
+		len = 0;
+	} else if (prepare_cmd(&msg, &buf, &len, argc, argv) != 0)
+		exit(1);
 
-	if (unlock)
-		cmdflags &= ~CMD_STARTSERVER;
+	if (shellcmd != NULL)
+		cmdflags |= CMD_STARTSERVER;
 	else if (argc == 0)	/* new-session is the default */
 		cmdflags |= CMD_STARTSERVER|CMD_SENDENVIRON;
 	else {
@@ -567,7 +544,7 @@ main(int argc, char **argv)
 			fatalx("socket error");
 
                 if (pfd.revents & POLLIN) {
-			if (dispatch_imsg(&cctx, &retcode) != 0)
+			if (dispatch_imsg(&cctx, shellcmd, &retcode) != 0)
 				break;
 		}
 
@@ -584,11 +561,12 @@ main(int argc, char **argv)
 }
 
 int
-dispatch_imsg(struct client_ctx *cctx, int *retcode)
+dispatch_imsg(struct client_ctx *cctx, const char *shellcmd, int *retcode)
 {
 	struct imsg		imsg;
 	ssize_t			n, datalen;
 	struct msg_print_data	printdata;
+	struct msg_shell_data	shelldata;
 
         if ((n = imsg_read(&cctx->ibuf)) == -1 || n == 0)
 		fatalx("imsg_read failed");
@@ -632,10 +610,40 @@ dispatch_imsg(struct client_ctx *cctx, int *retcode)
 			    "server %u)", PROTOCOL_VERSION, imsg.hdr.peerid);
 			*retcode = 1;
 			return (-1);
+		case MSG_SHELL:
+			if (datalen != sizeof shelldata)
+				fatalx("bad MSG_SHELL size");
+			memcpy(&shelldata, imsg.data, sizeof shelldata);
+			shelldata.shell[(sizeof shelldata.shell) - 1] = '\0';
+			
+			shell_exec(shelldata.shell, shellcmd);
 		default:
 			fatalx("unexpected message");
 		}
 
 		imsg_free(&imsg);
 	}
+}
+
+__dead void
+shell_exec(const char *shell, const char *shellcmd)
+{
+	const char	*shellname, *ptr;
+	char		*argv0;
+
+	sigreset();
+				
+	ptr = strrchr(shell, '/');
+	if (ptr != NULL && *(ptr + 1) != '\0')
+		shellname = ptr + 1;
+	else
+		shellname = shell;
+	if (login_shell)
+		xasprintf(&argv0, "-%s", shellname);
+	else
+		xasprintf(&argv0, "%s", shellname);
+	setenv("SHELL", shell, 1);
+
+	execl(shell, argv0, "-c", shellcmd, (char *) NULL);
+	fatal("execl failed");
 }

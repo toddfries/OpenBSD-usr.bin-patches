@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.35 2009/09/12 13:09:43 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.43 2009/09/24 07:02:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -49,6 +49,7 @@ void		 server_create_client(int);
 int		 server_create_socket(void);
 int		 server_main(int);
 void		 server_shutdown(void);
+int		 server_should_shutdown(void);
 void		 server_child_signal(void);
 void		 server_fill_windows(struct pollfd **);
 void		 server_handle_windows(struct pollfd **);
@@ -66,7 +67,7 @@ void		 server_clean_dead(void);
 void		 server_lost_client(struct client *);
 void	 	 server_check_window(struct window *);
 void		 server_check_redraw(struct client *);
-void		 server_redraw_locked(struct client *);
+void		 server_set_title(struct client *);
 void		 server_check_timers(struct client *);
 void		 server_second_timers(void);
 int		 server_update_socket(void);
@@ -97,7 +98,7 @@ server_create_client(int fd)
 
 	c->session = NULL;
 	c->tty.sx = 80;
-	c->tty.sy = 25;
+	c->tty.sy = 24;
 	screen_init(&c->status, c->tty.sx, 1, 0);
 
 	c->message_string = NULL;
@@ -114,19 +115,6 @@ server_create_client(int fd)
 	}
 	ARRAY_ADD(&clients, c);
 	log_debug("new client %d", fd);
-}
-
-/* Find client index. */
-int
-server_client_index(struct client *c)
-{
-	u_int	i;
-
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		if (c == ARRAY_ITEM(&clients, i))
-			return (i);
-	}
-	return (-1);
 }
 
 /* Fork new server. */
@@ -172,8 +160,6 @@ server_start(char *path)
 	key_bindings_init();
 	utf8_build();
 
-	server_locked = 0;
-	server_password = NULL;
 	server_activity = time(NULL);
 
 	start_time = time(NULL);
@@ -259,7 +245,7 @@ server_main(int srv_fd)
 	struct window	*w;
 	struct pollfd	*pfds, *pfd;
 	int		 nfds, xtimeout;
-	u_int		 i, n;
+	u_int		 i;
 	time_t		 now, last;
 
 	siginit();
@@ -272,6 +258,10 @@ server_main(int srv_fd)
 		/* If sigterm, kill all windows and clients. */
 		if (sigterm)
 			server_shutdown();
+
+		/* Stop if no sessions or clients left. */
+		if (server_should_shutdown())
+			break;
 
 		/* Handle child exit. */
 		if (sigchld) {
@@ -352,22 +342,6 @@ server_main(int srv_fd)
 
 		/* Collect dead clients and sessions. */
 		server_clean_dead();
-		
-		/*
-		 * If we have no sessions and clients left, let's get out
-		 * of here...
-		 */
-		n = 0;
-		for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
-			if (ARRAY_ITEM(&sessions, i) != NULL)
-				n++;
-		}
-		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-			if (ARRAY_ITEM(&clients, i) != NULL)
-				n++;
-		}
-		if (n == 0)
-			break;
 	}
 	if (pfds != NULL)
 		xfree(pfds);
@@ -394,8 +368,6 @@ server_main(int srv_fd)
 
 	options_free(&global_s_options);
 	options_free(&global_w_options);
-	if (server_password != NULL)
-		xfree(server_password);
 
 	return (0);
 }
@@ -407,6 +379,16 @@ server_shutdown(void)
 	struct session	*s;
 	struct client	*c;
 	u_int		 i, j;
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		c = ARRAY_ITEM(&clients, i);
+		if (c != NULL) {
+			if (c->flags & (CLIENT_BAD|CLIENT_SUSPENDED))
+				server_lost_client(c);
+			else
+				server_write_client(c, MSG_SHUTDOWN, NULL, 0);
+		}
+	}
 
 	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
 		s = ARRAY_ITEM(&sessions, i);
@@ -420,16 +402,23 @@ server_shutdown(void)
 		if (s != NULL)
 			session_destroy(s);
 	}
+}
 
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c != NULL) {
-			if (c->flags & CLIENT_BAD)
-				server_lost_client(c);
-			else
-				server_write_client(c, MSG_SHUTDOWN, NULL, 0);
-		}
+/* Check if the server should be shutting down (no more clients or windows). */
+int
+server_should_shutdown(void)
+{
+	u_int	i;
+
+	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+		if (ARRAY_ITEM(&sessions, i) != NULL)
+			return (0);
 	}
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		if (ARRAY_ITEM(&clients, i) != NULL)
+			return (0);
+	}
+	return (1);
 }
 
 /* Handle SIGCHLD. */
@@ -447,7 +436,7 @@ server_child_signal(void)
 		case -1:
 			if (errno == ECHILD)
 				return;
-			fatal("waitpid");
+			fatal("waitpid failed");
 		case 0:
 			return;
 		}
@@ -529,7 +518,6 @@ server_check_redraw(struct client *c)
 {
 	struct session		*s;
 	struct window_pane	*wp;
-	char		 	 title[512];
 	int		 	 flags, redraw;
 
 	if (c == NULL || c->session == NULL)
@@ -539,19 +527,10 @@ server_check_redraw(struct client *c)
 	flags = c->tty.flags & TTY_FREEZE;
 	c->tty.flags &= ~TTY_FREEZE;
 
-	if (options_get_number(&s->options, "set-titles")) {
-		xsnprintf(title, sizeof title, "%s:%u:%s - \"%s\"",
-		    s->name, s->curw->idx, s->curw->window->name,
-		    s->curw->window->active->screen->title);
-		if (c->title == NULL || strcmp(title, c->title) != 0) {
-			if (c->title != NULL)
-				xfree(c->title);
-			c->title = xstrdup(title);
-			tty_set_title(&c->tty, c->title);
-		}
-	}
-
 	if (c->flags & (CLIENT_REDRAW|CLIENT_STATUS)) {
+		if (options_get_number(&s->options, "set-titles"))
+			server_set_title(c);
+	
 		if (c->message_string != NULL)
 			redraw = status_message_redraw(c);
 		else if (c->prompt_string != NULL)
@@ -563,10 +542,7 @@ server_check_redraw(struct client *c)
 	}
 
 	if (c->flags & CLIENT_REDRAW) {
-		if (server_locked)
-			server_redraw_locked(c);
-		else
- 			screen_redraw_screen(c, 0);
+		screen_redraw_screen(c, 0);
 		c->flags &= ~CLIENT_STATUS;
 	} else {
 		TAILQ_FOREACH(wp, &c->session->curw->window->panes, entry) {
@@ -583,47 +559,24 @@ server_check_redraw(struct client *c)
 	c->flags &= ~(CLIENT_REDRAW|CLIENT_STATUS);
 }
 
-/* Redraw client when locked. */
+/* Set client title. */
 void
-server_redraw_locked(struct client *c)
+server_set_title(struct client *c)
 {
-	struct screen_write_ctx	ctx;
-	struct screen		screen;
-	struct grid_cell	gc;
-	u_int			colour, xx, yy, i;
-	int    			style;
+	struct session	*s = c->session;
+	const char	*template;
+	char		*title;
 
-	xx = c->tty.sx;
-	yy = c->tty.sy - 1;
-	if (xx == 0 || yy == 0)
-		return;
-	colour = options_get_number(&global_w_options, "clock-mode-colour");
-	style = options_get_number(&global_w_options, "clock-mode-style");
-
-	memcpy(&gc, &grid_default_cell, sizeof gc);
-	colour_set_fg(&gc, colour);
-	gc.attr |= GRID_ATTR_BRIGHT;
-
-	screen_init(&screen, xx, yy, 0);
-
-	screen_write_start(&ctx, NULL, &screen);
-	clock_draw(&ctx, colour, style);
-
-	if (password_failures != 0) {
-		screen_write_cursormove(&ctx, 0, 0);
-		screen_write_puts(
-		    &ctx, &gc, "%u failed attempts", password_failures);
-		if (time(NULL) < password_backoff)
-			screen_write_puts(&ctx, &gc, "; sleeping");
+	template = options_get_string(&s->options, "set-titles-string");
+	
+	title = status_replace(c->session, template, time(NULL));
+	if (c->title == NULL || strcmp(title, c->title) != 0) {
+		if (c->title != NULL)
+			xfree(c->title);
+		c->title = xstrdup(title);
+		tty_set_title(&c->tty, c->title);
 	}
-
-	screen_write_stop(&ctx);
-
-	for (i = 0; i < screen_size_y(&screen); i++)
-		tty_draw_line(&c->tty, &screen, i, 0, 0);
-	screen_redraw_screen(c, 1);
-
-	screen_free(&screen);
+	xfree(title);
 }
 
 /* Check for timers on client. */
@@ -639,7 +592,7 @@ server_check_timers(struct client *c)
 	s = c->session;
 
 	if (gettimeofday(&tv, NULL) != 0)
-		fatal("gettimeofday");
+		fatal("gettimeofday failed");
 
 	if (c->flags & CLIENT_IDENTIFY && timercmp(&tv, &c->identify_timer, >))
 		server_clear_identify(c);
@@ -800,20 +753,21 @@ server_handle_client(struct client *c)
 	struct screen		*s;
 	struct timeval	 	 tv;
 	struct key_binding	*bd;
-	int		 	 key, prefix, status, xtimeout;
-	int			 mode;
+	struct keylist		*keylist;
+	int		 	 key, status, xtimeout, mode, isprefix;
+	u_int			 i;
 	u_char			 mouse[3];
 
 	xtimeout = options_get_number(&c->session->options, "repeat-time");
 	if (xtimeout != 0 && c->flags & CLIENT_REPEAT) {
 		if (gettimeofday(&tv, NULL) != 0)
-			fatal("gettimeofday");
+			fatal("gettimeofday failed");
 		if (timercmp(&tv, &c->repeat_timer, >))
 			c->flags &= ~(CLIENT_PREFIX|CLIENT_REPEAT);
 	}
 
 	/* Process keys. */
-	prefix = options_get_number(&c->session->options, "prefix");
+	keylist = options_get_data(&c->session->options, "prefix");
 	while (tty_keys_next(&c->tty, &key, mouse) == 0) {
 		server_activity = time(NULL);
 
@@ -837,8 +791,6 @@ server_handle_client(struct client *c)
 			status_prompt_key(c, key);
 			continue;
 		}
-		if (server_locked)
-			continue;
 
 		/* Check for mouse keys. */
 		if (key == KEYC_MOUSE) {
@@ -846,9 +798,18 @@ server_handle_client(struct client *c)
 			continue;
 		}
 
+		/* Is this a prefix key? */
+		isprefix = 0;
+		for (i = 0; i < ARRAY_LENGTH(keylist); i++) {
+			if (key == ARRAY_ITEM(keylist, i)) {
+				isprefix = 1;
+				break;
+			}
+		}
+
 		/* No previous prefix key. */
 		if (!(c->flags & CLIENT_PREFIX)) {
-			if (key == prefix)
+			if (isprefix)
 				c->flags |= CLIENT_PREFIX;
 			else {
 				/* Try as a non-prefix key binding. */
@@ -866,7 +827,7 @@ server_handle_client(struct client *c)
 			/* If repeating, treat this as a key, else ignore. */
 			if (c->flags & CLIENT_REPEAT) {
 				c->flags &= ~CLIENT_REPEAT;
-				if (key == prefix)
+				if (isprefix)
 					c->flags |= CLIENT_PREFIX;
 				else
 					window_pane_key(wp, c, key);
@@ -877,7 +838,7 @@ server_handle_client(struct client *c)
 		/* If already repeating, but this key can't repeat, skip it. */
 		if (c->flags & CLIENT_REPEAT && !bd->can_repeat) {
 			c->flags &= ~CLIENT_REPEAT;
-			if (key == prefix)
+			if (isprefix)
 				c->flags |= CLIENT_PREFIX;
 			else
 				window_pane_key(wp, c, key);
@@ -891,7 +852,7 @@ server_handle_client(struct client *c)
 			tv.tv_sec = xtimeout / 1000;
 			tv.tv_usec = (xtimeout % 1000) * 1000L;
 			if (gettimeofday(&c->repeat_timer, NULL) != 0)
-				fatal("gettimeofday");
+				fatal("gettimeofday failed");
 			timeradd(&c->repeat_timer, &tv, &c->repeat_timer);
 		}
 
@@ -921,8 +882,6 @@ server_handle_client(struct client *c)
 		tty_cursor(&c->tty, s->cx, s->cy, wp->xoff, wp->yoff);
 
 	mode = s->mode;
-	if (server_locked)
-		mode &= ~TTY_NOCURSOR;
 	tty_update_mode(&c->tty, mode);
 	tty_reset(&c->tty);
 }
@@ -1227,19 +1186,18 @@ void
 server_second_timers(void)
 {
 	struct window		*w;
-	struct client		*c;
 	struct window_pane	*wp;
 	u_int		 	 i;
 	int			 xtimeout;
-	struct tm	 	 now, then;
-	static time_t	 	 last_t = 0;
 	time_t		 	 t;
 
 	t = time(NULL);
 
 	xtimeout = options_get_number(&global_s_options, "lock-after-time");
-	if (xtimeout > 0 && t > server_activity + xtimeout)
+	if (xtimeout > 0 && t > server_activity + xtimeout) {
 		server_lock();
+		recalculate_sizes();
+	}
 
 	for (i = 0; i < ARRAY_LENGTH(&windows); i++) {
 		w = ARRAY_ITEM(&windows, i);
@@ -1249,29 +1207,6 @@ server_second_timers(void)
 		TAILQ_FOREACH(wp, &w->panes, entry) {
 			if (wp->mode != NULL && wp->mode->timer != NULL)
 				wp->mode->timer(wp);
-		}
-	}
-
-	if (password_backoff != 0 && t >= password_backoff) {
-		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-			if ((c = ARRAY_ITEM(&clients, i)) != NULL)
-				server_redraw_client(c);
-		}
-		password_backoff = 0;
-	}
-
-	/* Check for a minute having passed. */
-	gmtime_r(&t, &now);
-	gmtime_r(&last_t, &then);
-	if (now.tm_min == then.tm_min)
-		return;
-	last_t = t;
-
-	/* If locked, redraw all clients. */
-	if (server_locked) {
-		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-			if ((c = ARRAY_ITEM(&clients, i)) != NULL)
-				server_redraw_client(c);
 		}
 	}
 }

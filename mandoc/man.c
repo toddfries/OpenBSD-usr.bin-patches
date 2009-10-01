@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.10 2009/08/22 23:17:39 schwarze Exp $ */
+/*	$Id: man.c,v 1.13 2009/09/21 21:11:37 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -54,7 +54,7 @@ const	char *const __man_macronames[MAN_MAX] = {
 	"R",		"B",		"I",		"IR",
 	"RI",		"na",		"i",		"sp",
 	"nf",		"fi",		"r",		"RE",
-	"RS",		"DT"
+	"RS",		"DT",		"UC"
 	};
 
 const	char * const *man_macronames = __man_macronames;
@@ -101,9 +101,6 @@ man_free(struct man *man)
 {
 
 	man_free1(man);
-
-	if (man->htab)
-		man_hash_free(man->htab);
 	free(man);
 }
 
@@ -121,14 +118,11 @@ man_alloc(void *data, int pflags, const struct man_cb *cb)
 		return(NULL);
 	}
 
+	man_hash_init();
+
 	p->data = data;
 	p->pflags = pflags;
 	(void)memcpy(&p->cb, cb, sizeof(struct man_cb));
-
-	if (NULL == (p->htab = man_hash_alloc())) {
-		free(p);
-		return(NULL);
-	}
 	return(p);
 }
 
@@ -489,6 +483,12 @@ man_pmacro(struct man *m, int ln, char *buf)
 			break;
 		else if (' ' == buf[i])
 			break;
+
+		/* Check for invalid characters. */
+
+		if (isgraph((u_char)buf[i]))
+			continue;
+		return(man_perr(m, ln, i, WNPRINT));
 	}
 
 	mac[j] = 0;
@@ -503,7 +503,7 @@ man_pmacro(struct man *m, int ln, char *buf)
 		return(1);
 	}
 	
-	if (MAN_MAX == (c = man_hash_find(m->htab, mac))) {
+	if (MAN_MAX == (c = man_hash_find(mac))) {
 		if ( ! (MAN_IGN_MACRO & m->pflags)) {
 			(void)man_perr(m, ln, ppos, WMACRO);
 			goto err;

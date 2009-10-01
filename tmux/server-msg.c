@@ -1,4 +1,4 @@
-/* $OpenBSD: server-msg.c,v 1.16 2009/09/02 16:38:35 nicm Exp $ */
+/* $OpenBSD: server-msg.c,v 1.22 2009/09/24 07:02:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,8 +17,10 @@
  */
 
 #include <sys/types.h>
+#include <sys/ioctl.h>
 
 #include <errno.h>
+#include <paths.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -28,7 +30,7 @@
 
 void	server_msg_command(struct client *, struct msg_command_data *);
 void	server_msg_identify(struct client *, struct msg_identify_data *, int);
-void	server_msg_resize(struct client *, struct msg_resize_data *);
+void	server_msg_shell(struct client *);
 
 void printflike2 server_msg_command_error(struct cmd_ctx *, const char *, ...);
 void printflike2 server_msg_command_print(struct cmd_ctx *, const char *, ...);
@@ -40,8 +42,6 @@ server_msg_dispatch(struct client *c)
 	struct imsg		 imsg;
 	struct msg_command_data	 commanddata;
 	struct msg_identify_data identifydata;
-	struct msg_resize_data	 resizedata;
-	struct msg_unlock_data	 unlockdata;
 	struct msg_environ_data	 environdata;
 	ssize_t			 n, datalen;
 
@@ -74,16 +74,19 @@ server_msg_dispatch(struct client *c)
 		case MSG_IDENTIFY:
 			if (datalen != sizeof identifydata)
 				fatalx("bad MSG_IDENTIFY size");
+			if (imsg.fd == -1)
+				fatalx("MSG_IDENTIFY missing fd");
 			memcpy(&identifydata, imsg.data, sizeof identifydata);
 
 			server_msg_identify(c, &identifydata, imsg.fd);
 			break;
 		case MSG_RESIZE:
-			if (datalen != sizeof resizedata)
+			if (datalen != 0)
 				fatalx("bad MSG_RESIZE size");
-			memcpy(&resizedata, imsg.data, sizeof resizedata);
 
-			server_msg_resize(c, &resizedata);
+			tty_resize(&c->tty);
+			recalculate_sizes();
+			server_redraw_client(c);
 			break;
 		case MSG_EXITING:
 			if (datalen != 0)
@@ -93,31 +96,16 @@ server_msg_dispatch(struct client *c)
 			tty_close(&c->tty);
 			server_write_client(c, MSG_EXITED, NULL, 0);
 			break;
-		case MSG_UNLOCK:
-			if (datalen != sizeof unlockdata)
-				fatalx("bad MSG_UNLOCK size");
-			memcpy(&unlockdata, imsg.data, sizeof unlockdata);
-
-			unlockdata.pass[(sizeof unlockdata.pass) - 1] = '\0';
-			switch (server_unlock(unlockdata.pass)) {
-			case -1:
-				server_write_error(c, "bad password");
-				break;
-			case -2:
-				server_write_error(c,
-				    "too many bad passwords, sleeping");
-				break;
-			}
-			memset(&unlockdata, 0, sizeof unlockdata);
-			server_write_client(c, MSG_EXIT, NULL, 0);
-			break;
 		case MSG_WAKEUP:
+		case MSG_UNLOCK:
 			if (datalen != 0)
 				fatalx("bad MSG_WAKEUP size");
 
 			c->flags &= ~CLIENT_SUSPENDED;
 			tty_start_tty(&c->tty);
 			server_redraw_client(c);
+			recalculate_sizes();
+			server_activity = time(NULL);
 			break;
 		case MSG_ENVIRON:
 			if (datalen != sizeof environdata)
@@ -127,6 +115,12 @@ server_msg_dispatch(struct client *c)
 			environdata.var[(sizeof environdata.var) - 1] = '\0';
 			if (strchr(environdata.var, '=') != NULL)
 				environ_put(&c->environ, environdata.var);
+			break;
+		case MSG_SHELL:
+			if (datalen != 0)
+				fatalx("bad MSG_SHELL size");
+
+			server_msg_shell(c);
 			break;
 		default:
 			fatalx("unexpected message");
@@ -243,21 +237,13 @@ error:
 void
 server_msg_identify(struct client *c, struct msg_identify_data *data, int fd)
 {
-	c->tty.sx = data->sx;
-	if (c->tty.sx == 0)
-		c->tty.sx = 80;
-	c->tty.sy = data->sy;
-	if (c->tty.sy == 0)
-		c->tty.sy = 25;
-
 	c->cwd = NULL;
 	data->cwd[(sizeof data->cwd) - 1] = '\0';
 	if (*data->cwd != '\0')
 		c->cwd = xstrdup(data->cwd);
 
-	data->tty[(sizeof data->tty) - 1] = '\0';
 	data->term[(sizeof data->term) - 1] = '\0';
-	tty_init(&c->tty, fd, data->tty, data->term);
+	tty_init(&c->tty, fd, data->term);
 	if (data->flags & IDENTIFY_UTF8)
 		c->tty.flags |= TTY_UTF8;
 	if (data->flags & IDENTIFY_256COLOURS)
@@ -267,26 +253,24 @@ server_msg_identify(struct client *c, struct msg_identify_data *data, int fd)
 	if (data->flags & IDENTIFY_HASDEFAULTS)
 		c->tty.term_flags |= TERM_HASDEFAULTS;
 
+	tty_resize(&c->tty);
+
 	c->flags |= CLIENT_TERMINAL;
 }
 
 void
-server_msg_resize(struct client *c, struct msg_resize_data *data)
+server_msg_shell(struct client *c)
 {
-	c->tty.sx = data->sx;
-	if (c->tty.sx == 0)
-		c->tty.sx = 80;
-	c->tty.sy = data->sy;
-	if (c->tty.sy == 0)
-		c->tty.sy = 25;
+	struct msg_shell_data	 data;
+	const char		*shell;
+	
+	shell = options_get_string(&global_s_options, "default-shell");
 
-	c->tty.cx = UINT_MAX;
-	c->tty.cy = UINT_MAX;
-	c->tty.rupper = UINT_MAX;
-	c->tty.rlower = UINT_MAX;
-
-	recalculate_sizes();
-
-	/* Always redraw this client. */
-	server_redraw_client(c);
+	if (*shell == '\0' || areshell(shell))
+		shell = _PATH_BSHELL;
+	if (strlcpy(data.shell, shell, sizeof data.shell) >= sizeof data.shell)
+		strlcpy(data.shell, _PATH_BSHELL, sizeof data.shell);
+	
+	server_write_client(c, MSG_SHELL, &data, sizeof data);
+	c->flags |= CLIENT_BAD;	/* it will die after exec */
 }

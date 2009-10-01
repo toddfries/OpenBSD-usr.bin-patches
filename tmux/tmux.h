@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.103 2009/09/12 13:01:19 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.118 2009/09/24 14:17:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -19,7 +19,7 @@
 #ifndef TMUX_H
 #define TMUX_H
 
-#define PROTOCOL_VERSION 1
+#define PROTOCOL_VERSION 5
 
 #include <sys/param.h>
 #include <sys/time.h>
@@ -130,6 +130,7 @@ enum key_code {
 
 	/* Function keys. */
 	KEYC_F1,
+
 	KEYC_F2,
 	KEYC_F3,
 	KEYC_F4,
@@ -304,10 +305,12 @@ enum msgtype {
 	MSG_RESIZE,
 	MSG_SHUTDOWN,
 	MSG_SUSPEND,
-	MSG_UNLOCK,
 	MSG_VERSION,
 	MSG_WAKEUP,
-	MSG_ENVIRON
+	MSG_ENVIRON,
+	MSG_UNLOCK,
+	MSG_LOCK,
+	MSG_SHELL
 };
 
 /*
@@ -328,8 +331,6 @@ struct msg_command_data {
 };
 
 struct msg_identify_data {
-	char		tty[TTY_NAME_MAX];
-
 	char		cwd[MAXPATHLEN];
 
 	char		term[TERMINAL_LENGTH];
@@ -339,22 +340,18 @@ struct msg_identify_data {
 #define IDENTIFY_88COLOURS 0x4
 #define IDENTIFY_HASDEFAULTS 0x8
 	int		flags;
-
-	u_int		sx;
-	u_int		sy;
 };
 
-struct msg_resize_data {
-	u_int		sx;
-	u_int		sy;
-};
-
-struct msg_unlock_data {
-	char	       	pass[PASS_MAX];
+struct msg_lock_data {
+	char	       	cmd[COMMAND_LENGTH];
 };
 
 struct msg_environ_data {
 	char	     	var[ENVIRON_LENGTH];
+};
+
+struct msg_shell_data {
+	char	       	shell[MAXPATHLEN];
 };
 
 /* Mode key commands. */
@@ -544,13 +541,14 @@ struct options_entry {
 	enum {
 		OPTIONS_STRING,
 		OPTIONS_NUMBER,
-		OPTIONS_KEY,
+		OPTIONS_DATA,
 	} type;
-	union {
-		char	*string;
-		long long number;
-		int	 key;
-	} value;
+
+	char		*str;
+	long long	 num;
+	void		*data;
+
+	void		 (*freefn)(void *);
 
 	SPLAY_ENTRY(options_entry) entry;
 };
@@ -559,6 +557,9 @@ struct options {
 	SPLAY_HEAD(options_tree, options_entry) tree;
 	struct options	*parent;
 };
+
+/* Key list for prefix option. */
+ARRAY_DECL(keylist, int);
 
 /* Screen selection. */
 struct screen_sel {
@@ -815,7 +816,7 @@ struct session {
 #define SESSION_DEAD 0x2
 	int		 flags;
 
-	struct termios   tio;
+	struct termios	*tio;
 
 	struct environ	 environ;
 
@@ -957,8 +958,7 @@ struct client {
 	void		 (*prompt_freefn)(void *);
 	void		*prompt_data;
 
-#define PROMPT_HIDDEN 0x1
-#define PROMPT_SINGLE 0x2
+#define PROMPT_SINGLE 0x1
 	int		 prompt_flags;
 
 	u_int		 prompt_hindex;
@@ -1088,7 +1088,7 @@ struct set_option_entry {
 	enum {
 		SET_OPTION_STRING,
 		SET_OPTION_NUMBER,
-		SET_OPTION_KEY,
+		SET_OPTION_KEYS,
 		SET_OPTION_COLOUR,
 		SET_OPTION_ATTRIBUTES,
 		SET_OPTION_FLAG,
@@ -1114,11 +1114,6 @@ extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
 extern char	*cfg_file;
-extern int	 server_locked;
-extern struct passwd *server_locked_pw;
-extern u_int	 password_failures;
-extern time_t	 password_backoff;
-extern char	*server_password;
 extern time_t	 server_activity;
 extern int	 debug_level;
 extern int	 be_quiet;
@@ -1162,11 +1157,15 @@ void	options_free(struct options *);
 struct options_entry *options_find1(struct options *, const char *);
 struct options_entry *options_find(struct options *, const char *);
 void	options_remove(struct options *, const char *);
-void printflike3 options_set_string(
+struct options_entry *printflike3 options_set_string(
     	    struct options *, const char *, const char *, ...);
 char   *options_get_string(struct options *, const char *);
-void	options_set_number(struct options *, const char *, long long);
+struct options_entry *options_set_number(
+    	    struct options *, const char *, long long);
 long long options_get_number(struct options *, const char *);
+struct options_entry *options_set_data(
+    	    struct options *, const char *, void *, void (*)(void *));
+void   *options_get_data(struct options *, const char *);
 
 /* environ.c */
 int	environ_cmp(struct environ_entry *, struct environ_entry *);
@@ -1181,6 +1180,7 @@ void	environ_unset(struct environ *, const char *);
 void 	environ_update(const char *, struct environ *, struct environ *);
 
 /* tty.c */
+void	tty_raw(struct tty *, const char *);
 u_char	tty_get_acs(struct tty *, u_char);
 void	tty_attributes(struct tty *, const struct grid_cell *);
 void	tty_reset(struct tty *);
@@ -1192,7 +1192,8 @@ void	tty_putcode2(struct tty *, enum tty_code_code, int, int);
 void	tty_puts(struct tty *, const char *);
 void	tty_putc(struct tty *, u_char);
 void	tty_pututf8(struct tty *, const struct grid_utf8 *);
-void	tty_init(struct tty *, int, char *, char *);
+void	tty_init(struct tty *, int, char *);
+void	tty_resize(struct tty *);
 void	tty_start_tty(struct tty *);
 void	tty_stop_tty(struct tty *);
 void	tty_detect_utf8(struct tty *);
@@ -1241,11 +1242,13 @@ void	tty_keys_free(struct tty *);
 int	tty_keys_next(struct tty *, int *, u_char *);
 
 /* options-cmd.c */
+const char *set_option_print(
+    	    const struct set_option_entry *, struct options_entry *);
 void	set_option_string(struct cmd_ctx *,
 	    struct options *, const struct set_option_entry *, char *, int);
 void	set_option_number(struct cmd_ctx *,
     	    struct options *, const struct set_option_entry *, char *);
-void	set_option_key(struct cmd_ctx *,
+void	set_option_keys(struct cmd_ctx *,
     	    struct options *, const struct set_option_entry *, char *);
 void	set_option_colour(struct cmd_ctx *,
     	    struct options *, const struct set_option_entry *, char *);
@@ -1323,7 +1326,9 @@ extern const struct cmd_entry cmd_list_keys_entry;
 extern const struct cmd_entry cmd_list_sessions_entry;
 extern const struct cmd_entry cmd_list_windows_entry;
 extern const struct cmd_entry cmd_load_buffer_entry;
+extern const struct cmd_entry cmd_lock_client_entry;
 extern const struct cmd_entry cmd_lock_server_entry;
+extern const struct cmd_entry cmd_lock_session_entry;
 extern const struct cmd_entry cmd_move_window_entry;
 extern const struct cmd_entry cmd_new_session_entry;
 extern const struct cmd_entry cmd_new_window_entry;
@@ -1338,6 +1343,7 @@ extern const struct cmd_entry cmd_rename_window_entry;
 extern const struct cmd_entry cmd_resize_pane_entry;
 extern const struct cmd_entry cmd_respawn_window_entry;
 extern const struct cmd_entry cmd_rotate_window_entry;
+extern const struct cmd_entry cmd_run_shell_entry;
 extern const struct cmd_entry cmd_save_buffer_entry;
 extern const struct cmd_entry cmd_scroll_mode_entry;
 extern const struct cmd_entry cmd_select_layout_entry;
@@ -1350,7 +1356,6 @@ extern const struct cmd_entry cmd_server_info_entry;
 extern const struct cmd_entry cmd_set_buffer_entry;
 extern const struct cmd_entry cmd_set_environment_entry;
 extern const struct cmd_entry cmd_set_option_entry;
-extern const struct cmd_entry cmd_set_password_entry;
 extern const struct cmd_entry cmd_set_window_option_entry;
 extern const struct cmd_entry cmd_show_buffer_entry;
 extern const struct cmd_entry cmd_show_environment_entry;
@@ -1435,7 +1440,6 @@ const char *key_string_lookup_key(int);
 /* server.c */
 extern struct clients clients;
 extern struct clients dead_clients;
-int	 server_client_index(struct client *);
 int	 server_start(char *);
 
 /* server-msg.c */
@@ -1455,8 +1459,13 @@ void	 server_status_session(struct session *);
 void	 server_redraw_window(struct window *);
 void	 server_status_window(struct window *);
 void	 server_lock(void);
+void	 server_lock_session(struct session *);
+void	 server_lock_client(struct client *);
 int	 server_unlock(const char *);
 void	 server_kill_window(struct window *);
+int	 server_link_window(
+	     struct winlink *, struct session *, int, int, int, char **);
+void	 server_unlink_window(struct session *, struct winlink *);
 void	 server_destroy_session(struct session *);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);

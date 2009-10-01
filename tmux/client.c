@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.17 2009/09/02 23:49:25 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.22 2009/09/23 12:03:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -34,7 +34,6 @@
 #include "tmux.h"
 
 void	client_send_environ(struct client_ctx *);
-void	client_handle_winch(struct client_ctx *);
 
 int
 client_init(char *path, struct client_ctx *cctx, int cmdflags, int flags)
@@ -45,7 +44,7 @@ client_init(char *path, struct client_ctx *cctx, int cmdflags, int flags)
 	struct winsize			ws;
 	size_t				size;
 	int				fd, fd2, mode;
-	char			       *name, *term;
+	char			       *term;
 	char		 		rpathbuf[MAXPATHLEN];
 
 	if (realpath(path, rpathbuf) == NULL)
@@ -74,7 +73,7 @@ client_init(char *path, struct client_ctx *cctx, int cmdflags, int flags)
 	}
 
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-		fatal("socket");
+		fatal("socket failed");
 
 	if (connect(fd, (struct sockaddr *) &sa, SUN_LEN(&sa)) == -1) {
 		if (errno == ECONNREFUSED) {
@@ -92,6 +91,8 @@ server_started:
 		fatal("fcntl failed");
 	if (fcntl(fd, F_SETFL, mode|O_NONBLOCK) == -1)
 		fatal("fcntl failed");
+	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
+		fatal("fcntl failed");
 	imsg_init(&cctx->ibuf, fd);
 
 	if (cmdflags & CMD_SENDENVIRON)
@@ -100,8 +101,6 @@ server_started:
 		if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1)
 			fatal("ioctl(TIOCGWINSZ)");
 		data.flags = flags;
-		data.sx = ws.ws_col;
-		data.sy = ws.ws_row;
 
 		if (getcwd(data.cwd, sizeof data.cwd) == NULL)
 			*data.cwd = '\0';
@@ -113,13 +112,8 @@ server_started:
 				*data.term = '\0';
 		}
 
-		*data.tty = '\0';
-		if ((name = ttyname(STDIN_FILENO)) == NULL)
-			fatal("ttyname failed");
-		if (strlcpy(data.tty, name, sizeof data.tty) >= sizeof data.tty)
-			fatalx("ttyname failed");
-
-		fd2 = dup(STDIN_FILENO);
+		if ((fd2 = dup(STDIN_FILENO)) == -1)
+			fatal("dup failed");
 		imsg_compose(&cctx->ibuf, MSG_IDENTIFY,
 		    PROTOCOL_VERSION, -1, fd2, &data, sizeof data);
 	}
@@ -174,8 +168,10 @@ client_main(struct client_ctx *cctx)
 			waitpid(WAIT_ANY, NULL, WNOHANG);
 			sigchld = 0;
 		}
-		if (sigwinch)
-			client_handle_winch(cctx);
+		if (sigwinch) {
+			client_write_server(cctx, MSG_RESIZE, NULL, 0);
+ 			sigwinch = 0;
+		}
 		if (sigcont) {
 			siginit();
 			client_write_server(cctx, MSG_WAKEUP, NULL, 0);
@@ -243,27 +239,12 @@ out:
 	}
 }
 
-void
-client_handle_winch(struct client_ctx *cctx)
-{
-	struct msg_resize_data	data;
-	struct winsize		ws;
-
-	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1)
-		fatal("ioctl failed");
-
-	data.sx = ws.ws_col;
-	data.sy = ws.ws_row;
-	client_write_server(cctx, MSG_RESIZE, &data, sizeof data);
-
-	sigwinch = 0;
-}
-
 int
 client_msg_dispatch(struct client_ctx *cctx)
 {
 	struct imsg		 imsg;
 	struct msg_print_data	 printdata;
+	struct msg_lock_data	 lockdata;
 	ssize_t			 n, datalen;
 
 	for (;;) {
@@ -316,6 +297,15 @@ client_msg_dispatch(struct client_ctx *cctx)
 				fatalx("bad MSG_SUSPEND size");
 
 			client_suspend();
+			break;
+		case MSG_LOCK:
+			if (datalen != sizeof lockdata)
+				fatalx("bad MSG_LOCK size");
+			memcpy(&lockdata, imsg.data, sizeof lockdata);
+			
+			lockdata.cmd[(sizeof lockdata.cmd) - 1] = '\0';
+			system(lockdata.cmd);
+			client_write_server(cctx, MSG_UNLOCK, NULL, 0);
 			break;
 		default:
 			fatalx("unexpected message");

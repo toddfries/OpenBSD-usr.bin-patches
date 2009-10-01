@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.24 2009/09/01 14:40:33 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.26 2009/09/20 14:58:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -454,6 +454,7 @@ window_pane_spawn(struct window_pane *wp, const char *cmd, const char *shell,
 	struct environ_entry	*envent;
 	const char		*ptr;
 	struct timeval	 	 tv;
+	struct termios		 tio2;
 	u_int		 	 i;
 
 	if (wp->fd != -1)
@@ -479,12 +480,12 @@ window_pane_spawn(struct window_pane *wp, const char *cmd, const char *shell,
 	ws.ws_row = screen_size_y(&wp->base);
 
 	if (gettimeofday(&wp->window->name_timer, NULL) != 0)
-		fatal("gettimeofday");
+		fatal("gettimeofday failed");
 	tv.tv_sec = 0;
 	tv.tv_usec = NAME_INTERVAL * 1000L;
 	timeradd(&wp->window->name_timer, &tv, &wp->window->name_timer);
 
- 	switch (wp->pid = forkpty(&wp->fd, wp->tty, tio, &ws)) {
+ 	switch (wp->pid = forkpty(&wp->fd, wp->tty, NULL, &ws)) {
 	case -1:
 		wp->fd = -1;
 		xasprintf(cause, "%s: %s", cmd, strerror(errno));
@@ -492,6 +493,14 @@ window_pane_spawn(struct window_pane *wp, const char *cmd, const char *shell,
 	case 0:
 		if (chdir(wp->cwd) != 0)
 			chdir("/");
+
+		if (tcgetattr(STDIN_FILENO, &tio2) != 0)
+			fatal("tcgetattr failed");
+		if (tio != NULL)
+			memcpy(tio2.c_cc, tio->c_cc, sizeof tio2.c_cc);
+		tio2.c_cc[VERASE] = '\177';
+		if (tcsetattr(STDIN_FILENO, TCSANOW, &tio2) != 0)
+			fatal("tcgetattr failed");
 
 		ARRAY_INIT(&varlist);
 		for (varp = environ; *varp != NULL; varp++) {

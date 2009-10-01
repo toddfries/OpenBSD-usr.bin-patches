@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-kill-pane.c,v 1.7 2009/09/20 17:27:18 nicm Exp $ */
+/* $OpenBSD: cmd-lock-session.c,v 1.1 2009/09/24 14:17:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,46 +18,36 @@
 
 #include <sys/types.h>
 
-#include <stdlib.h>
-
 #include "tmux.h"
 
 /*
- * Kill pane.
+ * Lock all clients attached to a session.
  */
 
-int	cmd_kill_pane_exec(struct cmd *, struct cmd_ctx *);
+int	cmd_lock_session_exec(struct cmd *, struct cmd_ctx *);
 
-const struct cmd_entry cmd_kill_pane_entry = {
-	"kill-pane", "killp",
-	CMD_TARGET_PANE_USAGE,
+const struct cmd_entry cmd_lock_session_entry = {
+	"lock-session", "locks",
+	CMD_TARGET_SESSION_USAGE,
 	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
-	cmd_kill_pane_exec,
+	cmd_lock_session_exec,
 	cmd_target_free,
 	cmd_target_print
 };
 
 int
-cmd_kill_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
+cmd_lock_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
-	struct winlink		*wl;
-	struct window_pane	*wp;
+	struct session		*s;
 
-	if ((wl = cmd_find_pane(ctx, data->target, NULL, &wp)) == NULL)
+	if ((s = cmd_find_session(ctx, data->target)) == NULL)
 		return (-1);
 
-	if (window_count_panes(wl->window) == 1) {
-		/* Only one pane, kill the window. */
-		server_kill_window(wl->window);
-		recalculate_sizes();
-		return (0);
-	}
+	server_lock_session(s);
+	recalculate_sizes();
 
-	layout_close_pane(wp);
-	window_remove_pane(wl->window, wp);
-	server_redraw_window(wl->window);
 	return (0);
 }

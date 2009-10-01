@@ -1,4 +1,4 @@
-/*	$Id: term.c,v 1.11 2009/08/22 17:04:48 schwarze Exp $ */
+/*	$Id: term.c,v 1.13 2009/09/21 20:57:57 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -24,9 +24,9 @@
 #include "man.h"
 #include "mdoc.h"
 
-extern	int		  man_run(struct termp *, 
+extern	void		  man_run(struct termp *, 
 				const struct man *);
-extern	int		  mdoc_run(struct termp *, 
+extern	void		  mdoc_run(struct termp *, 
 				const struct mdoc *);
 
 static	struct termp	 *term_alloc(enum termenc);
@@ -51,7 +51,7 @@ ascii_alloc(void)
 }
 
 
-int
+void
 terminal_man(void *arg, const struct man *man)
 {
 	struct termp	*p;
@@ -60,11 +60,11 @@ terminal_man(void *arg, const struct man *man)
 	if (NULL == p->symtab)
 		p->symtab = term_ascii2htab();
 
-	return(man_run(p, man));
+	man_run(p, man);
 }
 
 
-int
+void
 terminal_mdoc(void *arg, const struct mdoc *mdoc)
 {
 	struct termp	*p;
@@ -73,7 +73,7 @@ terminal_mdoc(void *arg, const struct mdoc *mdoc)
 	if (NULL == p->symtab)
 		p->symtab = term_ascii2htab();
 
-	return(mdoc_run(p, mdoc));
+	mdoc_run(p, mdoc);
 }
 
 
@@ -492,15 +492,15 @@ do_escaped(struct termp *p, const char **word)
 
 		switch (*wp) {
 		case ('B'):
-			p->flags |= TERMP_BOLD;
+			p->bold++;
 			break;
 		case ('I'):
-			p->flags |= TERMP_UNDER;
+			p->under++;
 			break;
 		case ('P'):
 			/* FALLTHROUGH */
 		case ('R'):
-			p->flags &= ~TERMP_STYLE;
+			p->bold = p->under = 0;
 			break;
 		default:
 			break;
@@ -590,12 +590,12 @@ static void
 encode(struct termp *p, char c)
 {
 	
-	if (' ' != c && TERMP_STYLE & p->flags) {
-		if (TERMP_BOLD & p->flags) {
+	if (' ' != c) {
+		if (p->bold) {
 			buffer(p, c);
 			buffer(p, 8);
 		}
-		if (TERMP_UNDER & p->flags) {
+		if (p->under) {
 			buffer(p, '_');
 			buffer(p, 8);
 		}

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.85 2009/09/10 17:16:24 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.92 2009/09/24 14:17:09 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 10 2009 $
+.Dd $Mdocdate: September 24 2009 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -23,7 +23,8 @@
 .Sh SYNOPSIS
 .Nm tmux
 .Bk -words
-.Op Fl 28dlqUuv
+.Op Fl 28dlquv
+.Op Fl c Ar shell-command
 .Op Fl f Ar file
 .Op Fl L Ar socket-name
 .Op Fl S Ar socket-path
@@ -101,6 +102,15 @@ to assume the terminal supports 256 colours.
 Like
 .Fl 2 ,
 but indicates that the terminal supports 88 colours.
+.It Fl c Ar shell-command
+Execute
+.Ar shell-command
+using the default shell.
+If necessary, the
+.Nm
+server will be started to retrieve the
+.Ic default-shell
+option.
 .It Fl d
 Force
 .Nm
@@ -154,8 +164,6 @@ If
 is specified, the default socket directory is not used and any
 .Fl L
 flag is ignored.
-.It Fl U
-Unlock the server.
 .It Fl u
 .Nm
 attempts to guess if the terminal is likely to support UTF-8 by checking the
@@ -337,8 +345,6 @@ rename-session -tfirst newname
 set-window-option -t:0 monitor-activity on
 
 new-window ; split-window -d
-
-bind-key D detach-client \e\; lock-server
 .Ed
 .Sh CLIENTS AND SESSIONS
 The following commands are available:
@@ -386,6 +392,19 @@ List the syntax of all commands supported by
 .It Ic list-sessions
 .D1 (alias: Ic ls )
 List all sessions managed by the server.
+.It Xo Ic lock-client
+.Op Fl t Ar target-client
+.Xc
+Lock
+.Ar target-client ,
+see the
+.Ic lock-server
+command.
+.It Xo Ic lock-session
+.Op Fl t Ar target-session
+.Xc
+Lock all clients attached to
+.Ar target-session .
 .It Xo Ic new-session
 .Op Fl d
 .Op Fl n Ar window-name
@@ -1048,6 +1067,7 @@ characters.
 All arguments are sent sequentially from first to last.
 .It Ic send-prefix Op Fl t Ar target-pane
 Send the prefix key to a window as if it was pressed.
+If multiple prefix keys are configured, only the first is sent.
 .It Xo Ic unbind-key
 .Op Fl cn
 .Op Fl t Ar key-table
@@ -1212,17 +1232,20 @@ Set the maximum number of lines held in window history.
 This setting applies only to new windows - existing window histories are not
 resized and retain the limit at the point they were created.
 .It Ic lock-after-time Ar number
-Lock the server after
+Lock the server (like the
+.Ic lock-server
+command) after
 .Ar number
 seconds of inactivity.
 The default is off (set to 0).
 This has no effect as a session option; it must be set as a global option using
 .Fl g .
-When passwords are entered incorrectly,
-.Nm
-follows the behaviour of
-.Xr login 1
-and ignores further password attempts for an increasing timeout.
+.It Ic lock-command Ar command
+Command to run when locking each client.
+The default is to run
+.Xr lock 1
+with
+.Fl np .
 .It Ic message-attr Ar attributes
 Set status line message attributes, where
 .Ar attributes
@@ -1258,8 +1281,11 @@ from the 256-colour palette, or
 .Ic default .
 .It Ic message-fg Ar colour
 Set status line message foreground colour.
-.It Ic prefix Ar key
-Set the current prefix key.
+.It Ic prefix Ar keys
+Set the keys accepted as a prefix key.
+.Ar keys
+is a comma-separated list of key names, each of which individually behave as
+the prefix key.
 .It Ic repeat-time Ar time
 Allow multiple commands to be entered without pressing the prefix-key again
 in the specified
@@ -1287,6 +1313,13 @@ This option is off by default.
 Note that elinks
 will only attempt to set the window title if the STY environment
 variable is set.
+.It Ic set-titles-string Ar string
+String used to set the window title if
+.Ic set-titles
+is on.
+Character sequences are replaced as for the
+.Ic status-left
+option.
 .It Xo Ic status
 .Op Ic on | off
 .Xc
@@ -1951,25 +1984,21 @@ if
 returns success.
 .It Ic lock-server
 .D1 (alias: Ic lock )
-Lock the server until a password is entered.
+Lock each client individually by running the command specified by the
+.Ic lock-command
+option.
+.It Ic run-shell Ar command
+.D1 (alias: Ic run )
+Execute
+.Ar command
+without creating a window.
+Any output to stdout is displayed in output mode.
+If
+.Ar command
+doesn't return success, the exit status is also displayed.
 .It Ic server-info
 .D1 (alias: Ic info )
 Show server information and terminal details.
-.It Xo Ic set-password
-.Op Fl c
-.Ar password
-.Xc
-.D1 (alias: Ic pass )
-Set the server password.
-If the
-.Fl c
-option is given, a pre-encrypted password may be specified.
-By default, the password is blank, thus any entered password will be accepted
-when unlocking the server (see the
-.Ic lock-server
-command).
-To prevent variable expansion when an encrypted password is read from a
-configuration file, enclose it in single quotes (').
 .El
 .Sh FILES
 .Bl -tag -width "/etc/tmux.confXXX" -compact

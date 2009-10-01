@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.11 2009/09/01 13:09:49 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.13 2009/09/21 15:32:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -84,7 +84,7 @@ cmd_split_window_parse(struct cmd *self, int argc, char **argv, char **cause)
 	int				 opt;
 	const char			*errstr;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
 	while ((opt = getopt(argc, argv, "dhl:p:t:v")) != -1) {
@@ -190,7 +190,7 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		shell = _PATH_BSHELL;
 
 	wp = window_add_pane(w, hlimit);
-	if (window_pane_spawn(wp, cmd, shell, cwd, &env, &s->tio, &cause) != 0)
+	if (window_pane_spawn(wp, cmd, shell, cwd, &env, s->tio, &cause) != 0)
 		goto error;
 	if (layout_split_pane(w->active, type, size, wp) != 0) {
 		cause = xstrdup("pane too small");

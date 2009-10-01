@@ -1,4 +1,4 @@
-/*	$Id: mdoc.c,v 1.25 2009/08/22 21:55:06 schwarze Exp $ */
+/*	$Id: mdoc.c,v 1.27 2009/09/21 21:11:37 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -226,8 +226,6 @@ mdoc_free(struct mdoc *mdoc)
 {
 
 	mdoc_free1(mdoc);
-	if (mdoc->htab)
-		mdoc_hash_free(mdoc->htab);
 	free(mdoc);
 }
 
@@ -245,13 +243,12 @@ mdoc_alloc(void *data, int pflags, const struct mdoc_cb *cb)
 	if (cb)
 		(void)memcpy(&p->cb, cb, sizeof(struct mdoc_cb));
 
+	mdoc_hash_init();
+
 	p->data = data;
 	p->pflags = pflags;
 
-	if (NULL == (p->htab = mdoc_hash_alloc())) {
-		free(p);
-		return(NULL);
-	} else if (mdoc_alloc1(p))
+	if (mdoc_alloc1(p))
 		return(p);
 
 	free(p);
@@ -705,6 +702,12 @@ parsemacro(struct mdoc *m, int ln, char *buf)
 			break;
 		else if (' ' == buf[i])
 			break;
+
+		/* Check for invalid characters. */
+
+		if (isgraph((u_char)buf[i]))
+			continue;
+		return(mdoc_perr(m, ln, i, EPRINT));
 	}
 
 	mac[j] = 0;
@@ -715,7 +718,7 @@ parsemacro(struct mdoc *m, int ln, char *buf)
 		return(1);
 	} 
 	
-	if (MDOC_MAX == (c = mdoc_hash_find(m->htab, mac))) {
+	if (MDOC_MAX == (c = mdoc_hash_find(mac))) {
 		if ( ! macrowarn(m, ln, mac))
 			goto err;
 		return(1);

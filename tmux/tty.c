@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.28 2009/09/10 17:16:24 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.34 2009/09/23 12:03:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,8 +29,6 @@
 
 void	tty_fill_acs(struct tty *);
 
-void	tty_raw(struct tty *, const char *);
-
 int	tty_try_256(struct tty *, u_char, const char *);
 int	tty_try_88(struct tty *, u_char, const char *);
 
@@ -44,44 +42,62 @@ void	tty_cell(struct tty *,
     	    const struct grid_cell *, const struct grid_utf8 *);
 
 void
-tty_init(struct tty *tty, int fd, char *path, char *term)
+tty_init(struct tty *tty, int fd, char *term)
 {
-	tty->path = xstrdup(path);
-	tty->fd = fd;
+	char	*path;
+
+	memset(tty, 0, sizeof *tty);
 	tty->log_fd = -1;
 
 	if (term == NULL || *term == '\0')
 		tty->termname = xstrdup("unknown");
 	else
 		tty->termname = xstrdup(term);
+
+	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
+		fatal("fcntl failed");
+	tty->fd = fd;
+
+	if ((path = ttyname(fd)) == NULL)
+		fatalx("ttyname failed");
+	tty->path = xstrdup(path);
+
 	tty->flags = 0;
 	tty->term_flags = 0;
+}
+
+void
+tty_resize(struct tty *tty)
+{
+	struct winsize	ws;
+
+	if (ioctl(tty->fd, TIOCGWINSZ, &ws) != -1) {
+		tty->sx = ws.ws_col;
+		tty->sy = ws.ws_row;
+	}
+	if (tty->sx == 0)
+		tty->sx = 80;
+	if (tty->sy == 0)
+		tty->sy = 24;
+
+	tty->cx = UINT_MAX;
+	tty->cy = UINT_MAX;
+
+	tty->rupper = UINT_MAX;
+	tty->rlower = UINT_MAX;
 }
 
 int
 tty_open(struct tty *tty, const char *overrides, char **cause)
 {
-	int	mode;
+	int	fd;
 
-	if (tty->fd == -1) {
-		tty->fd = open(tty->path, O_RDWR|O_NONBLOCK);
-		if (tty->fd == -1) {
-			xasprintf(cause, "%s: %s", tty->path, strerror(errno));
-			return (-1);
-		}
+	if (debug_level > 3) {
+		fd = open("tmux.out", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+		if (fd != -1 && fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
+			fatal("fcntl failed");
+		tty->log_fd = fd;
 	}
-
-	if ((mode = fcntl(tty->fd, F_GETFL)) == -1)
-		fatal("fcntl failed");
-	if (fcntl(tty->fd, F_SETFL, mode|O_NONBLOCK) == -1)
-		fatal("fcntl failed");
-	if (fcntl(tty->fd, F_SETFD, FD_CLOEXEC) == -1)
-		fatal("fcntl failed");
-
-	if (debug_level > 3)
-		tty->log_fd = open("tmux.out", O_WRONLY|O_CREAT|O_TRUNC, 0644);
-	else
-		tty->log_fd = -1;
 
 	tty->term = tty_term_find(tty->termname, tty->fd, overrides, cause);
 	if (tty->term == NULL) {
@@ -93,7 +109,7 @@ tty_open(struct tty *tty, const char *overrides, char **cause)
 	tty->in = buffer_create(BUFSIZ);
 	tty->out = buffer_create(BUFSIZ);
 
-	tty->flags &= TTY_UTF8;
+	tty->flags &= ~(TTY_NOCURSOR|TTY_FREEZE|TTY_ESCAPE);
 
 	tty_start_tty(tty);
 
@@ -108,7 +124,15 @@ void
 tty_start_tty(struct tty *tty)
 {
 	struct termios	 tio;
-	int		 what;
+	int		 what, mode;
+
+	if (tty->fd == -1)
+		return;
+
+	if ((mode = fcntl(tty->fd, F_GETFL)) == -1)
+		fatal("fcntl failed");
+	if (fcntl(tty->fd, F_SETFL, mode|O_NONBLOCK) == -1)
+		fatal("fcntl failed");
 
 #if 0
 	tty_detect_utf8(tty);
@@ -159,6 +183,7 @@ void
 tty_stop_tty(struct tty *tty)
 {
 	struct winsize	ws;
+	int		mode;
 
 	if (!(tty->flags & TTY_STARTED))
 		return;
@@ -169,6 +194,10 @@ tty_stop_tty(struct tty *tty)
 	 * because the fd is invalid. Things like ssh -t can easily leave us
 	 * with a dead tty.
 	 */
+	if ((mode = fcntl(tty->fd, F_GETFL)) == -1)
+		return;
+	if (fcntl(tty->fd, F_SETFL, mode & ~O_NONBLOCK) == -1)
+		return;
 	if (ioctl(tty->fd, TIOCGWINSZ, &ws) == -1)
 		return;
 	if (tcsetattr(tty->fd, TCSANOW, &tty->tio) == -1)
