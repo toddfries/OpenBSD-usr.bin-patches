@@ -1,4 +1,4 @@
-/* $OpenBSD: mode-key.c,v 1.17 2009/09/02 06:33:20 nicm Exp $ */
+/* $OpenBSD: mode-key.c,v 1.22 2009/10/07 15:58:40 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -89,6 +89,8 @@ struct mode_key_cmdstr mode_key_cmdstr_copy[] = {
 	{ MODEKEYCOPY_PREVIOUSPAGE, "page-up" },
 	{ MODEKEYCOPY_PREVIOUSWORD, "previous-word" },
 	{ MODEKEYCOPY_RIGHT, "cursor-right" },
+	{ MODEKEYCOPY_SCROLLDOWN, "scroll-down" },
+	{ MODEKEYCOPY_SCROLLUP, "scroll-up" },
 	{ MODEKEYCOPY_SEARCHAGAIN, "search-again" },
 	{ MODEKEYCOPY_SEARCHDOWN, "search-forward" },
 	{ MODEKEYCOPY_SEARCHUP, "search-backward" },
@@ -155,9 +157,12 @@ struct mode_key_tree mode_key_tree_vi_choice;
 const struct mode_key_entry mode_key_vi_copy[] = {
 	{ ' ',			0, MODEKEYCOPY_STARTSELECTION },
 	{ '$',			0, MODEKEYCOPY_ENDOFLINE },
-	{ '/',			0, MODEKEYCOPY_SEARCHUP },
+	{ '/',			0, MODEKEYCOPY_SEARCHDOWN },
 	{ '0',			0, MODEKEYCOPY_STARTOFLINE },
-	{ '?',			0, MODEKEYCOPY_SEARCHDOWN },
+	{ ':',			0, MODEKEYCOPY_GOTOLINE },
+	{ '?',			0, MODEKEYCOPY_SEARCHUP },
+	{ 'J',			0, MODEKEYCOPY_SCROLLDOWN },
+	{ 'K',			0, MODEKEYCOPY_SCROLLUP },
 	{ '\002' /* C-b */,	0, MODEKEYCOPY_PREVIOUSPAGE },
 	{ '\003' /* C-c */,	0, MODEKEYCOPY_CANCEL },
 	{ '\004' /* C-d */,	0, MODEKEYCOPY_HALFPAGEDOWN },
@@ -168,7 +173,6 @@ const struct mode_key_entry mode_key_vi_copy[] = {
 	{ '\r',			0, MODEKEYCOPY_COPYSELECTION },
 	{ '^',			0, MODEKEYCOPY_BACKTOINDENTATION },
 	{ 'b',			0, MODEKEYCOPY_PREVIOUSWORD },
-	{ 'g',			0, MODEKEYCOPY_GOTOLINE },
 	{ 'h',			0, MODEKEYCOPY_LEFT },
 	{ 'j',			0, MODEKEYCOPY_DOWN },
 	{ 'k',			0, MODEKEYCOPY_UP },
@@ -177,11 +181,13 @@ const struct mode_key_entry mode_key_vi_copy[] = {
 	{ 'q',			0, MODEKEYCOPY_CANCEL },
 	{ 'w',			0, MODEKEYCOPY_NEXTWORD },
 	{ KEYC_BSPACE,		0, MODEKEYCOPY_LEFT },
+	{ KEYC_DOWN | KEYC_CTRL,0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_DOWN,		0, MODEKEYCOPY_DOWN },
 	{ KEYC_LEFT,		0, MODEKEYCOPY_LEFT },
 	{ KEYC_NPAGE,		0, MODEKEYCOPY_NEXTPAGE },
 	{ KEYC_PPAGE,		0, MODEKEYCOPY_PREVIOUSPAGE },
 	{ KEYC_RIGHT,		0, MODEKEYCOPY_RIGHT },
+	{ KEYC_UP | KEYC_CTRL,	0, MODEKEYCOPY_SCROLLUP },
 	{ KEYC_UP,		0, MODEKEYCOPY_UP },
 
 	{ 0,			-1, 0 }
@@ -191,7 +197,7 @@ struct mode_key_tree mode_key_tree_vi_copy;
 /* emacs editing keys. */
 const struct mode_key_entry mode_key_emacs_edit[] = {
 	{ '\001' /* C-a */,	0, MODEKEYEDIT_STARTOFLINE }, 
-	{ '\002' /* C-p */,	0, MODEKEYEDIT_CURSORLEFT },
+	{ '\002' /* C-b */,	0, MODEKEYEDIT_CURSORLEFT },
 	{ '\003' /* C-c */,	0, MODEKEYEDIT_CANCEL },
 	{ '\004' /* C-d */,	0, MODEKEYEDIT_DELETE },
 	{ '\005' /* C-e	*/,	0, MODEKEYEDIT_ENDOFLINE },
@@ -221,9 +227,13 @@ struct mode_key_tree mode_key_tree_emacs_edit;
 /* emacs choice selection keys. */
 const struct mode_key_entry mode_key_emacs_choice[] = {
 	{ '\003' /* C-c */,	0, MODEKEYCHOICE_CANCEL },
+	{ '\016' /* C-n */,	0, MODEKEYCHOICE_DOWN },
+	{ '\020' /* C-p */,	0, MODEKEYCHOICE_UP },
+	{ '\026' /* C-v */,	0, MODEKEYCHOICE_PAGEDOWN },
 	{ '\033' /* Escape */,	0, MODEKEYCHOICE_CANCEL },
 	{ '\r',			0, MODEKEYCHOICE_CHOOSE },
 	{ 'q',			0, MODEKEYCHOICE_CANCEL },
+	{ 'v' | KEYC_ESCAPE,	0, MODEKEYCHOICE_PAGEUP },
 	{ KEYC_DOWN,		0, MODEKEYCHOICE_DOWN },
 	{ KEYC_NPAGE,		0, MODEKEYCHOICE_PAGEDOWN },
 	{ KEYC_PPAGE,		0, MODEKEYCHOICE_PAGEUP },
@@ -258,12 +268,14 @@ const struct mode_key_entry mode_key_emacs_copy[] = {
 	{ 'q',			0, MODEKEYCOPY_CANCEL },
 	{ 'v' | KEYC_ESCAPE,	0, MODEKEYCOPY_PREVIOUSPAGE },
 	{ 'w' | KEYC_ESCAPE,	0, MODEKEYCOPY_COPYSELECTION },
+	{ KEYC_DOWN | KEYC_CTRL,0, MODEKEYCOPY_SCROLLDOWN },
 	{ KEYC_DOWN | KEYC_ESCAPE, 0, MODEKEYCOPY_HALFPAGEDOWN },
 	{ KEYC_DOWN,		0, MODEKEYCOPY_DOWN },
 	{ KEYC_LEFT,		0, MODEKEYCOPY_LEFT },
 	{ KEYC_NPAGE,		0, MODEKEYCOPY_NEXTPAGE },
 	{ KEYC_PPAGE,		0, MODEKEYCOPY_PREVIOUSPAGE },
 	{ KEYC_RIGHT,		0, MODEKEYCOPY_RIGHT },
+	{ KEYC_UP | KEYC_CTRL,	0, MODEKEYCOPY_SCROLLUP },
 	{ KEYC_UP | KEYC_ESCAPE, 0, MODEKEYCOPY_HALFPAGEUP },
 	{ KEYC_UP,		0, MODEKEYCOPY_UP },
 

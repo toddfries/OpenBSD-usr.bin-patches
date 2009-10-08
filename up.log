@@ -1,2 +1,36 @@
-ssh: connect to host cvs.openbsd.org port 22: Connection timed out
-cvs [update aborted]: end of file from server (consult above messages if any)
+? .git
+? .gitignore
+? status.log
+? up.log
+? vi/build/obj
+P at/at.c
+P aucat/aproc.c
+P aucat/aproc.h
+P aucat/aucat.1
+P aucat/aucat.c
+P aucat/midicat.1
+P aucat/sock.c
+P nc/netcat.c
+P netstat/inet.c
+P netstat/main.c
+P netstat/netstat.h
+P pmdb/arch/powerpc/powerpc.c
+P ssh/readconf.c
+P ssh/servconf.c
+P ssh/session.c
+P ssh/ssh_config.5
+P ssh/sshd_config
+P ssh/sshd_config.5
+P tmux/Makefile
+P tmux/cmd-copy-mode.c
+cvs server: tmux/cmd-scroll-mode.c is no longer in the repository
+P tmux/cmd.c
+P tmux/key-bindings.c
+P tmux/key-string.c
+P tmux/mode-key.c
+P tmux/server-fn.c
+P tmux/server.c
+P tmux/tmux.1
+P tmux/tmux.h
+P tmux/window-copy.c
+cvs server: tmux/window-scroll.c is no longer in the repository

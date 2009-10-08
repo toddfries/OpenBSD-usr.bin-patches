@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.118 2009/09/24 14:17:09 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.121 2009/10/06 07:19:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -402,6 +402,8 @@ enum mode_key_cmd {
 	MODEKEYCOPY_PREVIOUSPAGE,
 	MODEKEYCOPY_PREVIOUSWORD,
 	MODEKEYCOPY_RIGHT,
+	MODEKEYCOPY_SCROLLDOWN,
+	MODEKEYCOPY_SCROLLUP,
 	MODEKEYCOPY_SEARCHAGAIN,
 	MODEKEYCOPY_SEARCHDOWN,
 	MODEKEYCOPY_SEARCHUP,
@@ -922,6 +924,7 @@ struct tty_ctx {
 /* Client connection. */
 struct client {
 	struct imsgbuf	 ibuf;
+	struct timeval	 tv;
 
 	struct environ	 environ;
 
@@ -1345,7 +1348,6 @@ extern const struct cmd_entry cmd_respawn_window_entry;
 extern const struct cmd_entry cmd_rotate_window_entry;
 extern const struct cmd_entry cmd_run_shell_entry;
 extern const struct cmd_entry cmd_save_buffer_entry;
-extern const struct cmd_entry cmd_scroll_mode_entry;
 extern const struct cmd_entry cmd_select_layout_entry;
 extern const struct cmd_entry cmd_select_pane_entry;
 extern const struct cmd_entry cmd_select_prompt_entry;
@@ -1697,10 +1699,6 @@ extern const struct window_mode window_clock_mode;
 /* window-copy.c */
 extern const struct window_mode window_copy_mode;
 void 		 window_copy_pageup(struct window_pane *);
-
-/* window-scroll.c */
-extern const struct window_mode window_scroll_mode;
-void 		 window_scroll_pageup(struct window_pane *);
 
 /* window-more.c */
 extern const struct window_mode window_more_mode;

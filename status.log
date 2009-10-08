@@ -1,9 +1,42 @@
 # On branch master
+# Your branch is ahead of 'origin/master' by 1 commit.
+#
 # Changed but not updated:
-#   (use "git add <file>..." to update what will be committed)
+#   (use "git add/rm <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   at/at.c
+#	modified:   aucat/aproc.c
+#	modified:   aucat/aproc.h
+#	modified:   aucat/aucat.1
+#	modified:   aucat/aucat.c
+#	modified:   aucat/midicat.1
+#	modified:   aucat/sock.c
+#	modified:   nc/netcat.c
+#	modified:   netstat/inet.c
+#	modified:   netstat/main.c
+#	modified:   netstat/netstat.h
+#	modified:   pmdb/arch/powerpc/powerpc.c
+#	modified:   ssh/readconf.c
+#	modified:   ssh/servconf.c
+#	modified:   ssh/session.c
+#	modified:   ssh/ssh_config.5
+#	modified:   ssh/sshd_config
+#	modified:   ssh/sshd_config.5
 #	modified:   status.log
+#	modified:   tmux/Makefile
+#	modified:   tmux/cmd-copy-mode.c
+#	deleted:    tmux/cmd-scroll-mode.c
+#	modified:   tmux/cmd.c
+#	modified:   tmux/key-bindings.c
+#	modified:   tmux/key-string.c
+#	modified:   tmux/mode-key.c
+#	modified:   tmux/server-fn.c
+#	modified:   tmux/server.c
+#	modified:   tmux/tmux.1
+#	modified:   tmux/tmux.h
+#	modified:   tmux/window-copy.c
+#	deleted:    tmux/window-scroll.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
