@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.98 2009/10/07 15:58:40 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.108 2009/10/11 14:12:10 jmc Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 7 2009 $
+.Dd $Mdocdate: October 11 2009 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -409,6 +409,7 @@ Lock all clients attached to
 .Op Fl d
 .Op Fl n Ar window-name
 .Op Fl s Ar session-name
+.Op Fl t Ar target-session
 .Op Ar command
 .Xc
 .D1 (alias: Ic new )
@@ -425,6 +426,26 @@ are the name of and command to execute in the initial window.
 If run from a terminal, any
 .Xr termios 4
 special characters are saved and used for new windows in the new session.
+.Pp
+If
+.Fl t
+is given, the new session is
+.Em grouped
+with
+.Ar target-session .
+This means they share the same set of windows - all windows from
+.Ar target-session
+are linked to the new session and any subsequent new windows or windows being
+closed are applied to both sessions.
+The current and previous window and any session options remain independent and
+either session may be killed without affecting the other.
+Giving
+.Fl n
+or
+.Ar command
+are invalid if
+.Fl t
+is used.
 .It Ic refresh-client Op Fl t Ar target-client
 .D1 (alias: Ic refresh )
 Refresh the current client if bound to a key, or a single client if one is given
@@ -754,6 +775,10 @@ exists, it is killed, otherwise an error is generated.
 If
 .Fl d
 is given, the newly linked window is not selected.
+.It Ic list-panes Op Fl t Ar target-window
+.D1 (alias: Ic lsp )
+List the panes in the current window or in
+.Ar target-window .
 .It Ic list-windows Op Fl t Ar target-session
 .D1 (alias: Ic lsw )
 List windows in the current session or in
@@ -815,6 +840,30 @@ Move to the next window in the session.
 If
 .Fl a
 is used, move to the next window with a bell, activity or content alert.
+.It Xo Ic pipe-pane
+.Op Fl o
+.Op Fl t Ar target-pane
+.Op Ar command
+.Xc
+.D1 (alias: Ic pipep )
+Pipe any output sent by the program in
+.Ar target-pane
+to a shell command.
+A pane may only be piped to one command at a time, any existing pipe is
+closed before
+.Ar command
+is executed.
+If no
+.Ar command
+is given, the current pipe (if any) is closed.
+.Pp
+The
+.Fl o
+option only opens a new pipe if no previous pipe exists, allowing a pipe to
+be toggled with a single key, for example:
+.Bd -literal -offset indent
+bind-key C-p pipe-pane -o 'cat >>~/output'
+.Ed
 .It Xo Ic previous-window
 .Op Fl a
 .Op Fl t Ar target-session
@@ -1253,20 +1302,33 @@ Set the maximum number of lines held in window history.
 This setting applies only to new windows - existing window histories are not
 resized and retain the limit at the point they were created.
 .It Ic lock-after-time Ar number
-Lock the server (like the
-.Ic lock-server
+Lock the session (like the
+.Ic lock-session
 command) after
 .Ar number
-seconds of inactivity.
-The default is off (set to 0).
-This has no effect as a session option; it must be set as a global option using
-.Fl g .
+seconds of inactivity, or the entire server (all sessions) if the
+.Ic lock-server
+option is set.
+The default is not to lock (set to 0).
 .It Ic lock-command Ar command
 Command to run when locking each client.
 The default is to run
 .Xr lock 1
 with
 .Fl np .
+.It Xo Ic lock-server
+.Op Ic on | off
+.Xc
+If this option is
+.Ic on
+(the default),
+instead of each session locking individually as each has been
+idle for
+.Ic lock-after-time ,
+the entire server will lock after
+.Em all
+sessions would have locked.
+This has no effect as a session option; it must be set as a global option.
 .It Ic message-attr Ar attributes
 Set status line message attributes, where
 .Ar attributes
@@ -1302,6 +1364,14 @@ from the 256-colour palette, or
 .Ic default .
 .It Ic message-fg Ar colour
 Set status line message foreground colour.
+.It Xo Ic mouse-select-pane
+.Op Ic on | off
+.Xc
+If on,
+.Nm
+captures the mouse and when a window is split into multiple panes the mouse may
+be used to select the current pane.
+The mouse click is also passed through to the application as normal.
 .It Ic prefix Ar keys
 Set the keys accepted as a prefix key.
 .Ar keys
@@ -1395,6 +1465,11 @@ may contain any of the following special character sequences:
 The #(command) form executes
 .Ql command
 as a shell command and inserts the first line of its output.
+Note that shell commands are only executed once at the interval specified by
+the
+.Ic status-interval
+option: if the status line is redrawn in the meantime, the previous result is
+used.
 #[attributes] allows a comma-separated list of attributes to be specified,
 these may be
 .Ql fg=colour
@@ -1627,7 +1702,7 @@ Set window modes foreground colour.
 .It Xo Ic mode-keys
 .Op Ic vi | emacs
 .Xc
-Use vi or emacs-style key bindings in scroll, copy and choice modes.
+Use vi or emacs-style key bindings in copy and choice modes.
 Key bindings default to emacs.
 .Pp
 .It Xo Ic mode-mouse
@@ -1662,6 +1737,11 @@ The window may be reactivated with the
 .Ic respawn-window
 command.
 .Pp
+.It Xo Ic synchronize-panes
+.Op Ic on | off
+.Xc
+Duplicate input to any pane to all other panes in the same window, except
+for panes that are not in output mode.
 .It Xo Ic utf8
 .Op Ic on | off
 .Xc
@@ -2012,8 +2092,8 @@ option.
 .D1 (alias: Ic run )
 Execute
 .Ar command
-without creating a window.
-Any output to stdout is displayed in output mode.
+in the background without creating a window.
+After the command finishes, any output to stdout is displayed in output mode.
 If
 .Ar command
 doesn't return success, the exit status is also displayed.

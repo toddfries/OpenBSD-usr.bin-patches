@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.69 2009/10/05 07:05:24 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.72 2009/10/10 13:55:37 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -590,8 +590,8 @@ aucat_main(int argc, char **argv)
 		if (quit_flag) {
 			break;
 		}
-		if ((!dev_rec || dev_rec->u.io.file == NULL) &&
-		    (!dev_play || dev_play->u.io.file == NULL) && !n_flag) {
+		if ((dev_mix && LIST_EMPTY(&dev_mix->obuflist)) ||
+		    (dev_sub && LIST_EMPTY(&dev_sub->ibuflist))) {
 			fprintf(stderr, "device desappeared, terminating\n");
 			break;
 		}
@@ -624,10 +624,7 @@ aucat_main(int argc, char **argv)
 		suspend = 0;
 		dev_start();
 	}
-	if (n_flag) {
-		dev_loopdone();
-	} else
-		dev_done();
+	dev_done();
 	filelist_done();
 	unsetsig();
 	return 0;
@@ -710,6 +707,8 @@ midicat_main(int argc, char **argv)
 	filelist_init();
 
 	dev_thruinit();
+	if (!l_flag)
+		dev_midi->u.thru.flags |= THRU_AUTOQUIT;
 	if ((!SLIST_EMPTY(&ifiles) || !SLIST_EMPTY(&ofiles)) && 
 	    SLIST_EMPTY(&dfiles)) {
 		farg_add(&dfiles, &aparams_none, &aparams_none,
@@ -777,8 +776,6 @@ midicat_main(int argc, char **argv)
 		if (quit_flag) {
 			break;
 		}
-		if (!l_flag && LIST_EMPTY(&dev_midi->ibuflist))
-			break;
 		if (!file_poll())
 			break;
 	}
@@ -787,7 +784,7 @@ midicat_main(int argc, char **argv)
 		if (rmdir(base) < 0)
 			warn("rmdir(\"%s\")", base);
 	}
-	dev_thrudone();
+	dev_done();
 	filelist_done();
 	unsetsig();
 	return 0;

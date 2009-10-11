@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.121 2009/10/06 07:19:32 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.131 2009/10/11 10:04:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -563,6 +563,30 @@ struct options {
 /* Key list for prefix option. */
 ARRAY_DECL(keylist, int);
 
+/* Scheduled job. */
+struct job {
+	char		*cmd;
+	pid_t		 pid;
+	int		 status;
+
+	struct client	*client;
+
+	int		 fd;
+	struct buffer	*out;
+
+	void		(*callbackfn)(struct job *);
+	void		(*freefn)(void *);
+	void		*data;
+
+	int		 flags;
+#define JOB_DONE 0x1
+
+	RB_ENTRY(job)	 entry;
+	SLIST_ENTRY(job) lentry;
+};
+RB_HEAD(jobs, job);
+SLIST_HEAD(joblist, job);
+
 /* Screen selection. */
 struct screen_sel {
 	int		 flag;
@@ -654,13 +678,14 @@ struct input_ctx {
  */
 struct client;
 struct window;
+struct mouse_event;
 struct window_mode {
 	struct screen *(*init)(struct window_pane *);
 	void	(*free)(struct window_pane *);
 	void	(*resize)(struct window_pane *, u_int, u_int);
 	void	(*key)(struct window_pane *, struct client *, int);
 	void	(*mouse)(struct window_pane *,
-	    	    struct client *, u_char, u_char, u_char);
+	    	    struct client *, struct mouse_event *);
 	void	(*timer)(struct window_pane *);
 };
 
@@ -689,6 +714,10 @@ struct window_pane {
 	struct buffer	*out;
 
 	struct input_ctx ictx;
+
+	int		 pipe_fd;
+	struct buffer	*pipe_buf;
+	size_t		 pipe_off;
 
 	struct screen	*screen;
 	struct screen	 base;
@@ -739,10 +768,10 @@ struct winlink {
 	struct window	*window;
 
 	RB_ENTRY(winlink) entry;
-	SLIST_ENTRY(winlink) sentry;
+	TAILQ_ENTRY(winlink) sentry;
 };
 RB_HEAD(winlinks, winlink);
-SLIST_HEAD(winlink_stack, winlink);
+TAILQ_HEAD(winlink_stack, winlink);
 
 /* Layout direction. */
 enum layout_type {
@@ -797,9 +826,17 @@ struct session_alert {
 	SLIST_ENTRY(session_alert) entry;
 };
 
+struct session_group {
+	TAILQ_HEAD(, session) sessions;
+
+	TAILQ_ENTRY(session_group) entry;
+};
+TAILQ_HEAD(session_groups, session_group);
+
 struct session {
 	char		*name;
 	struct timeval	 tv;
+	time_t		 activity;
 
 	u_int		 sx;
 	u_int		 sy;
@@ -823,6 +860,8 @@ struct session {
 	struct environ	 environ;
 
 	int		 references;
+
+	TAILQ_ENTRY(session) gentry;
 };
 ARRAY_DECL(sessions, struct session *);
 
@@ -921,6 +960,13 @@ struct tty_ctx {
 	u_int		 orlower;
 };
 
+/* Mouse input. */
+struct mouse_event {
+	u_char	b;
+	u_char	x;
+	u_char	y;
+};
+
 /* Client connection. */
 struct client {
 	struct imsgbuf	 ibuf;
@@ -932,9 +978,10 @@ struct client {
 	char		*cwd;
 
 	struct tty 	 tty;
-	struct timeval	 status_timer;
 	struct timeval	 repeat_timer;
 
+	struct timeval	 status_timer;
+	struct jobs	 status_jobs;
 	struct screen	 status;
 
 #define CLIENT_TERMINAL 0x1
@@ -1117,7 +1164,6 @@ extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
 extern char	*cfg_file;
-extern time_t	 server_activity;
 extern int	 debug_level;
 extern int	 be_quiet;
 extern time_t	 start_time;
@@ -1170,6 +1216,20 @@ struct options_entry *options_set_data(
     	    struct options *, const char *, void *, void (*)(void *));
 void   *options_get_data(struct options *, const char *);
 
+/* job.c */
+extern struct joblist all_jobs;
+int	job_cmp(struct job *, struct job *);
+RB_PROTOTYPE(jobs, job, entry, job_cmp);
+void	job_tree_init(struct jobs *);
+void	job_tree_free(struct jobs *);
+u_int	job_tree_size(struct jobs *);
+struct job *job_get(struct jobs *, const char *);
+struct job *job_add(struct jobs *, struct client *,
+	    const char *, void (*)(struct job *), void (*)(void *), void *);
+void	job_free(struct job *);
+int	job_run(struct job *);
+void	job_kill(struct job *);
+
 /* environ.c */
 int	environ_cmp(struct environ_entry *, struct environ_entry *);
 RB_PROTOTYPE(environ, environ_entry, entry, environ_cmp);
@@ -1199,7 +1259,6 @@ void	tty_init(struct tty *, int, char *);
 void	tty_resize(struct tty *);
 void	tty_start_tty(struct tty *);
 void	tty_stop_tty(struct tty *);
-void	tty_detect_utf8(struct tty *);
 void	tty_set_title(struct tty *, const char *);
 void	tty_update_mode(struct tty *, int);
 void	tty_draw_line(struct tty *, struct screen *, u_int, u_int, u_int);
@@ -1242,7 +1301,7 @@ int	tty_keys_cmp(struct tty_key *, struct tty_key *);
 RB_PROTOTYPE(tty_keys, tty_key, entry, tty_keys_cmp);
 void	tty_keys_init(struct tty *);
 void	tty_keys_free(struct tty *);
-int	tty_keys_next(struct tty *, int *, u_char *);
+int	tty_keys_next(struct tty *, int *, struct mouse_event *);
 
 /* options-cmd.c */
 const char *set_option_print(
@@ -1326,6 +1385,7 @@ extern const struct cmd_entry cmd_list_buffers_entry;
 extern const struct cmd_entry cmd_list_clients_entry;
 extern const struct cmd_entry cmd_list_commands_entry;
 extern const struct cmd_entry cmd_list_keys_entry;
+extern const struct cmd_entry cmd_list_panes_entry;
 extern const struct cmd_entry cmd_list_sessions_entry;
 extern const struct cmd_entry cmd_list_windows_entry;
 extern const struct cmd_entry cmd_load_buffer_entry;
@@ -1338,6 +1398,7 @@ extern const struct cmd_entry cmd_new_window_entry;
 extern const struct cmd_entry cmd_next_layout_entry;
 extern const struct cmd_entry cmd_next_window_entry;
 extern const struct cmd_entry cmd_paste_buffer_entry;
+extern const struct cmd_entry cmd_pipe_pane_entry;
 extern const struct cmd_entry cmd_previous_layout_entry;
 extern const struct cmd_entry cmd_previous_window_entry;
 extern const struct cmd_entry cmd_refresh_client_entry;
@@ -1457,7 +1518,9 @@ void	 server_write_session(
 void	 server_redraw_client(struct client *);
 void	 server_status_client(struct client *);
 void	 server_redraw_session(struct session *);
+void	 server_redraw_session_group(struct session *);
 void	 server_status_session(struct session *);
+void	 server_status_session_group(struct session *);
 void	 server_redraw_window(struct window *);
 void	 server_status_window(struct window *);
 void	 server_lock(void);
@@ -1465,16 +1528,17 @@ void	 server_lock_session(struct session *);
 void	 server_lock_client(struct client *);
 int	 server_unlock(const char *);
 void	 server_kill_window(struct window *);
-int	 server_link_window(
+int	 server_link_window(struct session *,
 	     struct winlink *, struct session *, int, int, int, char **);
 void	 server_unlink_window(struct session *, struct winlink *);
+void	 server_destroy_session_group(struct session *);
 void	 server_destroy_session(struct session *);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
 
 /* status.c */
 int	 status_redraw(struct client *);
-char	*status_replace(struct session *, const char *, time_t);
+char	*status_replace(struct client *, const char *, time_t);
 void printflike2 status_message_set(struct client *, const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);
@@ -1495,7 +1559,7 @@ void	 input_parse(struct window_pane *);
 
 /* input-key.c */
 void	 input_key(struct window_pane *, int);
-void	 input_mouse(struct window_pane *, u_char, u_char, u_char);
+void	 input_mouse(struct window_pane *, struct mouse_event *);
 
 /* colour.c */
 void	 colour_set_fg(struct grid_cell *, int);
@@ -1637,6 +1701,7 @@ struct window	*window_create(const char *, const char *, const char *,
 		     const char *, struct environ *, struct termios *,
     		     u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
+void		 window_set_active_at(struct window *, u_int, u_int);
 void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, u_int);
 void		 window_resize(struct window *, u_int, u_int);
@@ -1657,7 +1722,7 @@ void		 window_pane_reset_mode(struct window_pane *);
 void		 window_pane_parse(struct window_pane *);
 void		 window_pane_key(struct window_pane *, struct client *, int);
 void		 window_pane_mouse(struct window_pane *,
-    		     struct client *, u_char, u_char, u_char);
+    		     struct client *, struct mouse_event *);
 int		 window_pane_visible(struct window_pane *);
 char		*window_pane_search(
     		     struct window_pane *, const char *, u_int *);
@@ -1720,6 +1785,7 @@ char 		*default_window_name(struct window *);
 /* session.c */
 extern struct sessions sessions;
 extern struct sessions dead_sessions;
+extern struct session_groups session_groups;
 void	 session_alert_add(struct session *, struct window *, int);
 void	 session_alert_cancel(struct session *, struct winlink *);
 int	 session_alert_has(struct session *, struct winlink *, int);
@@ -1740,6 +1806,13 @@ int		 session_next(struct session *, int);
 int		 session_previous(struct session *, int);
 int		 session_select(struct session *, int);
 int		 session_last(struct session *);
+struct session_group *session_group_find(struct session *);
+u_int		 session_group_index(struct session_group *);
+void		 session_group_add(struct session *, struct session *);
+void		 session_group_remove(struct session *);
+void		 session_group_synchronize_to(struct session *);
+void		 session_group_synchronize_from(struct session *);
+void		 session_group_synchronize1(struct session *, struct session *);
 
 /* utf8.c */
 void	utf8_build(void);

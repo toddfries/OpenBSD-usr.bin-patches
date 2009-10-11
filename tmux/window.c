@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.26 2009/09/20 14:58:12 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.32 2009/10/11 10:04:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -174,7 +174,7 @@ winlink_stack_push(struct winlink_stack *stack, struct winlink *wl)
 		return;
 
 	winlink_stack_remove(stack, wl);
-	SLIST_INSERT_HEAD(stack, wl, sentry);
+	TAILQ_INSERT_HEAD(stack, wl, sentry);
 }
 
 void
@@ -184,10 +184,10 @@ winlink_stack_remove(struct winlink_stack *stack, struct winlink *wl)
 
 	if (wl == NULL)
 		return;
-
-	SLIST_FOREACH(wl2, stack, sentry) {
+	
+	TAILQ_FOREACH(wl2, stack, sentry) {
 		if (wl2 == wl) {
-			SLIST_REMOVE(stack, wl, winlink, sentry);
+			TAILQ_REMOVE(stack, wl, sentry);
 			return;
 		}
 	}
@@ -304,6 +304,23 @@ window_set_active_pane(struct window *w, struct window_pane *wp)
 	}
 }
 
+void
+window_set_active_at(struct window *w, u_int x, u_int y)
+{
+	struct window_pane	*wp;
+
+	TAILQ_FOREACH(wp, &w->panes, entry) {
+		if (!window_pane_visible(wp))
+			continue;
+		if (x < wp->xoff || x >= wp->xoff + wp->sx)
+			continue;
+		if (y < wp->yoff || y >= wp->yoff + wp->sy)
+			continue;
+		window_set_active_pane(w, wp);
+		break;
+	}
+}
+
 struct window_pane *
 window_add_pane(struct window *w, u_int hlimit)
 {
@@ -408,6 +425,10 @@ window_pane_create(struct window *w, u_int sx, u_int sy, u_int hlimit)
 	wp->sx = sx;
 	wp->sy = sy;
 
+	wp->pipe_fd = -1;
+	wp->pipe_buf = NULL;
+	wp->pipe_off = 0;
+
 	wp->saved_grid = NULL;
 
 	screen_init(&wp->base, sx, sy, hlimit);
@@ -430,6 +451,11 @@ window_pane_destroy(struct window_pane *wp)
 	screen_free(&wp->base);
 	if (wp->saved_grid != NULL)
 		grid_destroy(wp->saved_grid);
+
+	if (wp->pipe_fd != -1) {
+		buffer_destroy(wp->pipe_buf);
+		close(wp->pipe_fd);
+	}
 
 	buffer_destroy(wp->in);
 	buffer_destroy(wp->out);
@@ -604,43 +630,63 @@ window_pane_reset_mode(struct window_pane *wp)
 void
 window_pane_parse(struct window_pane *wp)
 {
+	size_t	new_size;
+
+	new_size = BUFFER_USED(wp->in) - wp->pipe_off;
+	if (wp->pipe_fd != -1 && new_size > 0)
+		buffer_write(wp->pipe_buf, BUFFER_OUT(wp->in), new_size);
+	
 	input_parse(wp);
+
+	wp->pipe_off = BUFFER_USED(wp->in);
 }
 
 void
 window_pane_key(struct window_pane *wp, struct client *c, int key)
 {
-	if (wp->fd == -1 || !window_pane_visible(wp))
+	struct window_pane	*wp2;
+
+	if (!window_pane_visible(wp))
 		return;
 
 	if (wp->mode != NULL) {
 		if (wp->mode->key != NULL)
 			wp->mode->key(wp, c, key);
-	} else
-		input_key(wp, key);
+		return;
+	}
+
+	if (wp->fd == -1)
+		return;
+	input_key(wp, key);
+	if (options_get_number(&wp->window->options, "synchronize-panes")) {
+		TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
+			if (wp2 == wp || wp2->mode != NULL)
+				continue;
+			if (wp2->fd != -1 && window_pane_visible(wp2))
+				input_key(wp2, key);
+		}
+	}
 }
 
 void
 window_pane_mouse(
-    struct window_pane *wp, struct client *c, u_char b, u_char x, u_char y)
+    struct window_pane *wp, struct client *c, struct mouse_event *m)
 {
-	if (wp->fd == -1 || !window_pane_visible(wp))
+	if (!window_pane_visible(wp))
 		return;
 
-	/* XXX convert from 1-based? */
-
-	if (x < wp->xoff || x >= wp->xoff + wp->sx)
+	if (m->x < wp->xoff || m->x >= wp->xoff + wp->sx)
 		return;
-	if (y < wp->yoff || y >= wp->yoff + wp->sy)
+	if (m->y < wp->yoff || m->y >= wp->yoff + wp->sy)
 		return;
-	x -= wp->xoff;
-	y -= wp->yoff;
+	m->x -= wp->xoff;
+	m->y -= wp->yoff;
 
 	if (wp->mode != NULL) {
 		if (wp->mode->mouse != NULL)
-			wp->mode->mouse(wp, c, b, x, y);
-	} else
-		input_mouse(wp, b, x, y);
+			wp->mode->mouse(wp, c, m);
+	} else if (wp->fd != -1)
+		input_mouse(wp, m);
 }
 
 int

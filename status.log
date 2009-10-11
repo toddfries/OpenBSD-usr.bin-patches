@@ -1,42 +1,66 @@
 # On branch master
-# Your branch is ahead of 'origin/master' by 1 commit.
-#
 # Changed but not updated:
-#   (use "git add/rm <file>..." to update what will be committed)
+#   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   at/at.c
+#	modified:   aucat/abuf.c
+#	modified:   aucat/abuf.h
 #	modified:   aucat/aproc.c
 #	modified:   aucat/aproc.h
-#	modified:   aucat/aucat.1
 #	modified:   aucat/aucat.c
-#	modified:   aucat/midicat.1
+#	modified:   aucat/dev.c
+#	modified:   aucat/dev.h
+#	modified:   aucat/midi.c
 #	modified:   aucat/sock.c
-#	modified:   nc/netcat.c
-#	modified:   netstat/inet.c
-#	modified:   netstat/main.c
-#	modified:   netstat/netstat.h
-#	modified:   pmdb/arch/powerpc/powerpc.c
-#	modified:   ssh/readconf.c
-#	modified:   ssh/servconf.c
-#	modified:   ssh/session.c
+#	modified:   ssh/sftp-client.c
+#	modified:   ssh/ssh.1
 #	modified:   ssh/ssh_config.5
-#	modified:   ssh/sshd_config
+#	modified:   ssh/sshd.8
 #	modified:   ssh/sshd_config.5
 #	modified:   status.log
 #	modified:   tmux/Makefile
-#	modified:   tmux/cmd-copy-mode.c
-#	deleted:    tmux/cmd-scroll-mode.c
+#	modified:   tmux/buffer-poll.c
+#	modified:   tmux/cmd-break-pane.c
+#	modified:   tmux/cmd-choose-session.c
+#	modified:   tmux/cmd-choose-window.c
+#	modified:   tmux/cmd-display-message.c
+#	modified:   tmux/cmd-if-shell.c
+#	modified:   tmux/cmd-kill-session.c
+#	modified:   tmux/cmd-link-window.c
+#	modified:   tmux/cmd-list-sessions.c
+#	modified:   tmux/cmd-list-windows.c
+#	modified:   tmux/cmd-move-window.c
+#	modified:   tmux/cmd-new-session.c
+#	modified:   tmux/cmd-new-window.c
+#	modified:   tmux/cmd-rename-window.c
+#	modified:   tmux/cmd-run-shell.c
+#	modified:   tmux/cmd-set-option.c
+#	modified:   tmux/cmd-set-window-option.c
+#	modified:   tmux/cmd-swap-window.c
+#	modified:   tmux/cmd-unlink-window.c
 #	modified:   tmux/cmd.c
-#	modified:   tmux/key-bindings.c
-#	modified:   tmux/key-string.c
-#	modified:   tmux/mode-key.c
+#	modified:   tmux/input-keys.c
+#	modified:   tmux/names.c
 #	modified:   tmux/server-fn.c
+#	modified:   tmux/server-msg.c
 #	modified:   tmux/server.c
+#	modified:   tmux/session.c
+#	modified:   tmux/status.c
 #	modified:   tmux/tmux.1
+#	modified:   tmux/tmux.c
 #	modified:   tmux/tmux.h
+#	modified:   tmux/tty-keys.c
+#	modified:   tmux/tty.c
+#	modified:   tmux/window-choose.c
 #	modified:   tmux/window-copy.c
-#	deleted:    tmux/window-scroll.c
+#	modified:   tmux/window.c
 #	modified:   up.log
+#	modified:   vacation/vacation.c
 #
+# Untracked files:
+#   (use "git add <file>..." to include in what will be committed)
+#
+#	tmux/cmd-list-panes.c
+#	tmux/cmd-pipe-pane.c
+#	tmux/job.c
 no changes added to commit (use "git add" and/or "git commit -a")
