@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.37 2009/10/10 10:36:46 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.48 2009/10/13 08:37:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -21,6 +21,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <termios.h>
 #include <unistd.h>
@@ -326,9 +327,10 @@ tty_putc(struct tty *tty, u_char ch)
 		if (tty->term->flags & TERM_EARLYWRAP)
 			sx--;
 
-		if (tty->cx == sx) {
-			tty->cx = 0;
-			tty->cy++;
+		if (tty->cx >= sx) {
+			tty->cx = 1;
+			if (tty->cy != tty->rlower)
+				tty->cy++;
 		} else
 			tty->cx++;
 	}
@@ -439,6 +441,7 @@ void
 tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 {
 	const struct grid_cell	*gc;
+	struct grid_line	*gl;
 	struct grid_cell	 tmpgc;
 	const struct grid_utf8	*gu;
 	u_int			 i, sx;
@@ -451,7 +454,18 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 	if (sx > tty->sx)
 		sx = tty->sx;
 
-	tty_cursor(tty, 0, py, ox, oy);
+	/*
+	 * Don't move the cursor to the start permission if it will wrap there
+	 * itself; much the same as the conditions in tty_cmd_cell.
+	 */
+	gl = NULL;
+	if (py != 0)
+		gl = &s->grid->linedata[s->grid->hsize + py - 1];
+	if (oy + py == 0 || (gl != NULL && !(gl->flags & GRID_LINE_WRAPPED)) ||
+	    tty->cx < tty->sx || ox != 0 ||
+	    (oy + py != tty->cy + 1 && tty->cy != s->rlower + oy))
+		tty_cursor(tty, ox, oy + py);
+
 	for (i = 0; i < sx; i++) {
 		gc = grid_view_peek_cell(s->grid, i, py);
 
@@ -462,8 +476,10 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 		if (screen_check_selection(s, i, py)) {
 			memcpy(&tmpgc, &s->sel.cell, sizeof tmpgc);
 			tmpgc.data = gc->data;
-			tmpgc.flags = gc->flags & ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
-			tmpgc.flags |= s->sel.cell.flags & (GRID_FLAG_FG256|GRID_FLAG_BG256);
+			tmpgc.flags = gc->flags & 
+			    ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
+			tmpgc.flags |= s->sel.cell.flags &
+			    (GRID_FLAG_FG256|GRID_FLAG_BG256);
 			tty_cell(tty, &tmpgc, gu);
 		} else
 			tty_cell(tty, gc, gu);
@@ -475,7 +491,7 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 	}
 	tty_reset(tty);
 
-	tty_cursor(tty, sx, py, ox, oy);
+	tty_cursor(tty, ox + sx, oy + py);
 	if (screen_size_x(s) >= tty->sx && tty_term_has(tty->term, TTYC_EL))
 		tty_putcode(tty, TTYC_EL);
 	else {
@@ -530,7 +546,8 @@ tty_cmd_insertcharacter(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
- 	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+ 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+
 	if (tty_term_has(tty->term, TTYC_ICH) ||
 	    tty_term_has(tty->term, TTYC_ICH1))
 		tty_emulate_repeat(tty, TTYC_ICH, TTYC_ICH1, ctx->num);
@@ -557,7 +574,8 @@ tty_cmd_deletecharacter(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
- 	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+ 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+
 	if (tty_term_has(tty->term, TTYC_DCH) ||
 	    tty_term_has(tty->term, TTYC_DCH1))
 		tty_emulate_repeat(tty, TTYC_DCH, TTYC_DCH1, ctx->num);
@@ -577,9 +595,9 @@ tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
- 	tty_region(tty, ctx->orupper, ctx->orlower, wp->yoff);
+ 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+ 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
- 	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
 	tty_emulate_repeat(tty, TTYC_IL, TTYC_IL1, ctx->num);
 }
 
@@ -597,9 +615,9 @@ tty_cmd_deleteline(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
- 	tty_region(tty, ctx->orupper, ctx->orlower, wp->yoff);
+ 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+ 	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
- 	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
 	tty_emulate_repeat(tty, TTYC_DL, TTYC_DL1, ctx->num);
 }
 
@@ -612,7 +630,8 @@ tty_cmd_clearline(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
- 	tty_cursor(tty, 0, ctx->ocy, wp->xoff, wp->yoff);
+ 	tty_cursor_pane(tty, ctx, 0, ctx->ocy);
+
 	if (wp->xoff == 0 && screen_size_x(s) >= tty->sx &&
 	    tty_term_has(tty->term, TTYC_EL)) {
 		tty_putcode(tty, TTYC_EL);
@@ -631,7 +650,8 @@ tty_cmd_clearendofline(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
-	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+
 	if (wp->xoff == 0 && screen_size_x(s) >= tty->sx &&
 	    tty_term_has(tty->term, TTYC_EL))
 		tty_putcode(tty, TTYC_EL);
@@ -650,10 +670,10 @@ tty_cmd_clearstartofline(struct tty *tty, const struct tty_ctx *ctx)
 	tty_reset(tty);
 
 	if (wp->xoff == 0 && tty_term_has(tty->term, TTYC_EL1)) {
-		tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 		tty_putcode(tty, TTYC_EL1);
 	} else {
-		tty_cursor(tty, 0, ctx->ocy, wp->xoff, wp->yoff);
+		tty_cursor_pane(tty, ctx, 0, ctx->ocy);
 		for (i = 0; i < ctx->ocx + 1; i++)
 			tty_putc(tty, ' ');
 	}
@@ -671,12 +691,12 @@ tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
 		return;
 	}
 
-	tty_reset(tty);
-
- 	tty_region(tty, ctx->orupper, ctx->orlower, wp->yoff);
-
 	if (ctx->ocy == ctx->orupper) {
-		tty_cursor(tty, ctx->ocx, ctx->orupper, wp->xoff, wp->yoff);
+		tty_reset(tty);
+
+		tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->orupper);
+
 		tty_putcode(tty, TTYC_RI);
 	}
 }
@@ -693,11 +713,12 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 		return;
 	}
 
-
 	if (ctx->ocy == ctx->orlower) {
 		tty_reset(tty);
-		tty_region(tty, ctx->orupper, ctx->orlower, wp->yoff);
-		tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+
+		tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+
 		tty_putc(tty, '\n');
 	}
 }
@@ -711,13 +732,14 @@ tty_cmd_clearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
-	tty_region(tty, 0, screen_size_y(s) - 1, wp->yoff);
-	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+	tty_region_pane(tty, ctx, 0, screen_size_y(s) - 1);
+	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+
 	if (wp->xoff == 0 && screen_size_x(s) >= tty->sx &&
 	    tty_term_has(tty->term, TTYC_EL)) {
 		tty_putcode(tty, TTYC_EL);
 		if (ctx->ocy != screen_size_y(s) - 1) {
-			tty_cursor(tty, 0, ctx->ocy + 1, wp->xoff, wp->yoff);
+			tty_cursor_pane(tty, ctx, 0, ctx->ocy + 1);
 			for (i = ctx->ocy + 1; i < screen_size_y(s); i++) {
 				tty_putcode(tty, TTYC_EL);
 				if (i == screen_size_y(s) - 1)
@@ -730,7 +752,7 @@ tty_cmd_clearendofscreen(struct tty *tty, const struct tty_ctx *ctx)
 		for (i = ctx->ocx; i < screen_size_x(s); i++)
 			tty_putc(tty, ' ');
 		for (j = ctx->ocy; j < screen_size_y(s); j++) {
-			tty_cursor(tty, 0, j, wp->xoff, wp->yoff);
+			tty_cursor_pane(tty, ctx, 0, j);
 			for (i = 0; i < screen_size_x(s); i++)
 				tty_putc(tty, ' ');
 		}
@@ -746,8 +768,9 @@ tty_cmd_clearstartofscreen(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
-	tty_region(tty, 0, screen_size_y(s) - 1, wp->yoff);
-	tty_cursor(tty, 0, 0, wp->xoff, wp->yoff);
+	tty_region_pane(tty, ctx, 0, screen_size_y(s) - 1);
+	tty_cursor_pane(tty, ctx, 0, 0);
+
 	if (wp->xoff == 0 && screen_size_x(s) >= tty->sx &&
 	    tty_term_has(tty->term, TTYC_EL)) {
 		for (i = 0; i < ctx->ocy; i++) {
@@ -757,7 +780,7 @@ tty_cmd_clearstartofscreen(struct tty *tty, const struct tty_ctx *ctx)
 		}
 	} else {
 		for (j = 0; j < ctx->ocy; j++) {
-			tty_cursor(tty, 0, j, wp->xoff, wp->yoff);
+			tty_cursor_pane(tty, ctx, 0, j);
 			for (i = 0; i < screen_size_x(s); i++)
 				tty_putc(tty, ' ');
 		}
@@ -775,8 +798,9 @@ tty_cmd_clearscreen(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
-	tty_region(tty, 0, screen_size_y(s) - 1, wp->yoff);
-	tty_cursor(tty, 0, 0, wp->xoff, wp->yoff);
+	tty_region_pane(tty, ctx, 0, screen_size_y(s) - 1);
+	tty_cursor_pane(tty, ctx, 0, 0);
+
 	if (wp->xoff == 0 && screen_size_x(s) >= tty->sx &&
 	    tty_term_has(tty->term, TTYC_EL)) {
 		for (i = 0; i < screen_size_y(s); i++) {
@@ -788,7 +812,7 @@ tty_cmd_clearscreen(struct tty *tty, const struct tty_ctx *ctx)
 		}
 	} else {
 		for (j = 0; j < screen_size_y(s); j++) {
-			tty_cursor(tty, 0, j, wp->xoff, wp->yoff);
+			tty_cursor_pane(tty, ctx, 0, j);
 			for (i = 0; i < screen_size_x(s); i++)
 				tty_putc(tty, ' ');
 		}
@@ -804,10 +828,10 @@ tty_cmd_alignmenttest(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_reset(tty);
 
-	tty_region(tty, 0, screen_size_y(s) - 1, wp->yoff);
+	tty_region_pane(tty, ctx, 0, screen_size_y(s) - 1);
 
 	for (j = 0; j < screen_size_y(s); j++) {
-		tty_cursor(tty, 0, j, wp->xoff, wp->yoff);
+		tty_cursor_pane(tty, ctx, 0, j);
 		for (i = 0; i < screen_size_x(s); i++)
 			tty_putc(tty, 'E');
 	}
@@ -817,8 +841,35 @@ void
 tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
+	struct screen		*s = wp->screen;
+	struct grid_line	*gl;
+	u_int			 wx, wy;
 
-	tty_cursor(tty, ctx->ocx, ctx->ocy, wp->xoff, wp->yoff);
+	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+
+	wx = ctx->ocx + wp->xoff;
+	wy = ctx->ocy + wp->yoff;
+
+	/*
+	 * If:
+	 * 
+	 * - the line was wrapped:
+	 * - the cursor is beyond the edge of the screen,
+	 * - the desired position is at the left,
+	 * - and either a) the desired next line is the one below the current
+	 *   or b) the current line is the bottom of the scroll region,
+	 *
+	 * Then just printing the next character will be enough to scroll into
+	 * place, so don't do an explicit cursor move.
+	 */
+	gl = NULL;
+	if (ctx->ocy != 0)
+		gl = &s->grid->linedata[s->grid->hsize + ctx->ocy - 1];
+	if (wy == 0 || (gl != NULL && !(gl->flags & GRID_LINE_WRAPPED)) ||
+	    tty->cx < tty->sx ||	/* not at edge of screen */
+	    wx != 0 ||			/* don't want 0 next */
+	    (wy != tty->cy + 1 && tty->cy != ctx->orlower + wp->yoff))
+		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
 
 	tty_cell(tty, ctx->cell, ctx->utf8);
 }
@@ -887,31 +938,168 @@ tty_reset(struct tty *tty)
 	memcpy(gc, &grid_default_cell, sizeof *gc);
 }
 
+/* Set region inside pane. */
 void
-tty_region(struct tty *tty, u_int rupper, u_int rlower, u_int oy)
+tty_region_pane(
+    struct tty *tty, const struct tty_ctx *ctx, u_int rupper, u_int rlower)
 {
-	if (!tty_term_has(tty->term, TTYC_CSR))
-		return;
-	if (tty->rlower != oy + rlower || tty->rupper != oy + rupper) {
-		tty->rlower = oy + rlower;
-		tty->rupper = oy + rupper;
-		tty->cx = 0;
-	 	tty->cy = 0;
-		tty_putcode2(tty, TTYC_CSR, tty->rupper, tty->rlower);
-	}
+  	struct window_pane	*wp = ctx->wp;
+
+	tty_region(tty, wp->yoff + rupper, wp->yoff + rlower);
 }
 
+/* Set region at absolute position. */
 void
-tty_cursor(struct tty *tty, u_int cx, u_int cy, u_int ox, u_int oy)
+tty_region(struct tty *tty, u_int rupper, u_int rlower)
 {
-	if (ox + cx == 0 && tty->cx != 0 && tty->cy == oy + cy) {
-		tty->cx = 0;
-		tty_putc(tty, '\r');
-	} else if (tty->cx != ox + cx || tty->cy != oy + cy) {
-		tty->cx = ox + cx;
-		tty->cy = oy + cy;
-		tty_putcode2(tty, TTYC_CUP, tty->cy, tty->cx);
+	if (tty->rlower == rlower && tty->rupper == rupper)
+		return;
+	if (!tty_term_has(tty->term, TTYC_CSR))
+		return;
+
+	tty->rupper = rupper;
+	tty->rlower = rlower;
+
+	tty->cx = 0;
+	tty->cy = 0;
+
+	tty_putcode2(tty, TTYC_CSR, tty->rupper, tty->rlower);
+}
+
+/* Move cursor inside pane. */
+void
+tty_cursor_pane(struct tty *tty, const struct tty_ctx *ctx, u_int cx, u_int cy)
+{
+  	struct window_pane	*wp = ctx->wp;
+
+	tty_cursor(tty, wp->xoff + cx, wp->yoff + cy);
+}
+
+/* Move cursor to absolute position. */
+void
+tty_cursor(struct tty *tty, u_int cx, u_int cy)
+{
+	struct tty_term	*term = tty->term;
+	u_int		 thisx, thisy;
+	int		 change;
+	
+	if (cx > tty->sx - 1)
+		cx = tty->sx - 1;
+
+	thisx = tty->cx;
+	thisy = tty->cy;
+
+	/* No change. */
+	if (cx == thisx && cy == thisy)
+		return;
+
+	/* Very end of the line, just use absolute movement. */
+	if (thisx > tty->sx - 1)
+		goto absolute;
+
+	/* Move to home position (0, 0). */
+	if (cx == 0 && cy == 0 && tty_term_has(term, TTYC_HOME)) {
+		tty_putcode(tty, TTYC_HOME);
+		goto out;
 	}
+
+	/* Zero on the next line. */
+	if (cx == 0 && cy == thisy + 1 && thisy != tty->rlower) {
+		tty_putc(tty, '\r');
+		tty_putc(tty, '\n');
+		goto out;
+	}
+
+	/* Moving column or row. */
+	if (cy == thisy) {
+		/*
+		 * Moving column only, row staying the same.
+		 */
+
+		/* To left edge. */
+		if (cx == 0)	{
+			tty_putc(tty, '\r');
+			goto out;
+		}
+
+		/* One to the left. */
+		if (cx == thisx - 1 && tty_term_has(term, TTYC_CUB1)) {
+			tty_putcode(tty, TTYC_CUB1);
+			goto out;
+		}
+
+		/* One to the right. */
+		if (cx == thisx + 1 && tty_term_has(term, TTYC_CUF1)) {
+			tty_putcode(tty, TTYC_CUF1);
+			goto out;
+		}
+
+		/* Calculate difference. */
+		change = thisx - cx;	/* +ve left, -ve right */
+
+		/*
+		 * Use HPA if change is larger than absolute, otherwise move
+		 * the cursor with CUB/CUF.
+		 */
+		if (abs(change) > cx && tty_term_has(term, TTYC_HPA)) {
+			tty_putcode1(tty, TTYC_HPA, cx);
+			goto out;
+		} else if (change > 0 && tty_term_has(term, TTYC_CUB)) {
+			tty_putcode1(tty, TTYC_CUB, change);
+			goto out;
+		} else if (change < 0 && tty_term_has(term, TTYC_CUF)) {
+			tty_putcode1(tty, TTYC_CUF, -change);
+			goto out;
+		}
+	} else if (cx == thisx) {
+		/*
+		 * Moving row only, column staying the same.
+		 */
+
+		/* One above. */
+		if (cy != tty->rupper && 
+		    cy == thisy - 1 && tty_term_has(term, TTYC_CUU1)) {
+			tty_putcode(tty, TTYC_CUU1);
+			goto out;
+		}
+
+		/* One below. */
+		if (cy != tty->rlower &&
+		    cy == thisy + 1 && tty_term_has(term, TTYC_CUD1)) {
+			tty_putcode(tty, TTYC_CUD1);
+			goto out;
+		}
+
+		/* Calculate difference. */
+		change = thisy - cy;	/* +ve up, -ve down */
+
+		/*
+		 * Try to use VPA if change is larger than absolute or if this change
+		 * would cross the scroll region, otherwise use CUU/CUD.
+		 */
+		if (abs(change) > cy ||
+		    (change < 0 && cy - change > tty->rlower) ||
+		    (change > 0 && cy - change < tty->rupper)) {
+			    if (tty_term_has(term, TTYC_VPA)) {
+				    tty_putcode1(tty, TTYC_VPA, cy);
+				    goto out;
+			    }
+		} else if (change > 0 && tty_term_has(term, TTYC_CUU)) {
+			tty_putcode1(tty, TTYC_CUU, change);
+			goto out;
+		} else if (change < 0 && tty_term_has(term, TTYC_CUD)) {
+			tty_putcode1(tty, TTYC_CUD, -change);
+			goto out;
+		}
+	}
+
+absolute:
+	/* Absolute movement. */
+	tty_putcode2(tty, TTYC_CUP, cy, cx);
+
+out:
+	tty->cx = cx;
+	tty->cy = cy;
 }
 
 void

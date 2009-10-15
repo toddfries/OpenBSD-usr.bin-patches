@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.131 2009/10/11 10:04:27 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.139 2009/10/13 15:38:37 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -195,9 +195,15 @@ enum tty_code_code {
 	TTYC_CNORM,	/* cursor_normal, ve */
 	TTYC_COLORS,	/* max_colors, Co */
 	TTYC_CSR,	/* change_scroll_region, cs */
+	TTYC_CUB,	/* parm_left_cursor, LE */
+	TTYC_CUB1,	/* cursor_left, le */
 	TTYC_CUD,	/* parm_down_cursor, DO */
 	TTYC_CUD1,	/* cursor_down, do */
+	TTYC_CUF,	/* parm_right_cursor, RI */
+	TTYC_CUF1,	/* cursor_right, nd */
 	TTYC_CUP,	/* cursor_address, cm */
+	TTYC_CUU,	/* parm_up_cursor, UP */
+	TTYC_CUU1,	/* cursor_up, up */
 	TTYC_DCH,	/* parm_dch, DC */
 	TTYC_DCH1,	/* delete_character, dc */
 	TTYC_DIM,	/* enter_dim_mode, mh */
@@ -206,6 +212,8 @@ enum tty_code_code {
 	TTYC_EL,	/* clr_eol, ce */
 	TTYC_EL1,	/* clr_bol, cb */
 	TTYC_ENACS,	/* ena_acs, eA */
+	TTYC_HOME,	/* cursor_home, ho */
+	TTYC_HPA,	/* column_address, ch */
 	TTYC_ICH,	/* parm_ich, IC */
 	TTYC_ICH1,	/* insert_character, ic */
 	TTYC_IL,	/* parm_insert_line, IL */
@@ -232,8 +240,8 @@ enum tty_code_code {
 	TTYC_KF17,	/* key_f17, F7 */
 	TTYC_KF18,	/* key_f18, F8 */
 	TTYC_KF19,	/* key_f19, F9 */
-	TTYC_KF20,	/* key_f20, F10 */
 	TTYC_KF2,	/* key_f2, k2 */
+	TTYC_KF20,	/* key_f20, F10 */
 	TTYC_KF3,	/* key_f3, k3 */
 	TTYC_KF4,	/* key_f4, k4 */
 	TTYC_KF5,	/* key_f5, k5 */
@@ -262,6 +270,7 @@ enum tty_code_code {
 	TTYC_SMKX,	/* keypad_xmit, ks */
 	TTYC_SMSO,	/* enter_standout_mode, so */
 	TTYC_SMUL,	/* enter_underline_mode, us */
+	TTYC_VPA,	/* row_address, cv */
 	TTYC_XENL,	/* eat_newline_glitch, xn */
 };
 #define NTTYCODE (TTYC_XENL + 1)
@@ -388,6 +397,7 @@ enum mode_key_cmd {
 
 	/* Copy keys. */
 	MODEKEYCOPY_BACKTOINDENTATION,
+	MODEKEYCOPY_BOTTOMLINE,
 	MODEKEYCOPY_CANCEL,
 	MODEKEYCOPY_CLEARSELECTION,
 	MODEKEYCOPY_COPYSELECTION,
@@ -397,6 +407,7 @@ enum mode_key_cmd {
 	MODEKEYCOPY_HALFPAGEDOWN,
 	MODEKEYCOPY_HALFPAGEUP,
 	MODEKEYCOPY_LEFT,
+	MODEKEYCOPY_MIDDLELINE,
 	MODEKEYCOPY_NEXTPAGE,
 	MODEKEYCOPY_NEXTWORD,
 	MODEKEYCOPY_PREVIOUSPAGE,
@@ -409,6 +420,7 @@ enum mode_key_cmd {
 	MODEKEYCOPY_SEARCHUP,
 	MODEKEYCOPY_STARTOFLINE,
 	MODEKEYCOPY_STARTSELECTION,
+	MODEKEYCOPY_TOPLINE,
 	MODEKEYCOPY_UP,
 };
 
@@ -1247,8 +1259,10 @@ void	tty_raw(struct tty *, const char *);
 u_char	tty_get_acs(struct tty *, u_char);
 void	tty_attributes(struct tty *, const struct grid_cell *);
 void	tty_reset(struct tty *);
-void	tty_region(struct tty *, u_int, u_int, u_int);
-void	tty_cursor(struct tty *, u_int, u_int, u_int, u_int);
+void	tty_region_pane(struct tty *, const struct tty_ctx *, u_int, u_int);
+void	tty_region(struct tty *, u_int, u_int);
+void	tty_cursor_pane(struct tty *, const struct tty_ctx *, u_int, u_int);
+void	tty_cursor(struct tty *, u_int, u_int);
 void	tty_putcode(struct tty *, enum tty_code_code);
 void	tty_putcode1(struct tty *, enum tty_code_code, int);
 void	tty_putcode2(struct tty *, enum tty_code_code, int, int);
@@ -1578,9 +1592,11 @@ extern const struct grid_cell grid_default_cell;
 struct grid *grid_create(u_int, u_int, u_int);
 void	 grid_destroy(struct grid *);
 int	 grid_compare(struct grid *, struct grid *);
+void	 grid_collect_history(struct grid *);
+void	 grid_scroll_history(struct grid *);
+void	 grid_scroll_history_region(struct grid *, u_int, u_int);
 void	 grid_expand_line(struct grid *, u_int, u_int);
 void	 grid_expand_line_utf8(struct grid *, u_int, u_int);
-void	 grid_scroll_line(struct grid *);
 const struct grid_cell *grid_peek_cell(struct grid *, u_int, u_int);
 struct grid_cell *grid_get_cell(struct grid *, u_int, u_int);
 void	 grid_set_cell(struct grid *, u_int, u_int, const struct grid_cell *);
@@ -1635,6 +1651,7 @@ void	 screen_write_putc(
     	     struct screen_write_ctx *, struct grid_cell *, u_char);
 void	 screen_write_copy(struct screen_write_ctx *,
 	     struct screen *, u_int, u_int, u_int, u_int);
+void	 screen_write_backspace(struct screen_write_ctx *);
 void	 screen_write_cursorup(struct screen_write_ctx *, u_int);
 void	 screen_write_cursordown(struct screen_write_ctx *, u_int);
 void	 screen_write_cursorright(struct screen_write_ctx *, u_int);
@@ -1654,6 +1671,7 @@ void	 screen_write_scrollregion(struct screen_write_ctx *, u_int, u_int);
 void	 screen_write_insertmode(struct screen_write_ctx *, int);
 void	 screen_write_mousemode(struct screen_write_ctx *, int);
 void	 screen_write_linefeed(struct screen_write_ctx *, int);
+void	 screen_write_linefeedscreen(struct screen_write_ctx *, int);
 void	 screen_write_carriagereturn(struct screen_write_ctx *);
 void	 screen_write_kcursormode(struct screen_write_ctx *, int);
 void	 screen_write_kkeypadmode(struct screen_write_ctx *, int);

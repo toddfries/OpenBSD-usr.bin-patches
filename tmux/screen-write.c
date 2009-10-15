@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.26 2009/09/15 15:14:09 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.30 2009/10/12 17:19:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -347,6 +347,10 @@ screen_write_parsestyle(
 					bg = defgc->bg;
 			} else
 				return;
+		} else if (end > 2 && strncasecmp(tmp, "no", 2) == 0) {
+			if ((val = attributes_fromstring(tmp + 2)) == -1)
+				return;
+			attr &= ~val;
 		} else {
 			if ((val = attributes_fromstring(tmp)) == -1)
 				return;
@@ -509,6 +513,25 @@ screen_write_cursorleft(struct screen_write_ctx *ctx, u_int nx)
 	s->cx -= nx;
 }
 
+/* Backspace; cursor left unless at start of wrapped line when can move up. */
+void
+screen_write_backspace(struct screen_write_ctx *ctx)
+{
+	struct screen		*s = ctx->s;
+	struct grid_line	*gl;
+
+	if (s->cx == 0) {
+		if (s->cy == 0)
+			return;
+		gl = &s->grid->linedata[s->grid->hsize + s->cy - 1];
+		if (gl->flags & GRID_LINE_WRAPPED) {
+			s->cy--;
+			s->cx = screen_size_x(s) - 1;
+		}
+	} else
+		s->cx--;
+}
+
 /* VT100 alignment test. */
 void
 screen_write_alignmenttest(struct screen_write_ctx *ctx)
@@ -532,6 +555,7 @@ screen_write_alignmenttest(struct screen_write_ctx *ctx)
 	s->cy = 0;
 
 	s->rupper = 0;
+
 	s->rlower = screen_size_y(s) - 1;
 
 	tty_write(tty_cmd_alignmenttest, &ttyctx);
@@ -809,15 +833,15 @@ screen_write_mousemode(struct screen_write_ctx *ctx, int state)
 		s->mode &= ~MODE_MOUSE;
 }
 
-/* Line feed (down with scroll). */
+/*
+ * Line feed the screen only (don't update the tty). Used for printing single
+ * characters, where might want to let the scroll happen naturally.
+ */
 void
-screen_write_linefeed(struct screen_write_ctx *ctx, int wrapped)
+screen_write_linefeedscreen(struct screen_write_ctx *ctx, int wrapped)
 {
 	struct screen		*s = ctx->s;
 	struct grid_line	*gl;
-	struct tty_ctx		 ttyctx;
-
-	screen_write_initctx(ctx, &ttyctx);
 
 	gl = &s->grid->linedata[s->grid->hsize + s->cy];
 	if (wrapped)
@@ -829,6 +853,17 @@ screen_write_linefeed(struct screen_write_ctx *ctx, int wrapped)
 		grid_view_scroll_region_up(s->grid, s->rupper, s->rlower);
 	else if (s->cy < screen_size_y(s) - 1)
 		s->cy++;
+}
+
+/* Line feed (down with scroll). */
+void
+screen_write_linefeed(struct screen_write_ctx *ctx, int wrapped)
+{
+	struct tty_ctx	 ttyctx;
+
+	screen_write_initctx(ctx, &ttyctx);
+
+	screen_write_linefeedscreen(ctx, wrapped);
 
  	tty_write(tty_cmd_linefeed, &ttyctx);
 }
@@ -928,6 +963,7 @@ screen_write_cell(
     struct screen_write_ctx *ctx, const struct grid_cell *gc, u_char *udata)
 {
 	struct screen		*s = ctx->s;
+	struct window_pane	*wp = ctx->wp;
 	struct grid		*gd = s->grid;
 	struct tty_ctx		 ttyctx;
 	struct grid_utf8	 gu, *tmp_gu;
@@ -992,8 +1028,16 @@ screen_write_cell(
 
 	/* Check this will fit on the current line and wrap if not. */
 	if (s->cx > screen_size_x(s) - width) {
-		screen_write_carriagereturn(ctx);
-		screen_write_linefeed(ctx, 1);
+		/* 
+		 * Don't update the terminal now, just update the screen and
+		 * leave the cursor to scroll naturally, unless this is only
+		 * part of the screen width.
+		 */
+		if (wp->xoff != 0 || wp->sx != screen_size_x(s))
+			screen_write_linefeed(ctx, 1);
+		else
+			screen_write_linefeedscreen(ctx, 1);
+		s->cx = 0;	/* carriage return */
 	}
 
 	/* Sanity checks. */
@@ -1031,8 +1075,10 @@ screen_write_cell(
 	if (screen_check_selection(s, s->cx - width, s->cy)) {
 		memcpy(&tmp_gc2, &s->sel.cell, sizeof tmp_gc2);
 		tmp_gc2.data = gc->data;
-		tmp_gc2.flags = gc->flags & ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
-		tmp_gc2.flags |= s->sel.cell.flags & (GRID_FLAG_FG256|GRID_FLAG_BG256);
+		tmp_gc2.flags = gc->flags &
+		    ~(GRID_FLAG_FG256|GRID_FLAG_BG256);
+		tmp_gc2.flags |= s->sel.cell.flags &
+		    (GRID_FLAG_FG256|GRID_FLAG_BG256);
 		ttyctx.cell = &tmp_gc2;
 		tty_write(tty_cmd_cell, &ttyctx);
 	} else {

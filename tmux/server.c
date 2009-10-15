@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.55 2009/10/11 10:04:27 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.59 2009/10/13 06:14:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1050,12 +1050,13 @@ server_handle_client(struct client *c)
 	 * tty_region/tty_reset/tty_update_mode already take care of not
 	 * resetting things that are already in their default state.
 	 */
+	tty_region(&c->tty, 0, c->tty.sy - 1);
+
 	status = options_get_number(oo, "status");
-	tty_region(&c->tty, 0, c->tty.sy - 1, 0);
 	if (!window_pane_visible(wp) || wp->yoff + s->cy >= c->tty.sy - status)
-		tty_cursor(&c->tty, 0, 0, 0, 0);
+		tty_cursor(&c->tty, 0, 0);
 	else
-		tty_cursor(&c->tty, s->cx, s->cy, wp->xoff, wp->yoff);
+		tty_cursor(&c->tty, wp->xoff + s->cx, wp->yoff + s->cy);
 
 	mode = s->mode;
 	if (TAILQ_NEXT(TAILQ_FIRST(&w->panes), entry) != NULL &&
@@ -1376,6 +1377,11 @@ server_lock_server(void)
 		if ((s = ARRAY_ITEM(&sessions, i)) == NULL)
 			continue;
 
+		if (s->flags & SESSION_UNATTACHED) {
+			s->activity = time(NULL);
+			continue;
+		}
+
 		timeout = options_get_number(&s->options, "lock-after-time");
 		if (timeout <= 0 || t <= s->activity + timeout)
 			return;	/* not timed out */
@@ -1398,6 +1404,11 @@ server_lock_sessions(void)
         for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
 		if ((s = ARRAY_ITEM(&sessions, i)) == NULL)
 			continue;
+
+		if (s->flags & SESSION_UNATTACHED) {
+			s->activity = time(NULL);
+			continue;
+		}
 
 		timeout = options_get_number(&s->options, "lock-after-time");
 		if (timeout > 0 && t > s->activity + timeout) {
