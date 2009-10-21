@@ -1,17 +1,45 @@
 # On branch master
 # Changed but not updated:
-#   (use "git add <file>..." to update what will be committed)
+#   (use "git add/rm <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   aucat/amsg.h
-#	modified:   ftp/fetch.c
-#	modified:   login/login.1
+#	modified:   aucat/sock.c
+#	modified:   mandoc/Makefile
+#	deleted:    mandoc/ascii.c
+#	deleted:    mandoc/ascii.in
+#	modified:   mandoc/libmdoc.h
+#	modified:   mandoc/man.3
+#	modified:   mandoc/man.c
+#	modified:   mandoc/man.h
+#	modified:   mandoc/man_hash.c
+#	modified:   mandoc/man_term.c
+#	modified:   mandoc/mandoc_char.7
+#	modified:   mandoc/mdoc.3
+#	modified:   mandoc/mdoc.7
+#	modified:   mandoc/mdoc.c
+#	modified:   mandoc/mdoc_action.c
+#	modified:   mandoc/mdoc_argv.c
+#	modified:   mandoc/mdoc_term.c
+#	modified:   mandoc/mdoc_validate.c
+#	modified:   mandoc/st.in
 #	modified:   mandoc/term.c
-#	modified:   ssh/sftp-server.c
+#	modified:   mandoc/term.h
 #	modified:   status.log
+#	modified:   tmux/input.c
+#	modified:   tmux/job.c
 #	modified:   tmux/screen-write.c
 #	modified:   tmux/tmux.h
 #	modified:   tmux/tty.c
+#	modified:   tmux/utf8.c
+#	modified:   tmux/window-copy.c
+#	modified:   tmux/window.c
 #	modified:   up.log
+#	modified:   vi/docs/USD.doc/vi.man/vi.1
 #
+# Untracked files:
+#   (use "git add <file>..." to include in what will be committed)
+#
+#	mandoc/chars.c
+#	mandoc/chars.h
+#	mandoc/chars.in
 no changes added to commit (use "git add" and/or "git commit -a")

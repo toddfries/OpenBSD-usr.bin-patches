@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.51 2009/10/17 08:35:38 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.55 2009/10/21 09:36:53 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -342,7 +342,7 @@ tty_putc(struct tty *tty, u_char ch)
 void
 tty_pututf8(struct tty *tty, const struct grid_utf8 *gu)
 {
-	u_int	i, width;
+	u_int	i;
 
 	for (i = 0; i < UTF8_SIZE; i++) {
 		if (gu->data[i] == 0xff)
@@ -352,8 +352,7 @@ tty_pututf8(struct tty *tty, const struct grid_utf8 *gu)
 			write(tty->log_fd, &gu->data[i], 1);
 	}
 
-	width = utf8_width(gu->data);
-	tty->cx += width;
+	tty->cx += gu->width;
 }
 
 void
@@ -713,6 +712,14 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 		return;
 	}
 
+	/*
+	 * If this line wrapped naturally (ctx->num is nonzero), don't do
+	 * anything - the cursor can just be moved to the last cell and wrap
+	 * naturally.
+	 */
+	if (ctx->num && !(tty->term->flags & TERM_EARLYWRAP))
+		return;
+
 	if (ctx->ocy == ctx->orlower) {
 		tty_reset(tty);
 
@@ -866,14 +873,13 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 void
 tty_cmd_utf8character(struct tty *tty, const struct tty_ctx *ctx)
 {
-	u_char	*ptr = ctx->ptr;
-	size_t	 i;
+	struct window_pane	*wp = ctx->wp;
 
-	for (i = 0; i < UTF8_SIZE; i++) {
-		if (ptr[i] == 0xff)
-			break;
-		tty_putc(tty, ptr[i]);
-	}
+	/*
+	 * Cannot rely on not being a partial character, so just redraw the
+	 * whole line.
+	 */
+	tty_draw_line(tty, wp->screen, ctx->ocy, wp->xoff, wp->yoff);	
 }
 
 void
@@ -948,6 +954,15 @@ tty_region(struct tty *tty, u_int rupper, u_int rlower)
 
 	tty->rupper = rupper;
 	tty->rlower = rlower;
+
+	/*
+	 * Some terminals (such as PuTTY) do not correctly reset the cursor to
+	 * 0,0 if it is beyond the last column (they do not reset their wrap
+	 * flag so further output causes a line feed). As a workaround, do an
+	 * explicit move to 0 first.
+	 */
+	if (tty->cx >= tty->sx)
+		tty_cursor(tty, 0, tty->cy);
 
 	tty->cx = 0;
 	tty->cy = 0;
