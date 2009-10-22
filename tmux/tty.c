@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.55 2009/10/21 09:36:53 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.58 2009/10/21 19:27:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -684,20 +684,21 @@ tty_cmd_reverseindex(struct tty *tty, const struct tty_ctx *ctx)
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
 
+	if (ctx->ocy != ctx->orupper)
+		return;
+
  	if (wp->xoff != 0 || screen_size_x(s) < tty->sx ||
 	    !tty_term_has(tty->term, TTYC_CSR)) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
 
-	if (ctx->ocy == ctx->orupper) {
-		tty_reset(tty);
-
-		tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
-		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->orupper);
-
-		tty_putcode(tty, TTYC_RI);
-	}
+	tty_reset(tty);
+	
+	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->orupper);
+	
+	tty_putcode(tty, TTYC_RI);
 }
 
 void
@@ -705,6 +706,9 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 {
   	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
+
+	if (ctx->ocy != ctx->orlower)
+		return;
 
  	if (wp->xoff != 0 || screen_size_x(s) < tty->sx ||
 	    !tty_term_has(tty->term, TTYC_CSR)) {
@@ -720,14 +724,12 @@ tty_cmd_linefeed(struct tty *tty, const struct tty_ctx *ctx)
 	if (ctx->num && !(tty->term->flags & TERM_EARLYWRAP))
 		return;
 
-	if (ctx->ocy == ctx->orlower) {
-		tty_reset(tty);
-
-		tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
-		tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
-
-		tty_putc(tty, '\n');
-	}
+	tty_reset(tty);
+	
+	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
+	tty_cursor_pane(tty, ctx, ctx->ocx, ctx->ocy);
+	
+	tty_putc(tty, '\n');
 }
 
 void
@@ -853,13 +855,20 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 
-	/*
-	 * Should the cursor be in the last cursor position ready for a natural
-	 * wrap? If so - and it isn't - move to and rewrite the last cell.
-	 */
-	if (!(tty->term->flags & TERM_EARLYWRAP) &&
-	    ctx->ocx + wp->xoff > tty->sx - ctx->last_width) {
-		if (tty->cx < tty->sx) {
+	/* Is the cursor in the very last position? */
+	if (ctx->ocx > wp->sx - ctx->last_width) {
+		if (wp->xoff != 0 || wp->sx != tty->sx) {
+			/*
+			 * The pane doesn't fill the entire line, the linefeed
+			 * will already have happened, so just move the cursor.
+			 */
+			tty_cursor_pane(tty, ctx, 0, ctx->ocy + 1);
+		} else if (tty->cx < tty->sx) {
+			/*
+			 * The cursor isn't in the last position already, so
+			 * move as far left as possinble and redraw the last
+			 * cell to move into the last position.
+			 */
 			cx = screen_size_x(s) - ctx->last_width;
 			tty_cursor_pane(tty, ctx, cx, ctx->ocy);
 			tty_cell(tty, &ctx->last_cell, &ctx->last_utf8);
