@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.146 2009/10/22 19:41:51 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.152 2009/10/28 22:53:14 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -64,6 +64,9 @@ extern char   **environ;
 
 /* Maximum poll timeout (when attached). */
 #define POLL_TIMEOUT 50
+
+/* Maximum data to buffer for output before suspending reading from panes. */
+#define BACKOFF_THRESHOLD 1024
 
 /*
  * Maximum sizes of strings in message data. Don't forget to bump
@@ -163,23 +166,23 @@ enum key_code {
 	KEYC_LEFT,
 	KEYC_RIGHT,
 
-	/* Numeric keypad. Numbered from top-left, KPY_X. */
-	KEYC_KP0_1,
-	KEYC_KP0_2,
-	KEYC_KP0_3,
-	KEYC_KP1_0,
-	KEYC_KP1_1,
-	KEYC_KP1_2,
-	KEYC_KP1_3,
-	KEYC_KP2_0,
-	KEYC_KP2_1,
-	KEYC_KP2_2,
-	KEYC_KP3_0,
-	KEYC_KP3_1,
-	KEYC_KP3_2,
-	KEYC_KP3_3,
-	KEYC_KP4_0,
-	KEYC_KP4_2,
+	/* Numeric keypad. */
+	KEYC_KP_SLASH,
+	KEYC_KP_STAR,
+	KEYC_KP_MINUS,
+	KEYC_KP_SEVEN,
+	KEYC_KP_EIGHT,
+	KEYC_KP_NINE,
+	KEYC_KP_PLUS,
+	KEYC_KP_FOUR,
+	KEYC_KP_FIVE,
+	KEYC_KP_SIX,
+	KEYC_KP_ONE,
+	KEYC_KP_TWO,
+	KEYC_KP_THREE,
+	KEYC_KP_ENTER,
+	KEYC_KP_ZERO,
+	KEYC_KP_PERIOD,
 };
 
 /* Termcap codes. */
@@ -226,8 +229,26 @@ enum tty_code_code {
 	TTYC_KCUD1,	/* key_down, kd */
 	TTYC_KCUF1,	/* key_right, kr */
 	TTYC_KCUU1,	/* key_up, ku */
+	TTYC_KDC2,
+	TTYC_KDC3,
+	TTYC_KDC4,
+	TTYC_KDC5,
+	TTYC_KDC6,
+	TTYC_KDC7,
 	TTYC_KDCH1,	/* key_dc, kD */
+	TTYC_KDN2,
+	TTYC_KDN3,
+	TTYC_KDN4,
+	TTYC_KDN5,
+	TTYC_KDN6,
+	TTYC_KDN7,
 	TTYC_KEND,	/* key_end, ke */
+	TTYC_KEND2,
+	TTYC_KEND3,
+	TTYC_KEND4,
+	TTYC_KEND5,
+	TTYC_KEND6,
+	TTYC_KEND7,
 	TTYC_KF1,	/* key_f1, k1 */
 	TTYC_KF10,	/* key_f10, k; */
 	TTYC_KF11,	/* key_f11, F1 */
@@ -248,11 +269,53 @@ enum tty_code_code {
 	TTYC_KF7,	/* key_f7, k7 */
 	TTYC_KF8,	/* key_f8, k8 */
 	TTYC_KF9,	/* key_f9, k9 */
+	TTYC_KHOM2,
+	TTYC_KHOM3,
+	TTYC_KHOM4,
+	TTYC_KHOM5,
+	TTYC_KHOM6,
+	TTYC_KHOM7,
 	TTYC_KHOME,	/* key_home, kh */
+	TTYC_KIC2,
+	TTYC_KIC3,
+	TTYC_KIC4,
+	TTYC_KIC5,
+	TTYC_KIC6,
+	TTYC_KIC7,
 	TTYC_KICH1,	/* key_ic, kI */
+	TTYC_KLFT2,
+	TTYC_KLFT3,
+	TTYC_KLFT4,
+	TTYC_KLFT5,
+	TTYC_KLFT6,
+	TTYC_KLFT7,
 	TTYC_KMOUS,	/* key_mouse, Km */
 	TTYC_KNP,	/* key_npage, kN */
+	TTYC_KNXT2,
+	TTYC_KNXT3,
+	TTYC_KNXT4,
+	TTYC_KNXT5,
+	TTYC_KNXT6,
+	TTYC_KNXT7,
 	TTYC_KPP,	/* key_ppage, kP */
+	TTYC_KPRV2,
+	TTYC_KPRV3,
+	TTYC_KPRV4,
+	TTYC_KPRV5,
+	TTYC_KPRV6,
+	TTYC_KPRV7,
+	TTYC_KRIT2,
+	TTYC_KRIT3,
+	TTYC_KRIT4,
+	TTYC_KRIT5,
+	TTYC_KRIT6,
+	TTYC_KRIT7,
+	TTYC_KUP2,
+	TTYC_KUP3,
+	TTYC_KUP4,
+	TTYC_KUP5,
+	TTYC_KUP6,
+	TTYC_KUP7,
 	TTYC_OP,	/* orig_pair, op */
 	TTYC_REV,	/* enter_reverse_mode, mr */
 	TTYC_RI,	/* scroll_reverse, sr */
@@ -346,7 +409,6 @@ struct msg_identify_data {
 #define IDENTIFY_UTF8 0x1
 #define IDENTIFY_256COLOURS 0x2
 #define IDENTIFY_88COLOURS 0x4
-#define IDENTIFY_HASDEFAULTS 0x8
 	int		flags;
 };
 
@@ -908,10 +970,9 @@ struct tty_term {
 
 	struct tty_code	 codes[NTTYCODE];
 
-#define TERM_HASDEFAULTS 0x1
-#define TERM_256COLOURS 0x2
-#define TERM_88COLOURS 0x4
-#define TERM_EARLYWRAP 0x8
+#define TERM_256COLOURS 0x1
+#define TERM_88COLOURS 0x2
+#define TERM_EARLYWRAP 0x4
 	int		 flags;
 
 	SLIST_ENTRY(tty_term) entry;
@@ -1516,18 +1577,22 @@ const char *key_string_lookup_key(int);
 extern struct clients clients;
 extern struct clients dead_clients;
 int	 server_start(char *);
+void	 server_poll_add(int, int, void (*)(int, int, void *), void *);
 
 /* server-client.c */
 void	 server_client_create(int);
 void	 server_client_lost(struct client *);
+void	 server_client_prepare(void);
 void	 server_client_callback(int, int, void *);
 void	 server_client_loop(void);
 
 /* server-job.c */
+void	 server_job_prepare(void);
 void	 server_job_callback(int, int, void *);
 void	 server_job_loop(void);
 
 /* server-window.c */
+void	 server_window_prepare(void);
 void	 server_window_callback(int, int, void *);
 void	 server_window_loop(void);
 
@@ -1583,6 +1648,10 @@ void	 input_parse(struct window_pane *);
 /* input-key.c */
 void	 input_key(struct window_pane *, int);
 void	 input_mouse(struct window_pane *, struct mouse_event *);
+
+/* xterm-keys.c */
+char 	*xterm_keys_lookup(int);
+int	 xterm_keys_find(const char *, size_t, size_t *);
 
 /* colour.c */
 void	 colour_set_fg(struct grid_cell *, int);

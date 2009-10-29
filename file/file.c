@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.20 2009/08/27 16:26:43 deraadt Exp $ */
+/*	$OpenBSD: file.c,v 1.22 2009/10/27 23:59:37 deraadt Exp $ */
 /*
  * Copyright (c) Ian F. Darwin 1986-1995.
  * Software written by Ian F. Darwin and others;
@@ -71,10 +71,6 @@ int getopt_long(int argc, char * const *argv, const char *optstring, const struc
 
 #include "patchlevel.h"
 
-#ifndef	lint
-FILE_RCSID("@(#)$Id: file.c,v 1.20 2009/08/27 16:26:43 deraadt Exp $")
-#endif	/* lint */
-
 
 #ifdef S_IFLNK
 #define SYMLINKFLAG "Lh"
@@ -82,8 +78,8 @@ FILE_RCSID("@(#)$Id: file.c,v 1.20 2009/08/27 16:26:43 deraadt Exp $")
 #define SYMLINKFLAG ""
 #endif
 
-# define USAGE  "Usage: %s [-bcik" SYMLINKFLAG "nNrsvz0] [-e test] [-f namefile] [-F separator] [-m magicfiles] file...\n" \
-		" 	%s [-m magicfiles] -C\n"
+# define USAGE  "Usage: %s [-bcik" SYMLINKFLAG "nNprsvz0] [-e test] [-f namefile] [-F separator] [-m magicfiles] file...\n" \
+		"       %s -C -m magicfiles\n"
 
 #ifndef MAXPATHLEN
 #define	MAXPATHLEN	512

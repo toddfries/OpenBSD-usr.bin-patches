@@ -1,4 +1,4 @@
-/* $OpenBSD: server-window.c,v 1.1 2009/10/22 19:41:51 nicm Exp $ */
+/* $OpenBSD: server-window.c,v 1.3 2009/10/28 22:53:14 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -22,11 +22,69 @@
 
 #include "tmux.h"
 
+int	server_window_backoff(struct window_pane *);
 int	server_window_check_bell(struct session *, struct window *);
 int	server_window_check_activity(struct session *, struct window *);
 int	server_window_check_content(
 	    struct session *, struct window *, struct window_pane *);
 void	server_window_check_alive(struct window *);
+
+/* Register windows for poll. */
+void
+server_window_prepare(void)
+{
+	struct window		*w;
+	struct window_pane	*wp;
+	u_int		 	 i;
+	int			 events;
+
+	for (i = 0; i < ARRAY_LENGTH(&windows); i++) {
+		if ((w = ARRAY_ITEM(&windows, i)) == NULL)
+			continue;
+
+		TAILQ_FOREACH(wp, &w->panes, entry) {	
+			if (wp->fd == -1)
+				continue;
+			events = 0;
+			if (!server_window_backoff(wp))
+				events |= POLLIN;
+			if (BUFFER_USED(wp->out) > 0)
+				events |= POLLOUT;
+			server_poll_add(
+			    wp->fd, events, server_window_callback, wp);
+
+			if (wp->pipe_fd == -1)
+				continue;
+			events = 0;
+			if (BUFFER_USED(wp->pipe_buf) > 0)
+				events |= POLLOUT;
+			server_poll_add(
+			    wp->pipe_fd, events, server_window_callback, wp);
+		}
+	}
+}
+
+/* Check if this window should suspend reading. */
+int
+server_window_backoff(struct window_pane *wp)
+{
+	struct client	*c;
+	u_int		 i;
+
+	if (!window_pane_visible(wp))
+		return (0);
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		c = ARRAY_ITEM(&clients, i);
+		if (c == NULL || c->session == NULL)
+			continue;
+		if (c->session->curw->window != wp->window)
+			continue;
+		if (BUFFER_USED(c->tty.out) > BACKOFF_THRESHOLD)
+			return (1);
+	}
+	return (0);
+}
 
 /* Process a single window pane event. */
 void

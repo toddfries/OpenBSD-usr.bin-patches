@@ -1,4 +1,4 @@
-/*	$OpenBSD: sort.c,v 1.36 2007/08/22 06:56:40 jmc Exp $	*/
+/*	$OpenBSD: sort.c,v 1.38 2009/10/28 20:41:39 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1993
@@ -31,20 +31,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-static char copyright[] =
-"@(#) Copyright (c) 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static char sccsid[] = "@(#)sort.c	8.1 (Berkeley) 6/6/93";
-#else
-static char rcsid[] = "$OpenBSD: sort.c,v 1.36 2007/08/22 06:56:40 jmc Exp $";
-#endif
-#endif /* not lint */
 
 /*
  * Sort sorts a file using an optional user-defined key.
@@ -273,7 +259,7 @@ main(int argc, char *argv[])
 		outfile = outpath = toutpath;
 	} else if (!(ch = access(outpath, 0)) &&
 	    strncmp(_PATH_DEV, outpath, 5)) {
-		struct sigaction act;
+		struct sigaction oact, act;
 		int sigtable[] = {SIGHUP, SIGINT, SIGPIPE, SIGXCPU, SIGXFSZ,
 		    SIGVTALRM, SIGPROF, 0};
 		int outfd;
@@ -298,7 +284,10 @@ main(int argc, char *argv[])
 		act.sa_flags = SA_RESTART;
 		act.sa_handler = onsig;
 		for (i = 0; sigtable[i]; ++i)	/* always unlink toutpath */
-			sigaction(sigtable[i], &act, 0);
+			if (sigaction(sigtable[i], NULL, &oact) < 0 ||
+			    oact.sa_handler != SIG_IGN &&
+			    sigaction(sigtable[i], &act, NULL) < 0)
+				err(2, "sigaction");
 	} else
 		outfile = outpath;
 	if (outfp == NULL && (outfp = fopen(outfile, "w")) == NULL)

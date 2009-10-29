@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.51 2009/10/22 10:04:07 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.53 2009/10/26 21:42:04 deraadt Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -62,7 +62,7 @@ __dead void
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: %s [-28dlquv] [-c shell-command] [-f file] [-L socket-name]\n"
+	    "usage: %s [-28lquv] [-c shell-command] [-f file] [-L socket-name]\n"
 	    "            [-S socket-path] [command [flags]]\n",
 	    __progname);
 	exit(1);
@@ -317,9 +317,6 @@ main(int argc, char **argv)
 				xfree(shellcmd);
 			shellcmd = xstrdup(optarg);
 			break;
-		case 'd':
-			flags |= IDENTIFY_HASDEFAULTS;
-			break;
 		case 'f':
 			if (cfg_file != NULL)
 				xfree(cfg_file);
@@ -347,10 +344,10 @@ main(int argc, char **argv)
 		case 'v':
 			debug_level++;
 			break;
-                default:
+		default:
 			usage();
-                }
-        }
+		}
+	}
 	argc -= optind;
 	argv += optind;
 
@@ -572,7 +569,7 @@ main(int argc, char **argv)
 		if (pfd.revents & (POLLERR|POLLHUP|POLLNVAL))
 			fatalx("socket error");
 
-                if (pfd.revents & POLLIN) {
+		if (pfd.revents & POLLIN) {
 			if (dispatch_imsg(ibuf, shellcmd, &retcode) != 0)
 				break;
 		}
@@ -597,7 +594,7 @@ dispatch_imsg(struct imsgbuf *ibuf, const char *shellcmd, int *retcode)
 	struct msg_print_data	printdata;
 	struct msg_shell_data	shelldata;
 
-        if ((n = imsg_read(ibuf)) == -1 || n == 0)
+	if ((n = imsg_read(ibuf)) == -1 || n == 0)
 		fatalx("imsg_read failed");
 
 	for (;;) {

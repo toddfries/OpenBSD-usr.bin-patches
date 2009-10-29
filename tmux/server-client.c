@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.3 2009/10/22 21:01:52 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.9 2009/10/27 13:03:33 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -20,6 +20,7 @@
 
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 #include <paths.h>
 #include <unistd.h>
 
@@ -146,11 +147,44 @@ server_client_lost(struct client *c)
 	recalculate_sizes();
 }
 
+/* Register clients for poll. */
+void
+server_client_prepare(void)
+{
+	struct client	*c;
+	u_int		 i;
+	int		 events;
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		if ((c = ARRAY_ITEM(&clients, i)) == NULL)
+			continue;
+
+		events = 0;
+		if (!(c->flags & CLIENT_BAD))
+			events |= POLLIN;
+		if (c->ibuf.w.queued > 0)
+			events |= POLLOUT;
+		server_poll_add(c->ibuf.fd, events, server_client_callback, c);
+
+		if (c->tty.fd == -1)
+			continue;
+		if (c->flags & CLIENT_SUSPENDED || c->session == NULL)
+			continue;
+		events = POLLIN;
+		if (BUFFER_USED(c->tty.out) > 0)
+			events |= POLLOUT;
+		server_poll_add(c->tty.fd, events, server_client_callback, c);
+	}
+}
+
 /* Process a single client event. */
 void
 server_client_callback(int fd, int events, void *data)
 {
 	struct client	*c = data;
+
+	if (c->flags & CLIENT_DEAD)
+		return;
 
 	if (fd == c->ibuf.fd) {
 		if (events & (POLLERR|POLLNVAL|POLLHUP))
@@ -198,9 +232,10 @@ server_client_loop(void)
 			continue;
 
 		server_client_handle_data(c);
-
-		server_client_check_timers(c);
-		server_client_check_redraw(c);
+		if (c->session != NULL) {
+			server_client_check_timers(c);
+			server_client_check_redraw(c);
+		}
 	}
 
 	/*
@@ -487,8 +522,8 @@ server_client_msg_dispatch(struct client *c)
 	struct msg_environ_data	 environdata;
 	ssize_t			 n, datalen;
 
-        if ((n = imsg_read(&c->ibuf)) == -1 || n == 0)
-                return (-1);
+	if ((n = imsg_read(&c->ibuf)) == -1 || n == 0)
+		return (-1);
 
 	for (;;) {
 		if ((n = imsg_get(&c->ibuf, &imsg)) == -1)
@@ -702,8 +737,6 @@ server_client_msg_identify(
 		c->tty.term_flags |= TERM_256COLOURS;
 	else if (data->flags & IDENTIFY_88COLOURS)
 		c->tty.term_flags |= TERM_88COLOURS;
-	if (data->flags & IDENTIFY_HASDEFAULTS)
-		c->tty.term_flags |= TERM_HASDEFAULTS;
 
 	tty_resize(&c->tty);
 
