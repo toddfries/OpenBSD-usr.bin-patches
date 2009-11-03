@@ -3,4 +3,16 @@
 ? status.log
 ? up.log
 ? vi/build/obj
-P tmux/array.h
+P cap_mkdb/cap_mkdb.c
+P tmux/client.c
+P tmux/cmd-if-shell.c
+P tmux/cmd-run-shell.c
+P tmux/cmd-server-info.c
+P tmux/cmd-set-option.c
+P tmux/cmd.c
+P tmux/job.c
+P tmux/server-job.c
+P tmux/server.c
+P tmux/status.c
+P tmux/tmux.1
+P tmux/tmux.h
