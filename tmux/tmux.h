@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.154 2009/11/02 20:18:22 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.157 2009/11/03 20:59:22 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -893,7 +893,6 @@ struct layout_cell {
 struct paste_buffer {
      	char		*data;
 	size_t		 size;
-	struct timeval	 tv;
 };
 ARRAY_DECL(paste_stack, struct paste_buffer *);
 
@@ -923,8 +922,9 @@ TAILQ_HEAD(session_groups, session_group);
 
 struct session {
 	char		*name;
-	struct timeval	 tv;
-	time_t		 activity;
+
+	struct timeval	 creation_time;
+	struct timeval	 activity_time;
 
 	u_int		 sx;
 	u_int		 sy;
@@ -1062,7 +1062,8 @@ struct mouse_event {
 /* Client connection. */
 struct client {
 	struct imsgbuf	 ibuf;
-	struct timeval	 tv;
+
+	struct timeval	 creation_time;
 
 	struct environ	 environ;
 
@@ -1426,6 +1427,7 @@ int		 cmd_exec(struct cmd *, struct cmd_ctx *);
 void		 cmd_free(struct cmd *);
 size_t		 cmd_print(struct cmd *, char *, size_t);
 struct session	*cmd_current_session(struct cmd_ctx *);
+struct client	*cmd_current_client(struct cmd_ctx *);
 struct client	*cmd_find_client(struct cmd_ctx *, const char *);
 struct session	*cmd_find_session(struct cmd_ctx *, const char *);
 struct winlink	*cmd_find_window(
