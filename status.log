@@ -3,26 +3,9 @@
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   aucat/aproc.c
-#	modified:   aucat/aproc.h
-#	modified:   aucat/aucat.1
-#	modified:   aucat/aucat.c
-#	modified:   aucat/conf.h
-#	modified:   aucat/dev.c
-#	modified:   aucat/dev.h
-#	modified:   aucat/midi.c
-#	modified:   aucat/midi.h
-#	modified:   aucat/opt.c
-#	modified:   aucat/opt.h
-#	modified:   aucat/sock.c
 #	modified:   status.log
-#	modified:   tmux/cmd-list-sessions.c
-#	modified:   tmux/cmd-server-info.c
 #	modified:   tmux/cmd.c
-#	modified:   tmux/paste.c
 #	modified:   tmux/server-client.c
-#	modified:   tmux/server.c
-#	modified:   tmux/session.c
 #	modified:   tmux/tmux.1
 #	modified:   tmux/tmux.h
 #	modified:   up.log
