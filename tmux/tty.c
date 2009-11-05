@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.63 2009/10/28 08:52:36 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.66 2009/11/04 21:47:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,6 +27,8 @@
 #include <unistd.h>
 
 #include "tmux.h"
+
+void	tty_error_callback(struct bufferevent *, short, void *);
 
 void	tty_fill_acs(struct tty *);
 
@@ -108,10 +110,10 @@ tty_open(struct tty *tty, const char *overrides, char **cause)
 	}
 	tty->flags |= TTY_OPENED;
 
-	tty->in = buffer_create(BUFSIZ);
-	tty->out = buffer_create(BUFSIZ);
-
 	tty->flags &= ~(TTY_NOCURSOR|TTY_FREEZE|TTY_ESCAPE);
+
+	tty->event = bufferevent_new(
+	    tty->fd, NULL, NULL, tty_error_callback, tty);
 
 	tty_start_tty(tty);
 
@@ -120,6 +122,13 @@ tty_open(struct tty *tty, const char *overrides, char **cause)
 	tty_fill_acs(tty);
 
 	return (0);
+}
+
+void
+tty_error_callback(
+    unused struct bufferevent *bufev, unused short what, unused void *data)
+{
+	fatalx("lost terminal");
 }
 
 void
@@ -135,6 +144,8 @@ tty_start_tty(struct tty *tty)
 		fatal("fcntl failed");
 	if (fcntl(tty->fd, F_SETFL, mode|O_NONBLOCK) == -1)
 		fatal("fcntl failed");
+
+	bufferevent_enable(tty->event, EV_READ|EV_WRITE);
 
 	if (tcgetattr(tty->fd, &tty->tio) != 0)
 		fatal("tcgetattr failed");
@@ -186,6 +197,8 @@ tty_stop_tty(struct tty *tty)
 	if (!(tty->flags & TTY_STARTED))
 		return;
 	tty->flags &= ~TTY_STARTED;
+
+	bufferevent_disable(tty->event, EV_READ|EV_WRITE);
 
 	/*
 	 * Be flexible about error handling and try not kill the server just
@@ -249,11 +262,10 @@ tty_close(struct tty *tty)
 	tty_stop_tty(tty);
 
 	if (tty->flags & TTY_OPENED) {
+		bufferevent_free(tty->event);
+
 		tty_term_free(tty->term);
 		tty_keys_free(tty);
-
-		buffer_destroy(tty->in);
-		buffer_destroy(tty->out);
 
 		tty->flags &= ~TTY_OPENED;
 	}
@@ -308,7 +320,7 @@ tty_puts(struct tty *tty, const char *s)
 {
 	if (*s == '\0')
 		return;
-	buffer_write(tty->out, s, strlen(s));
+	bufferevent_write(tty->event, s, strlen(s));
 
 	if (tty->log_fd != -1)
 		write(tty->log_fd, s, strlen(s));
@@ -321,7 +333,7 @@ tty_putc(struct tty *tty, u_char ch)
 
 	if (tty->cell.attr & GRID_ATTR_CHARSET)
 		ch = tty_get_acs(tty, ch);
-	buffer_write8(tty->out, ch);
+	bufferevent_write(tty->event, &ch, 1);
 
 	if (ch >= 0x20 && ch != 0x7f) {
 		sx = tty->sx;
@@ -348,7 +360,7 @@ tty_pututf8(struct tty *tty, const struct grid_utf8 *gu)
 	for (i = 0; i < UTF8_SIZE; i++) {
 		if (gu->data[i] == 0xff)
 			break;
-		buffer_write8(tty->out, gu->data[i]);
+		bufferevent_write(tty->event, &gu->data[i], 1);
 		if (tty->log_fd != -1)
 			write(tty->log_fd, &gu->data[i], 1);
 	}
@@ -1121,31 +1133,17 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc)
 {
 	struct grid_cell	*tc = &tty->cell, gc2;
 	u_char			 changed;
-	u_int			 fg = gc->fg, bg = gc->bg, attr = gc->attr;
+	u_int			 new_attr;
 
 	/* If the character is space, don't care about foreground. */
 	if (gc->data == ' ' && !(gc->flags & GRID_FLAG_UTF8)) {
 		memcpy(&gc2, gc, sizeof gc2);
-
 		if (gc->attr & GRID_ATTR_REVERSE)
 			gc2.bg = tc->bg;
 		else
 			gc2.fg = tc->fg;
-		gc2.attr = tc->attr & ~GRID_ATTR_REVERSE;
-		gc2.attr |= gc->attr & GRID_ATTR_REVERSE;
-
 		gc = &gc2;
 	}
-
-	/* If any bits are being cleared, reset everything. */
-	if (tc->attr & ~attr)
-		tty_reset(tty);
-
-	/*
-	 * Set the colours. This may call tty_reset() (so it comes next) and
-	 * may add to the desired attributes in attr.
-	 */
-	tty_colours(tty, gc, &attr);
 
 	/*
 	 * If no setab, try to use the reverse attribute as a best-effort for a
@@ -1153,18 +1151,34 @@ tty_attributes(struct tty *tty, const struct grid_cell *gc)
 	 * any serious harm and makes a couple of applications happier.
 	 */
 	if (!tty_term_has(tty->term, TTYC_SETAB)) {
-		if (attr & GRID_ATTR_REVERSE) {
-			if (fg != 7 && fg != 8)
-				attr &= ~GRID_ATTR_REVERSE;
+		if (gc != &gc2) {
+			memcpy(&gc2, gc, sizeof gc2);
+			gc = &gc2;
+		}
+
+		if (gc->attr & GRID_ATTR_REVERSE) {
+			if (gc->fg != 7 && gc->fg != 8)
+				gc2.attr &= ~GRID_ATTR_REVERSE;
 		} else {
-			if (bg != 0 && bg != 8)
-				attr |= GRID_ATTR_REVERSE;
+			if (gc->bg != 0 && gc->bg != 8)
+				gc2.attr |= GRID_ATTR_REVERSE;
 		}
 	}
 
+	/* If any bits are being cleared, reset everything. */
+	if (tc->attr & ~gc->attr)
+		tty_reset(tty);
+
+	/*
+	 * Set the colours. This may call tty_reset() (so it comes next) and
+	 * may add to (NOT remove) the desired attributes by changing new_attr.
+	 */
+	new_attr = gc->attr;
+	tty_colours(tty, gc, &new_attr);
+
 	/* Filter out attribute bits already set. */
-	changed = attr & ~tc->attr;
-	tc->attr = attr;
+	changed = new_attr & ~tc->attr;
+	tc->attr = new_attr;
 
 	/* Set the attributes. */
 	if (changed & GRID_ATTR_BRIGHT)

@@ -1,4 +1,4 @@
-/* $OpenBSD: server-window.c,v 1.3 2009/10/28 22:53:14 nicm Exp $ */
+/* $OpenBSD: server-window.c,v 1.10 2009/11/04 23:54:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <event.h>
 #include <unistd.h>
 
 #include "tmux.h"
@@ -28,41 +29,6 @@ int	server_window_check_activity(struct session *, struct window *);
 int	server_window_check_content(
 	    struct session *, struct window *, struct window_pane *);
 void	server_window_check_alive(struct window *);
-
-/* Register windows for poll. */
-void
-server_window_prepare(void)
-{
-	struct window		*w;
-	struct window_pane	*wp;
-	u_int		 	 i;
-	int			 events;
-
-	for (i = 0; i < ARRAY_LENGTH(&windows); i++) {
-		if ((w = ARRAY_ITEM(&windows, i)) == NULL)
-			continue;
-
-		TAILQ_FOREACH(wp, &w->panes, entry) {	
-			if (wp->fd == -1)
-				continue;
-			events = 0;
-			if (!server_window_backoff(wp))
-				events |= POLLIN;
-			if (BUFFER_USED(wp->out) > 0)
-				events |= POLLOUT;
-			server_poll_add(
-			    wp->fd, events, server_window_callback, wp);
-
-			if (wp->pipe_fd == -1)
-				continue;
-			events = 0;
-			if (BUFFER_USED(wp->pipe_buf) > 0)
-				events |= POLLOUT;
-			server_poll_add(
-			    wp->pipe_fd, events, server_window_callback, wp);
-		}
-	}
-}
 
 /* Check if this window should suspend reading. */
 int
@@ -78,38 +44,15 @@ server_window_backoff(struct window_pane *wp)
 		c = ARRAY_ITEM(&clients, i);
 		if (c == NULL || c->session == NULL)
 			continue;
+		if ((c->flags & (CLIENT_SUSPENDED|CLIENT_DEAD)) != 0)
+			continue;
 		if (c->session->curw->window != wp->window)
 			continue;
-		if (BUFFER_USED(c->tty.out) > BACKOFF_THRESHOLD)
+
+		if (EVBUFFER_LENGTH(c->tty.event->output) > BACKOFF_THRESHOLD)
 			return (1);
 	}
 	return (0);
-}
-
-/* Process a single window pane event. */
-void
-server_window_callback(int fd, int events, void *data)
-{
-	struct window_pane	*wp = data;
-
-	if (wp->fd == -1)
-		return;
-
-	if (fd == wp->fd) {
-		if (buffer_poll(fd, events, wp->in, wp->out) != 0) {
-			close(wp->fd);
-			wp->fd = -1;
-		} else
-			window_pane_parse(wp);
-	}
-
-	if (fd == wp->pipe_fd) {
-		if (buffer_poll(fd, events, NULL, wp->pipe_buf) != 0) {
-			buffer_destroy(wp->pipe_buf);
-			close(wp->pipe_fd);
-			wp->pipe_fd = -1;
-		}
-	}
 }
 
 /* Window functions that need to happen every loop. */
@@ -126,6 +69,13 @@ server_window_loop(void)
 		if (w == NULL)
 			continue;
 
+		TAILQ_FOREACH(wp, &w->panes, entry) {
+			if (server_window_backoff(wp))
+				bufferevent_disable(wp->event, EV_READ);
+			else
+				bufferevent_enable(wp->event, EV_READ);
+		}
+
 		for (j = 0; j < ARRAY_LENGTH(&sessions); j++) {
 			s = ARRAY_ITEM(&sessions, j);
 			if (s == NULL || !session_has(s, w))
@@ -141,8 +91,6 @@ server_window_loop(void)
 
 		server_window_check_alive(w);
 	}
-
-	set_window_names();
 }
 
 /* Check for bell in window. */

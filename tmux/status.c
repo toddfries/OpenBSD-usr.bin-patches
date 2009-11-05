@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.39 2009/11/01 23:20:37 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.42 2009/11/04 23:29:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,6 +33,7 @@ char   *status_job(struct client *, char **);
 void	status_job_callback(struct job *);
 size_t	status_width(struct winlink *);
 char   *status_print(struct session *, struct winlink *, struct grid_cell *);
+void	status_message_callback(int, short, void *);
 
 void	status_prompt_add_history(struct client *);
 char   *status_prompt_complete(const char *);
@@ -440,7 +441,7 @@ char *
 status_job(struct client *c, char **iptr)
 {
 	struct job	*job;
-	char   		*buf, *cmd;
+	char   		*cmd;
 	int		 lastesc;
 	size_t		 len;
 
@@ -450,8 +451,6 @@ status_job(struct client *c, char **iptr)
 		(*iptr)++;
 		return (NULL);
 	}
-
-	buf = NULL;
 
 	cmd = xmalloc(strlen(*iptr) + 1);
 	len = 0;
@@ -488,23 +487,26 @@ status_job(struct client *c, char **iptr)
 void
 status_job_callback(struct job *job)
 {
-	char	*buf;
+	char	*line, *buf;
 	size_t	 len;
 
-	len = BUFFER_USED(job->out);
-	buf = xmalloc(len + 1);
-	if (len != 0)
-		buffer_read(job->out, buf, len);
-	buf[len] = '\0';
-	buf[strcspn(buf, "\n")] = '\0';
+	buf = NULL;
+	if ((line = evbuffer_readline(job->event->input)) == NULL) {
+		len = EVBUFFER_LENGTH(job->event->input);
+		buf = xmalloc(len + 1);
+		if (len != 0)
+			memcpy(buf, EVBUFFER_DATA(job->event->input), len);
+		buf[len] = '\0';
+	}
 
 	if (job->data != NULL)
 		xfree(job->data);
 	else
 		server_redraw_client(job->client);
-	job->data = xstrdup(buf);
+	job->data = xstrdup(line);
 
-	xfree(buf);
+	if (buf != NULL)
+		xfree(buf);
 }
 
 size_t
@@ -578,10 +580,10 @@ status_message_set(struct client *c, const char *fmt, ...)
 	delay = options_get_number(&c->session->options, "display-time");
 	tv.tv_sec = delay / 1000;
 	tv.tv_usec = (delay % 1000) * 1000L;
-
-	if (gettimeofday(&c->message_timer, NULL) != 0)
-		fatal("gettimeofday failed");
-	timeradd(&c->message_timer, &tv, &c->message_timer);
+	
+	evtimer_del(&c->message_timer);
+	evtimer_set(&c->message_timer, status_message_callback, c);
+	evtimer_add(&c->message_timer, &tv);
 
 	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
 	c->flags |= CLIENT_STATUS;
@@ -600,6 +602,14 @@ status_message_clear(struct client *c)
 	c->flags |= CLIENT_REDRAW; /* screen was frozen and may have changed */
 
 	screen_reinit(&c->status);
+}
+
+void
+status_message_callback(unused int fd, unused short event, void *data)
+{
+	struct client	*c = data;
+
+	status_message_clear(c);
 }
 
 /* Draw client message on status line of present else on last line. */

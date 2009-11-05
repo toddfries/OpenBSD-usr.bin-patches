@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.11 2009/11/03 22:40:40 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.17 2009/11/05 00:05:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <event.h>
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
@@ -27,9 +28,9 @@
 #include "tmux.h"
 
 void	server_client_handle_data(struct client *);
+void	server_client_repeat_timer(int, short, void *);
 void	server_client_check_redraw(struct client *);
 void	server_client_set_title(struct client *);
-void	server_client_check_timers(struct client *);
 
 int	server_client_msg_dispatch(struct client *);
 void	server_client_msg_command(struct client *, struct msg_command_data *);
@@ -40,7 +41,6 @@ void	server_client_msg_shell(struct client *);
 void printflike2 server_client_msg_error(struct cmd_ctx *, const char *, ...);
 void printflike2 server_client_msg_print(struct cmd_ctx *, const char *, ...);
 void printflike2 server_client_msg_info(struct cmd_ctx *, const char *, ...);
-
 
 /* Create a new client. */
 void
@@ -60,6 +60,7 @@ server_client_create(int fd)
 	c = xcalloc(1, sizeof *c);
 	c->references = 0;
 	imsg_init(&c->ibuf, fd);
+	server_update_event(c);
 	
 	if (gettimeofday(&c->creation_time, NULL) != 0)
 		fatal("gettimeofday failed");
@@ -82,6 +83,8 @@ server_client_create(int fd)
 	c->prompt_string = NULL;
 	c->prompt_buffer = NULL;
 	c->prompt_index = 0;
+
+	evtimer_set(&c->repeat_timer, server_client_repeat_timer, c);
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		if (ARRAY_ITEM(&clients, i) == NULL) {
@@ -118,8 +121,13 @@ server_client_lost(struct client *c)
 	if (c->title != NULL)
 		xfree(c->title);
 
+	evtimer_del(&c->repeat_timer);
+
+	evtimer_del(&c->identify_timer);
+
 	if (c->message_string != NULL)
 		xfree(c->message_string);
+	evtimer_del(&c->message_timer);
 
 	if (c->prompt_string != NULL)
 		xfree(c->prompt_string);
@@ -134,6 +142,7 @@ server_client_lost(struct client *c)
 
 	close(c->ibuf.fd);
 	imsg_clear(&c->ibuf);
+	event_del(&c->event);
 
 	for (i = 0; i < ARRAY_LENGTH(&dead_clients); i++) {
 		if (ARRAY_ITEM(&dead_clients, i) == NULL) {
@@ -148,39 +157,9 @@ server_client_lost(struct client *c)
 	recalculate_sizes();
 }
 
-/* Register clients for poll. */
-void
-server_client_prepare(void)
-{
-	struct client	*c;
-	u_int		 i;
-	int		 events;
-
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		if ((c = ARRAY_ITEM(&clients, i)) == NULL)
-			continue;
-
-		events = 0;
-		if (!(c->flags & CLIENT_BAD))
-			events |= POLLIN;
-		if (c->ibuf.w.queued > 0)
-			events |= POLLOUT;
-		server_poll_add(c->ibuf.fd, events, server_client_callback, c);
-
-		if (c->tty.fd == -1)
-			continue;
-		if (c->flags & CLIENT_SUSPENDED || c->session == NULL)
-			continue;
-		events = POLLIN;
-		if (BUFFER_USED(c->tty.out) > 0)
-			events |= POLLOUT;
-		server_poll_add(c->tty.fd, events, server_client_callback, c);
-	}
-}
-
 /* Process a single client event. */
 void
-server_client_callback(int fd, int events, void *data)
+server_client_callback(int fd, short events, void *data)
 {
 	struct client	*c = data;
 
@@ -188,10 +167,7 @@ server_client_callback(int fd, int events, void *data)
 		return;
 
 	if (fd == c->ibuf.fd) {
-		if (events & (POLLERR|POLLNVAL|POLLHUP))
-			goto client_lost;
-
-		if (events & POLLOUT && msgbuf_write(&c->ibuf.w) < 0)
+		if (events & EV_WRITE && msgbuf_write(&c->ibuf.w) < 0)
 			goto client_lost;
 
 		if (c->flags & CLIENT_BAD) {
@@ -200,22 +176,54 @@ server_client_callback(int fd, int events, void *data)
 			return;
 		}
 
-		if (events & POLLIN && server_client_msg_dispatch(c) != 0)
+		if (events & EV_READ && server_client_msg_dispatch(c) != 0)
 			goto client_lost;
 	}
 
-	if (c->tty.fd != -1 && fd == c->tty.fd) {
-		if (c->flags & CLIENT_SUSPENDED || c->session == NULL)
-			return;
-
-		if (buffer_poll(fd, events, c->tty.in, c->tty.out) != 0)
-			goto client_lost;
-	}
-
+	server_update_event(c);	
 	return;
 
 client_lost:
 	server_client_lost(c);
+}
+
+/* Handle client status timer. */
+void
+server_client_status_timer(void)
+{
+	struct client	*c;
+	struct session	*s;
+	struct job	*job;
+	struct timeval	 tv;
+	u_int		 i, interval;
+
+	if (gettimeofday(&tv, NULL) != 0)
+		fatal("gettimeofday failed");
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		c = ARRAY_ITEM(&clients, i);
+		if (c == NULL || c->session == NULL)
+			continue;
+		if (c->message_string != NULL || c->prompt_string != NULL) {
+			/*
+			 * Don't need timed redraw for messages/prompts so bail
+			 * now. The status timer isn't reset when they are
+			 * redrawn anyway.
+			 */
+			continue;
+		}
+		s = c->session;
+
+		if (!options_get_number(&s->options, "status"))
+			continue;
+		interval = options_get_number(&s->options, "status-interval");
+
+		if (tv.tv_sec - c->status_timer.tv_sec >= interval) {
+			RB_FOREACH(job, jobs, &c->status_jobs)
+			    job_run(job);
+			c->flags |= CLIENT_STATUS;
+		}
+	}
 }
 
 /* Client functions that need to happen every loop. */
@@ -233,10 +241,8 @@ server_client_loop(void)
 			continue;
 
 		server_client_handle_data(c);
-		if (c->session != NULL) {
-			server_client_check_timers(c);
+		if (c->session != NULL)
 			server_client_check_redraw(c);
-		}
 	}
 
 	/*
@@ -262,21 +268,17 @@ server_client_handle_data(struct client *c)
 	struct window_pane	*wp;
 	struct screen		*s;
 	struct options		*oo;
-	struct timeval		 tv_add, tv_now;
+	struct timeval		 tv, tv_now;
 	struct key_binding	*bd;
 	struct keylist		*keylist;
 	struct mouse_event	 mouse;
 	int		 	 key, status, xtimeout, mode, isprefix;
 	u_int			 i;
 
-	/* Check and update repeat flag. */
+	/* Get the time for the activity timer. */
 	if (gettimeofday(&tv_now, NULL) != 0)
 		fatal("gettimeofday failed");
 	xtimeout = options_get_number(&c->session->options, "repeat-time");
-	if (xtimeout != 0 && c->flags & CLIENT_REPEAT) {
-		if (timercmp(&tv_now, &c->repeat_timer, >))
-			c->flags &= ~(CLIENT_PREFIX|CLIENT_REPEAT);
-	}
 
 	/* Process keys. */
 	keylist = options_get_data(&c->session->options, "prefix");
@@ -369,9 +371,10 @@ server_client_handle_data(struct client *c)
 		if (xtimeout != 0 && bd->can_repeat) {
 			c->flags |= CLIENT_PREFIX|CLIENT_REPEAT;
 
-			tv_add.tv_sec = xtimeout / 1000;
-			tv_add.tv_usec = (xtimeout % 1000) * 1000L;
-			timeradd(&tv_now, &tv_add, &c->repeat_timer);
+			tv.tv_sec = xtimeout / 1000;
+			tv.tv_usec = (xtimeout % 1000) * 1000L;
+			evtimer_del(&c->repeat_timer);
+			evtimer_add(&c->repeat_timer, &tv);
 		}
 
 		/* Dispatch the command. */
@@ -410,6 +413,16 @@ server_client_handle_data(struct client *c)
 	tty_reset(&c->tty);
 }
 
+/* Repeat time callback. */
+void
+server_client_repeat_timer(unused int fd, unused short events, void *data)
+{
+	struct client	*c = data;
+
+	if (c->flags & CLIENT_REPEAT)
+		c->flags &= ~(CLIENT_PREFIX|CLIENT_REPEAT);
+}
+
 /* Check for client redraws. */
 void
 server_client_check_redraw(struct client *c)
@@ -424,7 +437,7 @@ server_client_check_redraw(struct client *c)
 	if (c->flags & (CLIENT_REDRAW|CLIENT_STATUS)) {
 		if (options_get_number(&s->options, "set-titles"))
 			server_client_set_title(c);
-	
+
 		if (c->message_string != NULL)
 			redraw = status_message_redraw(c);
 		else if (c->prompt_string != NULL)
@@ -471,48 +484,6 @@ server_client_set_title(struct client *c)
 		tty_set_title(&c->tty, c->title);
 	}
 	xfree(title);
-}
-
-/* Check client timers. */
-void
-server_client_check_timers(struct client *c)
-{
-	struct session	*s = c->session;
-	struct job	*job;
-	struct timeval	 tv;
-	u_int		 interval;
-
-	if (gettimeofday(&tv, NULL) != 0)
-		fatal("gettimeofday failed");
-
-	if (c->flags & CLIENT_IDENTIFY && timercmp(&tv, &c->identify_timer, >))
-		server_clear_identify(c);
-
-	if (c->message_string != NULL && timercmp(&tv, &c->message_timer, >))
-		status_message_clear(c);
-
-	if (c->message_string != NULL || c->prompt_string != NULL) {
-		/*
-		 * Don't need timed redraw for messages/prompts so bail now.
-		 * The status timer isn't reset when they are redrawn anyway.
-		 */
-		return;
-
-	}
-	if (!options_get_number(&s->options, "status"))
-		return;
-
-	/* Check timer; resolution is only a second so don't be too clever. */
-	interval = options_get_number(&s->options, "status-interval");
-	if (interval == 0)
-		return;
-	if (tv.tv_sec < c->status_timer.tv_sec ||
-	    ((u_int) tv.tv_sec) - c->status_timer.tv_sec >= interval) {
-		/* Run the jobs for this client and schedule for redraw. */
-		RB_FOREACH(job, jobs, &c->status_jobs)
-			job_run(job);
-		c->flags |= CLIENT_STATUS;
-	}
 }
 
 /* Dispatch message from client. */

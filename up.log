@@ -3,7 +3,27 @@
 ? status.log
 ? up.log
 ? vi/build/obj
-P tmux/cmd.c
+P aucat/aucat.1
+P tmux/Makefile
+cvs server: tmux/buffer-poll.c is no longer in the repository
+cvs server: tmux/buffer.c is no longer in the repository
+P tmux/client.c
+P tmux/cmd-kill-server.c
+P tmux/cmd-paste-buffer.c
+P tmux/cmd-pipe-pane.c
+P tmux/cmd-run-shell.c
+P tmux/input-keys.c
+P tmux/input.c
+P tmux/job.c
+P tmux/names.c
 P tmux/server-client.c
-P tmux/tmux.1
+P tmux/server-fn.c
+cvs server: tmux/server-job.c is no longer in the repository
+P tmux/server-window.c
+P tmux/server.c
+P tmux/status.c
+P tmux/tmux.c
 P tmux/tmux.h
+P tmux/tty-keys.c
+P tmux/tty.c
+P tmux/window.c

@@ -1,13 +1,33 @@
 # On branch master
 # Changed but not updated:
-#   (use "git add <file>..." to update what will be committed)
+#   (use "git add/rm <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
+#	modified:   aucat/aucat.1
 #	modified:   status.log
-#	modified:   tmux/cmd.c
+#	modified:   tmux/Makefile
+#	deleted:    tmux/buffer-poll.c
+#	deleted:    tmux/buffer.c
+#	modified:   tmux/client.c
+#	modified:   tmux/cmd-kill-server.c
+#	modified:   tmux/cmd-paste-buffer.c
+#	modified:   tmux/cmd-pipe-pane.c
+#	modified:   tmux/cmd-run-shell.c
+#	modified:   tmux/input-keys.c
+#	modified:   tmux/input.c
+#	modified:   tmux/job.c
+#	modified:   tmux/names.c
 #	modified:   tmux/server-client.c
-#	modified:   tmux/tmux.1
+#	modified:   tmux/server-fn.c
+#	deleted:    tmux/server-job.c
+#	modified:   tmux/server-window.c
+#	modified:   tmux/server.c
+#	modified:   tmux/status.c
+#	modified:   tmux/tmux.c
 #	modified:   tmux/tmux.h
+#	modified:   tmux/tty-keys.c
+#	modified:   tmux/tty.c
+#	modified:   tmux/window.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")

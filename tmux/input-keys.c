@@ -1,4 +1,4 @@
-/* $OpenBSD: input-keys.c,v 1.13 2009/10/26 17:59:46 nicm Exp $ */
+/* $OpenBSD: input-keys.c,v 1.15 2009/11/04 23:00:22 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -163,6 +163,7 @@ input_key(struct window_pane *wp, int key)
 	u_int			i;
 	size_t			dlen;
 	char		       *out;
+	u_char			ch;
 
 	log_debug2("writing key 0x%x", key);
 
@@ -172,8 +173,9 @@ input_key(struct window_pane *wp, int key)
 	 */
 	if (key != KEYC_NONE && (key & ~KEYC_ESCAPE) < 0x100) {
 		if (key & KEYC_ESCAPE)
-			buffer_write8(wp->out, '\033');
-		buffer_write8(wp->out, (uint8_t) (key & ~KEYC_ESCAPE));
+			bufferevent_write(wp->event, "\033", 1);
+		ch = key & ~KEYC_ESCAPE;
+		bufferevent_write(wp->event, &ch, 1);
 		return;
 	}
 
@@ -183,7 +185,7 @@ input_key(struct window_pane *wp, int key)
 	 */
 	if (options_get_number(&wp->window->options, "xterm-keys")) {
 		if ((out = xterm_keys_lookup(key)) != NULL) {
-			buffer_write(wp->out, out, strlen(out));
+			bufferevent_write(wp->event, out, strlen(out));
 			xfree(out);
 			return;
 		}
@@ -214,18 +216,19 @@ input_key(struct window_pane *wp, int key)
 
 	/* Prefix a \033 for escape. */
 	if (key & KEYC_ESCAPE)
-		buffer_write8(wp->out, '\033');
-	buffer_write(wp->out, ike->data, dlen);
+		bufferevent_write(wp->event, "\033", 1);
+	bufferevent_write(wp->event, ike->data, dlen);
 }
 
 /* Translate mouse and output. */
 void
 input_mouse(struct window_pane *wp, struct mouse_event *m)
 {
+	char	out[8];
+
 	if (wp->screen->mode & MODE_MOUSE) {
-		buffer_write(wp->out, "\033[M", 3);
-		buffer_write8(wp->out, m->b + 32);
-		buffer_write8(wp->out, m->x + 33);
-		buffer_write8(wp->out, m->y + 33);
+		xsnprintf(out, sizeof out,
+		    "\033[M%c%c%c", m->b + 32, m->x + 33, m->y + 33);
+		bufferevent_write(wp->event, out, strlen(out));
 	}
 }

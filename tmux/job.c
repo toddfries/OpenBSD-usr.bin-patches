@@ -1,4 +1,4 @@
-/* $OpenBSD: job.c,v 1.9 2009/11/01 23:20:37 nicm Exp $ */
+/* $OpenBSD: job.c,v 1.12 2009/11/04 21:10:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,6 +17,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/socket.h>
 
 #include <fcntl.h>
 #include <paths.h>
@@ -34,6 +35,8 @@
 struct joblist	all_jobs = SLIST_HEAD_INITIALIZER(&all_jobs);
 
 RB_GENERATE(jobs, job, entry, job_cmp);
+
+void	job_callback(struct bufferevent *, short, void *);
 
 int
 job_cmp(struct job *job1, struct job *job2)
@@ -86,13 +89,13 @@ job_add(struct jobs *jobs, int flags, struct client *c, const char *cmd,
 	job->client = c;
 
 	job->fd = -1;
-	job->out = buffer_create(BUFSIZ);
+	job->event = NULL;
 
 	job->callbackfn = callbackfn;
 	job->freefn = freefn;
 	job->data = data;
 
-	job->flags = flags|JOB_DONE;
+	job->flags = flags;
 
 	if (jobs != NULL)
 		RB_INSERT(jobs, jobs, job);
@@ -124,8 +127,8 @@ job_free(struct job *job)
 
 	if (job->fd != -1)
 		close(job->fd);
-	if (job->out != NULL)
-		buffer_destroy(job->out);
+	if (job->event != NULL)
+		bufferevent_free(job->event);
 
 	xfree(job);
 }
@@ -136,18 +139,17 @@ job_run(struct job *job)
 {
 	int	nullfd, out[2], mode;
 
-	if (!(job->flags & JOB_DONE))
+	if (job->fd != -1 || job->pid != -1)
 		return (0);
-	job->flags &= ~JOB_DONE;
 
-	if (pipe(out) != 0)
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, out) != 0)
 		return (-1);
 
 	switch (job->pid = fork()) {
 	case -1:
 		return (-1);
 	case 0:		/* child */
-		sigreset();
+		server_signal_clear();
 		/* XXX environ? */
 
 		if (dup2(out[1], STDOUT_FILENO) == -1)
@@ -179,10 +181,46 @@ job_run(struct job *job)
 		if (fcntl(job->fd, F_SETFD, FD_CLOEXEC) == -1)
 			fatal("fcntl failed");
 
-		if (BUFFER_USED(job->out) != 0)
-			buffer_remove(job->out, BUFFER_USED(job->out));
+		if (job->event != NULL)
+			bufferevent_free(job->event);
+		job->event = 
+		    bufferevent_new(job->fd, NULL, NULL, job_callback, job);
+		bufferevent_enable(job->event, EV_READ);
 
 		return (0);
+	}
+}
+
+/* Job buffer error callback. */
+void
+job_callback(unused struct bufferevent *bufev, unused short events, void *data)
+{
+	struct job	*job = data;
+
+	bufferevent_disable(job->event, EV_READ);
+	close(job->fd);
+	job->fd = -1;
+
+	if (job->pid == -1) {
+		if (job->callbackfn != NULL)
+			job->callbackfn(job);
+		if ((!job->flags & JOB_PERSIST))
+			job_free(job);
+	}
+}
+
+/* Job died (waitpid() returned its pid). */
+void
+job_died(struct job *job, int status)
+{
+	job->status = status;
+	job->pid = -1;
+	
+	if (job->fd == -1) {
+		if (job->callbackfn != NULL)
+			job->callbackfn(job);
+		if ((!job->flags & JOB_PERSIST))
+			job_free(job);
 	}
 }
 

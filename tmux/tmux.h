@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.158 2009/11/03 22:40:40 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.169 2009/11/05 00:05:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,9 +28,9 @@
 #include <sys/uio.h>
 
 #include <bitstring.h>
+#include <event.h>
 #include <getopt.h>
 #include <limits.h>
-#include <poll.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -95,21 +95,6 @@ extern char   **environ;
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
-
-/* Buffer macros. */
-#define BUFFER_USED(b) ((b)->size)
-#define BUFFER_FREE(b) ((b)->space - (b)->off - (b)->size)
-#define BUFFER_IN(b) ((b)->base + (b)->off + (b)->size)
-#define BUFFER_OUT(b) ((b)->base + (b)->off)
-
-/* Buffer structure. */
-struct buffer {
-	u_char	*base;		/* buffer start */
-	size_t	 space;		/* total size of buffer */
-
-	size_t	 size;		/* size of data in buffer */
-	size_t	 off;		/* offset of data in buffer */
-};
 
 /* Bell option values. */
 #define BELL_NONE 0
@@ -661,15 +646,14 @@ struct job {
 	struct client	*client;
 
 	int		 fd;
-	struct buffer	*out;
+	struct bufferevent *event;
 
 	void		(*callbackfn)(struct job *);
 	void		(*freefn)(void *);
 	void		*data;
 
 	int		 flags;
-#define JOB_DONE 0x1
-#define JOB_PERSIST 0x2	/* don't free after callback */
+#define JOB_PERSIST 0x1	/* don't free after callback */
 
 	RB_ENTRY(job)	 entry;
 	SLIST_ENTRY(job) lentry;
@@ -796,15 +780,15 @@ struct window_pane {
 	char		*cwd;
 
 	pid_t		 pid;
-	int		 fd;
 	char		 tty[TTY_NAME_MAX];
-	struct buffer	*in;
-	struct buffer	*out;
+
+	int		 fd;
+	struct bufferevent *event;
 
 	struct input_ctx ictx;
 
 	int		 pipe_fd;
-	struct buffer	*pipe_buf;
+	struct bufferevent *pipe_event;
 	size_t		 pipe_off;
 
 	struct screen	*screen;
@@ -826,7 +810,7 @@ TAILQ_HEAD(window_panes, window_pane);
 /* Window structure. */
 struct window {
 	char		*name;
-	struct timeval	 name_timer;
+	struct event	 name_timer;
 
 	struct window_pane *active;
 	struct window_panes panes;
@@ -998,8 +982,7 @@ struct tty {
 	struct tty_term	*term;
 
 	int		 fd;
-	struct buffer	*in;
-	struct buffer	*out;
+	struct bufferevent *event;
 
 	int		 log_fd;
 
@@ -1062,6 +1045,7 @@ struct mouse_event {
 /* Client connection. */
 struct client {
 	struct imsgbuf	 ibuf;
+	struct event	 event;
 
 	struct timeval	 creation_time;
 	struct timeval	 activity_time;
@@ -1072,7 +1056,7 @@ struct client {
 	char		*cwd;
 
 	struct tty 	 tty;
-	struct timeval	 repeat_timer;
+	struct event	 repeat_timer;
 
 	struct timeval	 status_timer;
 	struct jobs	 status_jobs;
@@ -1090,10 +1074,10 @@ struct client {
 #define CLIENT_DEAD 0x200
 	int		 flags;
 
-	struct timeval	 identify_timer;
+	struct event	 identify_timer;
 
 	char		*message_string;
-	struct timeval	 message_timer;
+	struct event	 message_timer;
 
 	char		*prompt_string;
 	char		*prompt_buffer;
@@ -1235,12 +1219,6 @@ extern const struct set_option_entry set_option_table[];
 extern const struct set_option_entry set_window_option_table[];
 
 /* tmux.c */
-extern volatile sig_atomic_t sigwinch;
-extern volatile sig_atomic_t sigterm;
-extern volatile sig_atomic_t sigcont;
-extern volatile sig_atomic_t sigchld;
-extern volatile sig_atomic_t sigusr1;
-extern volatile sig_atomic_t sigusr2;
 extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
@@ -1251,9 +1229,6 @@ extern time_t	 start_time;
 extern char 	*socket_path;
 extern int	 login_shell;
 void		 logfile(const char *);
-void		 siginit(void);
-void		 sigreset(void);
-void		 sighandler(int);
 const char	*getshell(void);
 int		 checkshell(const char *);
 int		 areshell(const char *);
@@ -1309,6 +1284,7 @@ struct job *job_add(struct jobs *, int, struct client *,
 void	job_remove(struct jobs *, struct job *);
 void	job_free(struct job *);
 int	job_run(struct job *);
+void	job_died(struct job *, int);
 void	job_kill(struct job *);
 
 /* environ.c */
@@ -1582,23 +1558,17 @@ const char *key_string_lookup_key(int);
 extern struct clients clients;
 extern struct clients dead_clients;
 int	 server_start(char *);
-void	 server_poll_add(int, int, void (*)(int, int, void *), void *);
+void	 server_signal_set(void);
+void	 server_signal_clear(void);
 
 /* server-client.c */
 void	 server_client_create(int);
 void	 server_client_lost(struct client *);
-void	 server_client_prepare(void);
-void	 server_client_callback(int, int, void *);
+void	 server_client_callback(int, short, void *);
+void	 server_client_status_timer(void);
 void	 server_client_loop(void);
 
-/* server-job.c */
-void	 server_job_prepare(void);
-void	 server_job_callback(int, int, void *);
-void	 server_job_loop(void);
-
 /* server-window.c */
-void	 server_window_prepare(void);
-void	 server_window_callback(int, int, void *);
 void	 server_window_loop(void);
 
 /* server-fn.c */
@@ -1628,6 +1598,7 @@ void	 server_destroy_session_group(struct session *);
 void	 server_destroy_session(struct session *);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
+void	 server_update_event(struct client *);
 
 /* status.c */
 int	 status_redraw(struct client *);
@@ -1880,7 +1851,7 @@ void		 window_choose_ready(struct window_pane *,
 		     u_int, void (*)(void *, int), void (*)(void *), void *);
 
 /* names.c */
-void		 set_window_names(void);
+void		 queue_window_name(struct window *);
 char 		*default_window_name(struct window *);
 
 /* session.c */
@@ -1922,20 +1893,6 @@ int	utf8_append(struct utf8_data *, u_char);
 
 /* procname.c */
 char   *get_proc_name(int, char *);
-
-/* buffer.c */
-struct buffer 	*buffer_create(size_t);
-void		 buffer_destroy(struct buffer *);
-void		 buffer_ensure(struct buffer *, size_t);
-void		 buffer_add(struct buffer *, size_t);
-void		 buffer_remove(struct buffer *, size_t);
-void		 buffer_write(struct buffer *, const void *, size_t);
-void		 buffer_read(struct buffer *, void *, size_t);
-void	 	 buffer_write8(struct buffer *, uint8_t);
-uint8_t		 buffer_read8(struct buffer *);
-
-/* buffer-poll.c */
-int		 buffer_poll(int, int, struct buffer *, struct buffer *);
 
 /* log.c */
 void		 log_open_tty(int);
