@@ -3,21 +3,8 @@
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   aucat/aproc.c
-#	modified:   aucat/miofile.c
-#	modified:   aucat/safile.c
-#	modified:   netstat/inet.c
-#	modified:   netstat/inet6.c
-#	modified:   netstat/main.c
-#	modified:   netstat/netstat.h
 #	modified:   status.log
-#	modified:   tmux/cmd-list-keys.c
-#	modified:   tmux/server-client.c
-#	modified:   tmux/server.c
-#	modified:   tmux/tmux.h
-#	modified:   tmux/tty-keys.c
-#	modified:   tmux/tty.c
-#	modified:   tmux/xterm-keys.c
+#	modified:   tmux/server-window.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
