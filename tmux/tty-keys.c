@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.13 2009/11/04 21:47:42 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.17 2009/11/05 19:32:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,11 +26,19 @@
 #include "tmux.h"
 
 /*
- * Handle keys input from the outside terminal.
+ * Handle keys input from the outside terminal. tty_keys[] is a base table of
+ * supported keys which are looked up in terminfo(5) and translated into a
+ * ternary tree (a binary tree of binary trees).
  */
 
-void	tty_keys_add(struct tty *, const char *, int, int);
-int	tty_keys_mouse(char *, size_t, size_t *, struct mouse_event *);
+void		tty_keys_add1(struct tty_key **, const char *, int);
+void		tty_keys_add(struct tty *, const char *, int);
+void		tty_keys_free1(struct tty_key *);
+struct tty_key *tty_keys_find1(
+    		    struct tty_key *, const char *, size_t, size_t *);
+struct tty_key *tty_keys_find(struct tty *, const char *, size_t, size_t *);
+void		tty_keys_callback(int, short, void *);
+int		tty_keys_mouse(char *, size_t, size_t *, struct mouse_event *);
 
 struct tty_key_ent {
 	enum tty_code_code	code;
@@ -38,8 +46,15 @@ struct tty_key_ent {
 
 	int	 	 	key;
 	int		 	flags;
+#define TTYKEY_CTRL 0x1
+#define TTYKEY_RAW 0x2
 };
 
+/* 
+ * Default key tables. Those flagged with TTYKEY_RAW are inserted directly,
+ * otherwise they are looked up in terminfo(5). Any keys marked TTYKEY_CTRL
+ * have their last byte twiddled and are inserted as a Ctrl key as well.
+ */
 struct tty_key_ent tty_keys[] = {
 	/* Function keys. */
 	{ TTYC_KF1,	NULL,		KEYC_F1,		TTYKEY_CTRL },
@@ -183,38 +198,56 @@ struct tty_key_ent tty_keys[] = {
 	{ TTYC_KUP7,	NULL,		KEYC_UP|KEYC_ESCAPE|KEYC_CTRL, 0 },
 };
 
-RB_GENERATE(tty_keys, tty_key, entry, tty_keys_cmp);
-
-struct tty_key *tty_keys_find(struct tty *, char *, size_t, size_t *);
-
-int
-tty_keys_cmp(struct tty_key *k1, struct tty_key *k2)
+void
+tty_keys_add(struct tty *tty, const char *s, int key)
 {
-	return (strcmp(k1->string, k2->string));
+	size_t	size;
+
+	if (tty_keys_find(tty, s, strlen(s), &size) == NULL) {
+		log_debug("new key 0x%x: %s", key, s);
+		tty_keys_add1(&tty->key_tree, s, key);
+	}
 }
 
+/* Add next node to the tree. */
 void
-tty_keys_add(struct tty *tty, const char *s, int key, int flags)
+tty_keys_add1(struct tty_key **tkp, const char *s, int key)
 {
-	struct tty_key	*tk, *tl;
+	struct tty_key	*tk;
 
-	tk = xmalloc(sizeof *tk);
-	tk->string = xstrdup(s);
-	tk->key = key;
-	tk->flags = flags;
-
-	if ((tl = RB_INSERT(tty_keys, &tty->ktree, tk)) != NULL) {
-		xfree(tk->string);
-		xfree(tk);
-		log_debug("key exists: %s (old %x, new %x)", s, tl->key, key);
- 		return;
+	/* Allocate a tree entry if there isn't one already. */
+	tk = *tkp;
+	if (tk == NULL) {
+		tk = *tkp = xcalloc(1, sizeof *tk);
+		tk->ch = *s;
+		tk->key = KEYC_NONE;
 	}
 
-	if (strlen(tk->string) > tty->ksize)
-		tty->ksize = strlen(tk->string);
-	log_debug("new key %x: size now %zu (%s)", key, tty->ksize, tk->string);
+	/* Find the next entry. */
+	if (*s == tk->ch) {
+		/* Move forward in string. */
+		s++;
+
+		/* If this is the end of the string, no more is necessary. */
+		if (*s == '\0') {
+			tk->key = key;
+			return;
+		}
+
+		/* Use the child tree for the next character. */
+		tkp = &tk->next;
+	} else { 
+		if (*s < tk->ch)
+			tkp = &tk->left;
+		else if (*s > tk->ch)
+			tkp = &tk->right;
+	}
+
+	/* And recurse to add it. */
+	tty_keys_add1(tkp, s, key);
 }
 
+/* Initialise a key tree from the table. */
 void
 tty_keys_init(struct tty *tty)
 {
@@ -223,9 +256,7 @@ tty_keys_init(struct tty *tty)
 	const char		*s;
 	char			 tmp[64];
 
-	RB_INIT(&tty->ktree);
-
-	tty->ksize = 0;
+	tty->key_tree = NULL;
 	for (i = 0; i < nitems(tty_keys); i++) {
 		tke = &tty_keys[i];
 
@@ -235,84 +266,105 @@ tty_keys_init(struct tty *tty)
 			if (!tty_term_has(tty->term, tke->code))
 				continue;
 			s = tty_term_string(tty->term, tke->code);
-			if (s[0] != '\033' || s[1] == '\0')
-				continue;
 		}
+		if (s[0] != '\033' || s[1] == '\0')
+			continue;
 
-		tty_keys_add(tty, s + 1, tke->key, tke->flags);
-		if (tke->flags & TTYKEY_CTRL) {
+		tty_keys_add(tty, s + 1, tke->key);
+		if (!(tke->flags & TTYKEY_CTRL)) {
 			if (strlcpy(tmp, s, sizeof tmp) >= sizeof tmp)
 				continue;
 			tmp[strlen(tmp) - 1] ^= 0x20;
-			tty_keys_add(tty, tmp + 1, tke->key | KEYC_CTRL, 0);
+			tty_keys_add(tty, tmp + 1, tke->key | KEYC_CTRL);
 		}
 	}
 }
 
+/* Free the entire key tree. */
 void
 tty_keys_free(struct tty *tty)
 {
-	struct tty_key	*tk;
-
-	while (!RB_EMPTY(&tty->ktree)) {
-		tk = RB_ROOT(&tty->ktree);
-		RB_REMOVE(tty_keys, &tty->ktree, tk);
-		xfree(tk->string);
-		xfree(tk);
-	}
+	tty_keys_free1(tty->key_tree);
 }
 
-struct tty_key *
-tty_keys_find(struct tty *tty, char *buf, size_t len, size_t *size)
+/* Free a single key. */
+void
+tty_keys_free1(struct tty_key *tk)
 {
-	struct tty_key	*tk, tl;
-	char		*s;
+	if (tk->next != NULL)
+		tty_keys_free1(tk->next);
+	if (tk->left != NULL)
+		tty_keys_free1(tk->left);
+	if (tk->right != NULL)
+		tty_keys_free1(tk->right);
+	xfree(tk);
+	
+}
 
-	if (len == 0)
+/* Lookup a key in the tree. */
+struct tty_key *
+tty_keys_find(struct tty *tty, const char *buf, size_t len, size_t *size)
+{
+	*size = 0;
+	return (tty_keys_find1(tty->key_tree, buf, len, size));
+}
+
+/* Find the next node. */
+struct tty_key *
+tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
+{
+	/* If the node is NULL, this is the end of the tree. No match. */
+	if (tk == NULL)
 		return (NULL);
 
-	s = xmalloc(tty->ksize + 1);
-	for (*size = tty->ksize; (*size) > 0; (*size)--) {
-		if ((*size) > len)
-			continue;
-		memcpy(s, buf, *size);
-		s[*size] = '\0';
+	/* Pick the next in the sequence. */
+	if (tk->ch == *buf) {
+		/* Move forward in the string. */
+		buf++; len--;
+		(*size)++;
 
-		log_debug2("looking for key: %s", s);
-
-		tl.string = s;
-		tk = RB_FIND(tty_keys, &tty->ktree, &tl);
-		if (tk != NULL) {
-			log_debug2("got key: 0x%x", tk->key);
-			xfree(s);
+		/* At the end of the string, return the current node. */
+		if (len == 0)
 			return (tk);
-		}
-	}
-	xfree(s);
 
-	return (NULL);
+		/* Move into the next tree for the following character. */
+		tk = tk->next;
+	} else {
+		if (*buf < tk->ch)
+			tk = tk->left;
+		else if (*buf > tk->ch)
+			tk = tk->right;
+	}
+
+	/* Move to the next in the tree. */
+	return (tty_keys_find1(tk, buf, len, size));
 }
 
+/*
+ * Process at least one key in the buffer and invoke tty->key_callback. Return
+ * 1 if there are no further keys, or 0 if there is more in the buffer.
+ */
 int
-tty_keys_next(struct tty *tty, int *key, struct mouse_event *mouse)
+tty_keys_next(struct tty *tty)
 {
-	struct tty_key	*tk;
-	struct timeval	 tv;
-	char		*buf;
-	u_char		 ch;
-	size_t		 len, size;
-	cc_t		 bspace;
+	struct tty_key		*tk;
+	struct timeval		 tv;
+	struct mouse_event	 mouse;
+	char			*buf;
+	size_t			 len, size;
+	cc_t			 bspace;
+	int			 key;
 
 	buf = EVBUFFER_DATA(tty->event->input);
 	len = EVBUFFER_LENGTH(tty->event->input);
 	if (len == 0)
-		return (1);
+		return (0);
 	log_debug("keys are %zu (%.*s)", len, (int) len, buf);
 
 	/* If a normal key, return it. */
 	if (*buf != '\033') {
-		bufferevent_read(tty->event, &ch, 1);
-		*key = ch;
+		key = *buf;
+		evbuffer_drain(tty->event->input, 1);
 
 		/*
 		 * Check for backspace key using termios VERASE - the terminfo
@@ -320,43 +372,30 @@ tty_keys_next(struct tty *tty, int *key, struct mouse_event *mouse)
 		 * used. termios should have a better idea.
 		 */
 		bspace = tty->tio.c_cc[VERASE];
-		if (bspace != _POSIX_VDISABLE && *key == bspace)
-			*key = KEYC_BSPACE;
-		goto found;
+		if (bspace != _POSIX_VDISABLE && key == bspace)
+			key = KEYC_BSPACE;
+		goto handle_key;
 	}
 
 	/* Look for matching key string and return if found. */
 	tk = tty_keys_find(tty, buf + 1, len - 1, &size);
 	if (tk != NULL) {
-		evbuffer_drain(tty->event->input, size + 1);
-		*key = tk->key;
-		goto found;
+		key = tk->key;
+		goto found_key;
 	}
 
 	/* Not found. Is this a mouse key press? */
-	*key = tty_keys_mouse(buf, len, &size, mouse);
-	if (*key != KEYC_NONE) {
+	key = tty_keys_mouse(buf, len, &size, &mouse);
+	if (key != KEYC_NONE) {
 		evbuffer_drain(tty->event->input, size);
-		goto found;
+		goto handle_key;
 	}
 
 	/* Not found. Try to parse a key with an xterm-style modifier. */
-	*key = xterm_keys_find(buf, len, &size);
-	if (*key != KEYC_NONE) {
+	key = xterm_keys_find(buf, len, &size);
+	if (key != KEYC_NONE) {
 		evbuffer_drain(tty->event->input, size);
-		goto found;
-	}
-
-	/* Escape but no key string. If the timer isn't started, start it. */
-	if (!(tty->flags & TTY_ESCAPE)) {
-		tv.tv_sec = 0;
-		tv.tv_usec = ESCAPE_PERIOD * 1000L;
-		if (gettimeofday(&tty->key_timer, NULL) != 0)
-			fatal("gettimeofday failed");
-		timeradd(&tty->key_timer, &tv, &tty->key_timer);
-
-		tty->flags |= TTY_ESCAPE;
-		return (1);
+		goto handle_key;
 	}
 
 	/* Skip the escape. */
@@ -365,37 +404,87 @@ tty_keys_next(struct tty *tty, int *key, struct mouse_event *mouse)
 
 	/* Is there a normal key following? */
 	if (len != 0 && *buf != '\033') {
-		evbuffer_drain(tty->event->input, 1);
-		bufferevent_read(tty->event, &ch, 1);
-		*key = ch | KEYC_ESCAPE;
-		goto found;
+		key = *buf | KEYC_ESCAPE;
+		evbuffer_drain(tty->event->input, 2);
+		goto handle_key;
 	}
 
 	/* Or a key string? */
 	if (len > 1) {
 		tk = tty_keys_find(tty, buf + 1, len - 1, &size);
 		if (tk != NULL) {
-			evbuffer_drain(tty->event->input, size + 2);
-			*key = tk->key | KEYC_ESCAPE;
-			goto found;
+			key = tk->key | KEYC_ESCAPE;
+			size++;	/* include escape */
+			goto found_key;
 		}
 	}
 
-	/* If the timer hasn't expired, keep waiting. */
-	if (gettimeofday(&tv, NULL) != 0)
-		fatal("gettimeofday failed");
-	if (timercmp(&tty->key_timer, &tv, >))
-		return (1);
+	/* Escape and then nothing useful - fall through. */
 
-	/* Give up and return the escape. */
-	evbuffer_drain(tty->event->input, 1);
-	*key = '\033';
+partial_key:
+	/*
+	 * Escape but no key string. If have already seen an escape, then the
+	 * timer must have expired, so give up waiting and send the escape.
+	 */
+	if (tty->flags & TTY_ESCAPE) {
+		evbuffer_drain(tty->event->input, 1);
+		key = '\033';
+		goto handle_key;
+	}
 
-found:
-	tty->flags &= ~TTY_ESCAPE;
+	/* Fall through to start the timer. */
+
+start_timer:
+	/* Start the timer and wait for expiry or more data. */
+	tv.tv_sec = 0;
+	tv.tv_usec = ESCAPE_PERIOD * 1000L;
+	
+	evtimer_del(&tty->key_timer);
+	evtimer_set(&tty->key_timer, tty_keys_callback, tty);
+	evtimer_add(&tty->key_timer, &tv);
+	
+	tty->flags |= TTY_ESCAPE;
 	return (0);
+
+found_key:
+	if (tk->next != NULL) {
+		/* Partial key. Start the timer if not already expired. */
+		if (!(tty->flags & TTY_ESCAPE))
+			goto start_timer;
+
+		/* Otherwise, if no key, send the escape alone. */
+		if (tk->key == KEYC_NONE)
+			goto partial_key;
+
+		/* Or fall through to send the partial key found. */
+	}
+	evbuffer_drain(tty->event->input, size + 1);
+
+	goto handle_key;
+
+handle_key:
+ 	evtimer_del(&tty->key_timer);
+
+	tty->key_callback(key, &mouse, tty->key_data);
+
+	tty->flags &= ~TTY_ESCAPE;
+	return (1);
 }
 
+/* Key timer callback. */
+void
+tty_keys_callback(unused int fd, unused short events, void *data)
+{
+	struct tty	*tty = data;
+
+	if (!(tty->flags & TTY_ESCAPE))
+		return;
+
+	while (tty_keys_next(tty))
+		;
+}
+
+/* Handle mouse key input. */
 int
 tty_keys_mouse(char *buf, size_t len, size_t *size, struct mouse_event *m)
 {
@@ -404,10 +493,11 @@ tty_keys_mouse(char *buf, size_t len, size_t *size, struct mouse_event *m)
 	 * buttons, X and Y, all based at 32 with 1,1 top-left.
 	 */
 
-	log_debug("mouse input is: %.*s", (int) len, buf);
 	if (len != 6 || memcmp(buf, "\033[M", 3) != 0)
 		return (KEYC_NONE);
 	*size = 6;
+
+	log_debug("mouse input is: %.*s", (int) len, buf);
 
 	m->b = buf[3];
 	m->x = buf[4];

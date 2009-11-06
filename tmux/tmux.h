@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.169 2009/11/05 00:05:00 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.173 2009/11/05 19:29:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -61,9 +61,6 @@ extern char   **environ;
 
 /* Escape timer period, in milliseconds. */
 #define ESCAPE_PERIOD 500
-
-/* Maximum poll timeout (when attached). */
-#define POLL_TIMEOUT 50
 
 /* Maximum data to buffer for output before suspending reading from panes. */
 #define BACKOFF_THRESHOLD 1024
@@ -939,14 +936,13 @@ ARRAY_DECL(sessions, struct session *);
 
 /* TTY information. */
 struct tty_key {
+	char		 ch;
 	int	 	 key;
-	char		*string;
 
-	int		 flags;
-#define TTYKEY_CTRL 0x1
-#define TTYKEY_RAW 0x2
+	struct tty_key	*left;
+	struct tty_key	*right;
 
-	RB_ENTRY(tty_key) entry;
+	struct tty_key	*next;
 };
 
 struct tty_term {
@@ -1002,10 +998,10 @@ struct tty {
 
 	int		 term_flags;
 
-	struct timeval	 key_timer;
-
-	size_t		 ksize;	/* maximum key size */
-	RB_HEAD(tty_keys, tty_key) ktree;
+	void		 (*key_callback)(int, struct mouse_event *, void *);
+	void		*key_data;
+	struct event	 key_timer;
+	struct tty_key	*key_tree;
 };
 
 /* TTY command context and function pointer. */
@@ -1356,11 +1352,9 @@ int		 tty_term_number(struct tty_term *, enum tty_code_code);
 int		 tty_term_flag(struct tty_term *, enum tty_code_code);
 
 /* tty-keys.c */
-int	tty_keys_cmp(struct tty_key *, struct tty_key *);
-RB_PROTOTYPE(tty_keys, tty_key, entry, tty_keys_cmp);
 void	tty_keys_init(struct tty *);
 void	tty_keys_free(struct tty *);
-int	tty_keys_next(struct tty *, int *, struct mouse_event *);
+int	tty_keys_next(struct tty *);
 
 /* options-cmd.c */
 const char *set_option_print(
