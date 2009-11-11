@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-source-file.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-source-file.c,v 1.5 2009/09/21 15:32:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Tiago Cunha <me@tiagocunha.org>
@@ -26,8 +26,6 @@
 
 int	cmd_source_file_parse(struct cmd *, int, char **, char **);
 int	cmd_source_file_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_source_file_send(struct cmd *, struct buffer *);
-void	cmd_source_file_recv(struct cmd *, struct buffer *);
 void	cmd_source_file_free(struct cmd *);
 void	cmd_source_file_init(struct cmd *, int);
 size_t	cmd_source_file_print(struct cmd *, char *, size_t);
@@ -39,12 +37,10 @@ struct cmd_source_file_data {
 const struct cmd_entry cmd_source_file_entry = {
 	"source-file", "source",
 	"path",
-	0,
+	0, 0,
 	cmd_source_file_init,
 	cmd_source_file_parse,
 	cmd_source_file_exec,
-	cmd_source_file_send,
-	cmd_source_file_recv,
 	cmd_source_file_free,
 	cmd_source_file_print
 };
@@ -64,7 +60,7 @@ cmd_source_file_parse(struct cmd *self, int argc, char **argv, char **cause)
 	struct cmd_source_file_data	*data;
 	int				 opt;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
 	while ((opt = getopt(argc, argv, "")) != -1) {
@@ -94,32 +90,13 @@ cmd_source_file_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_source_file_data	*data = self->data;
 	char				*cause;
 
-	if (load_cfg(data->path, &cause) != 0) {
+	if (load_cfg(data->path, ctx, &cause) != 0) {
 		ctx->error(ctx, "%s", cause);
 		xfree(cause);
 		return (-1);
 	}
 
 	return (0);
-}
-
-void
-cmd_source_file_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_source_file_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->path);
-}
-
-void
-cmd_source_file_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_source_file_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->path = cmd_recv_string(b);
 }
 
 void

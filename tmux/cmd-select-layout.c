@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-layout.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-select-layout.c,v 1.6 2009/07/28 06:48:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,13 +29,11 @@ int	cmd_select_layout_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_select_layout_entry = {
 	"select-layout", "selectl",
-	CMD_TARGET_WINDOW_USAGE " layout-name",
-	CMD_ARG1,
+	CMD_TARGET_WINDOW_USAGE " [layout-name]",
+	CMD_ARG01, 0,
 	cmd_select_layout_init,
 	cmd_target_parse,
 	cmd_select_layout_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -49,17 +47,17 @@ cmd_select_layout_init(struct cmd *self, int key)
 	data = self->data;
 
 	switch (key) {
-	case KEYC_ADDESC('0'):
-		data->arg = xstrdup("manual-vertical");
-		break;
-	case KEYC_ADDESC('1'):
+	case ('1' | KEYC_ESCAPE):
 		data->arg = xstrdup("even-horizontal");
 		break;
-	case KEYC_ADDESC('2'):
+	case ('2' | KEYC_ESCAPE):
 		data->arg = xstrdup("even-vertical");
+    		break;
+	case ('3' | KEYC_ESCAPE):
+		data->arg = xstrdup("main-horizontal");
 		break;
-	case KEYC_ADDESC('9'):
-		data->arg = xstrdup("active-only");
+	case ('4' | KEYC_ESCAPE):
+		data->arg = xstrdup("main-vertical");
 		break;
 	}
 }
@@ -74,13 +72,17 @@ cmd_select_layout_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 		return (-1);
 
-	if ((layout = layout_lookup(data->arg)) == -1) {
-		ctx->error(ctx, "unknown or ambiguous layout: %s", data->arg);
+	if (data->arg == NULL) {
+		layout = wl->window->lastlayout;
+		if (layout == -1)
+			return (0);
+	} else if ((layout = layout_set_lookup(data->arg)) == -1) {
+		ctx->error(ctx, "unknown layout or ambiguous: %s", data->arg);
 		return (-1);
 	}
-
-	if (layout_select(wl->window, layout) == 0)
-		ctx->info(ctx, "layout now: %s", layout_name(wl->window));
+	
+	layout = layout_set_select(wl->window, layout);
+	ctx->info(ctx, "arranging in: %s", layout_set_name(layout));
 
 	return (0);
 }

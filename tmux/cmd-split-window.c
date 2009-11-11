@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.13 2009/09/21 15:32:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <paths.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -29,8 +30,6 @@
 
 int	cmd_split_window_parse(struct cmd *, int, char **, char **);
 int	cmd_split_window_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_split_window_send(struct cmd *, struct buffer *);
-void	cmd_split_window_recv(struct cmd *, struct buffer *);
 void	cmd_split_window_free(struct cmd *);
 void	cmd_split_window_init(struct cmd *, int);
 size_t	cmd_split_window_print(struct cmd *, char *, size_t);
@@ -39,25 +38,24 @@ struct cmd_split_window_data {
 	char	*target;
 	char	*cmd;
 	int	 flag_detached;
+	int	 flag_horizontal;
 	int	 percentage;
-	int	 lines;
+	int	 size;
 };
 
 const struct cmd_entry cmd_split_window_entry = {
 	"split-window", "splitw",
-	"[-d] [-p percentage|-l lines] [-t target-window] [command]",
-	0,
+	"[-dhv] [-p percentage|-l size] [-t target-window] [command]",
+	0, 0,
 	cmd_split_window_init,
 	cmd_split_window_parse,
 	cmd_split_window_exec,
-	cmd_split_window_send,
-	cmd_split_window_recv,
 	cmd_split_window_free,
 	cmd_split_window_print
 };
 
 void
-cmd_split_window_init(struct cmd *self, unused int arg)
+cmd_split_window_init(struct cmd *self, int key)
 {
 	struct cmd_split_window_data	 *data;
 
@@ -65,49 +63,62 @@ cmd_split_window_init(struct cmd *self, unused int arg)
 	data->target = NULL;
 	data->cmd = NULL;
 	data->flag_detached = 0;
+	data->flag_horizontal = 0;
 	data->percentage = -1;
-	data->lines = -1;
+	data->size = -1;
+
+	switch (key) {
+	case '%':
+		data->flag_horizontal = 1;
+		break;		
+	case '"':
+		data->flag_horizontal = 0;
+		break;
+	}
 }
 
 int
 cmd_split_window_parse(struct cmd *self, int argc, char **argv, char **cause)
 {
 	struct cmd_split_window_data	*data;
-	int				 opt, n;
+	int				 opt;
 	const char			*errstr;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
-	while ((opt = getopt(argc, argv, "dl:p:t:")) != -1) {
+	while ((opt = getopt(argc, argv, "dhl:p:t:v")) != -1) {
 		switch (opt) {
 		case 'd':
 			data->flag_detached = 1;
+			break;
+		case 'h':
+			data->flag_horizontal = 1;
 			break;
 		case 't':
 			if (data->target == NULL)
 				data->target = xstrdup(optarg);
 			break;
 		case 'l':
-			if (data->percentage == -1 && data->lines == -1) {
-				n = strtonum(optarg, 1, INT_MAX, &errstr);
-				if (errstr != NULL) {
-					xasprintf(cause, "lines %s", errstr);
-					goto error;
-				}
-				data->lines = n;
+			if (data->percentage != -1 || data->size != -1)
+				break;
+			data->size = strtonum(optarg, 1, INT_MAX, &errstr);
+			if (errstr != NULL) {
+				xasprintf(cause, "size %s", errstr);
+				goto error;
 			}
 			break;
 		case 'p':
-			if (data->lines == -1 && data->percentage == -1) {
-				n = strtonum(optarg, 1, 100, &errstr);
-				if (errstr != NULL) {
-					xasprintf(
-					    cause, "percentage %s", errstr);
-					goto error;
-				}
-				data->percentage = n;
+			if (data->size != -1 || data->percentage != -1)
+				break;
+			data->percentage = strtonum(optarg, 1, 100, &errstr);
+			if (errstr != NULL) {
+				xasprintf(cause, "percentage %s", errstr);
+				goto error;
 			}
+			break;
+		case 'v':
+			data->flag_horizontal = 0;
 			break;
 		default:
 			goto usage;
@@ -139,37 +150,53 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct winlink			*wl;
 	struct window			*w;
 	struct window_pane		*wp;
-	const char		       **env;
+	struct environ			 env;
 	char		 		*cmd, *cwd, *cause;
-	u_int				 hlimit, lines;
+	const char			*shell;
+	u_int				 hlimit;
+	int				 size;
+	enum layout_type		 type;
 
 	if ((wl = cmd_find_window(ctx, data->target, &s)) == NULL)
 		return (-1);
 	w = wl->window;
 
-	env = server_fill_environ(s);
+	environ_init(&env);
+	environ_copy(&global_environ, &env);
+	environ_copy(&s->environ, &env);
+	server_fill_environ(s, &env);
 
 	cmd = data->cmd;
 	if (cmd == NULL)
 		cmd = options_get_string(&s->options, "default-command");
 	if (ctx->cmdclient == NULL || ctx->cmdclient->cwd == NULL)
-		cwd = options_get_string(&global_options, "default-path");
+		cwd = options_get_string(&s->options, "default-path");
 	else
 		cwd = ctx->cmdclient->cwd;
 
-	lines = -1;
-	if (data->lines != -1)
-		lines = data->lines;
+	size = -1;
+	if (data->size != -1)
+		size = data->size;
 	else if (data->percentage != -1)
-		lines = (w->active->sy * data->percentage) / 100;
-
+		size = (w->active->sy * data->percentage) / 100;
 	hlimit = options_get_number(&s->options, "history-limit");
-	wp = window_add_pane(w, lines, cmd, cwd, env, hlimit, &cause);
-	if (wp == NULL) {
-		ctx->error(ctx, "create pane failed: %s", cause);
-		xfree(cause);
-		return (-1);
+
+	type = LAYOUT_TOPBOTTOM;
+	if (data->flag_horizontal)
+		type = LAYOUT_LEFTRIGHT;
+
+	shell = options_get_string(&s->options, "default-shell");
+	if (*shell == '\0' || areshell(shell))
+		shell = _PATH_BSHELL;
+
+	wp = window_add_pane(w, hlimit);
+	if (window_pane_spawn(wp, cmd, shell, cwd, &env, s->tio, &cause) != 0)
+		goto error;
+	if (layout_split_pane(w->active, type, size, wp) != 0) {
+		cause = xstrdup("pane too small");
+		goto error;
 	}
+
 	server_redraw_window(w);
 
 	if (!data->flag_detached) {
@@ -178,30 +205,17 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		server_redraw_session(s);
 	} else
 		server_status_session(s);
-	layout_refresh(w, 0);
 
+	environ_free(&env);
 	return (0);
-}
 
-void
-cmd_split_window_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_split_window_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->target);
-	cmd_send_string(b, data->cmd);
-}
-
-void
-cmd_split_window_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_split_window_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->target = cmd_recv_string(b);
-	data->cmd = cmd_recv_string(b);
+error:
+	environ_free(&env);
+	if (wp != NULL)
+		window_remove_pane(w, wp);
+	ctx->error(ctx, "create pane failed: %s", cause);
+	xfree(cause);
+	return (-1);
 }
 
 void
@@ -227,6 +241,14 @@ cmd_split_window_print(struct cmd *self, char *buf, size_t len)
 		return (off);
 	if (off < len && data->flag_detached)
 		off += xsnprintf(buf + off, len - off, " -d");
+	if (off < len && data->flag_horizontal)
+		off += xsnprintf(buf + off, len - off, " -h");
+	if (off < len && data->size > 0)
+		off += xsnprintf(buf + off, len - off, " -l %d", data->size);
+	if (off < len && data->percentage > 0) {
+		off += xsnprintf(
+		    buf + off, len - off, " -p %d", data->percentage);
+	}
 	if (off < len && data->target != NULL)
 		off += cmd_prarg(buf + off, len - off, " -t ", data->target);
 	if (off < len && data->cmd != NULL)

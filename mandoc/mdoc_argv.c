@@ -1,20 +1,18 @@
-/* $Id: mdoc_argv.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc_argv.c,v 1.18 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
 
@@ -34,30 +32,12 @@
  * There's no limit to the number or arguments that may be allocated.
  */
 
-#define	ARGS_QUOTED	(1 << 0)
-#define	ARGS_DELIM	(1 << 1)
-#define	ARGS_TABSEP	(1 << 2)
-#define	ARGS_ARGVLIKE	(1 << 3)
-
 #define	ARGV_NONE	(1 << 0)
 #define	ARGV_SINGLE	(1 << 1)
 #define	ARGV_MULTI	(1 << 2)
 #define	ARGV_OPT_SINGLE	(1 << 3)
 
 #define	MULTI_STEP	 5
-
-enum 	mwarn {
-	WQUOTPARM,
-	WARGVPARM,
-	WCOLEMPTY,
-	WTAILWS	
-};
-
-enum	merr {
-	EQUOTTERM,
-	EMALLOC,
-	EARGVAL	
-};
 
 static	int		 argv_a2arg(int, const char *);
 static	int		 args(struct mdoc *, int, int *, 
@@ -70,10 +50,6 @@ static	int		 argv_opt_single(struct mdoc *, int,
 				struct mdoc_argv *, int *, char *);
 static	int		 argv_multi(struct mdoc *, int, 
 				struct mdoc_argv *, int *, char *);
-static	int		 pwarn(struct mdoc *, int, int, enum mwarn);
-static	int		 perr(struct mdoc *, int, int, enum merr);
-
-#define verr(m, t) perr((m), (m)->last->line, (m)->last->pos, (t))
 
 /* Per-argument flags. */
 
@@ -83,8 +59,8 @@ static	int mdoc_argvflags[MDOC_ARG_MAX] = {
 	ARGV_NONE,	/* MDOC_Ragged */
 	ARGV_NONE,	/* MDOC_Unfilled */
 	ARGV_NONE,	/* MDOC_Literal */
-	ARGV_NONE,	/* MDOC_File */
-	ARGV_SINGLE,	/* MDOC_Offset */
+	ARGV_SINGLE,	/* MDOC_File */
+	ARGV_OPT_SINGLE, /* MDOC_Offset */
 	ARGV_NONE,	/* MDOC_Bullet */
 	ARGV_NONE,	/* MDOC_Dash */
 	ARGV_NONE,	/* MDOC_Hyphen */
@@ -98,7 +74,7 @@ static	int mdoc_argvflags[MDOC_ARG_MAX] = {
 	ARGV_MULTI,	/* MDOC_Column */
 	ARGV_SINGLE,	/* MDOC_Width */
 	ARGV_NONE,	/* MDOC_Compact */
-	ARGV_OPT_SINGLE, /* MDOC_Std */
+	ARGV_NONE,	/* MDOC_Std */
 	ARGV_NONE,	/* MDOC_Filled */
 	ARGV_NONE,	/* MDOC_Words */
 	ARGV_NONE,	/* MDOC_Emphasis */
@@ -107,15 +83,15 @@ static	int mdoc_argvflags[MDOC_ARG_MAX] = {
 };
 
 static	int mdoc_argflags[MDOC_MAX] = {
-	0, /* \" */
+	0, /* Ap */
 	0, /* Dd */
 	0, /* Dt */
 	0, /* Os */
-	ARGS_QUOTED, /* Sh */
-	ARGS_QUOTED, /* Ss */ 
+	0, /* Sh */
+	0, /* Ss */ 
 	ARGS_DELIM, /* Pp */ 
 	ARGS_DELIM, /* D1 */
-	ARGS_DELIM | ARGS_QUOTED, /* Dl */
+	ARGS_DELIM, /* Dl */
 	0, /* Bd */
 	0, /* Ed */
 	0, /* Bl */
@@ -123,42 +99,42 @@ static	int mdoc_argflags[MDOC_MAX] = {
 	0, /* It */
 	ARGS_DELIM, /* Ad */ 
 	ARGS_DELIM, /* An */
-	ARGS_DELIM | ARGS_QUOTED, /* Ar */
-	ARGS_QUOTED, /* Cd */
+	ARGS_DELIM, /* Ar */
+	0, /* Cd */
 	ARGS_DELIM, /* Cm */
 	ARGS_DELIM, /* Dv */ 
 	ARGS_DELIM, /* Er */ 
 	ARGS_DELIM, /* Ev */ 
 	0, /* Ex */
-	ARGS_DELIM | ARGS_QUOTED, /* Fa */ 
+	ARGS_DELIM, /* Fa */ 
 	0, /* Fd */ 
 	ARGS_DELIM, /* Fl */
-	ARGS_DELIM | ARGS_QUOTED, /* Fn */ 
-	ARGS_DELIM | ARGS_QUOTED, /* Ft */ 
+	ARGS_DELIM, /* Fn */ 
+	ARGS_DELIM, /* Ft */ 
 	ARGS_DELIM, /* Ic */ 
 	0, /* In */ 
-	ARGS_DELIM | ARGS_QUOTED, /* Li */
-	ARGS_QUOTED, /* Nd */ 
+	ARGS_DELIM, /* Li */
+	0, /* Nd */ 
 	ARGS_DELIM, /* Nm */ 
 	ARGS_DELIM, /* Op */
 	0, /* Ot */
 	ARGS_DELIM, /* Pa */
 	0, /* Rv */
-	ARGS_DELIM | ARGS_ARGVLIKE, /* St */ 
+	ARGS_DELIM, /* St */ 
 	ARGS_DELIM, /* Va */
 	ARGS_DELIM, /* Vt */ 
 	ARGS_DELIM, /* Xr */
-	ARGS_QUOTED, /* %A */
-	ARGS_QUOTED, /* %B */
-	ARGS_QUOTED, /* %D */
-	ARGS_QUOTED, /* %I */
-	ARGS_QUOTED, /* %J */
-	ARGS_QUOTED, /* %N */
-	ARGS_QUOTED, /* %O */
-	ARGS_QUOTED, /* %P */
-	ARGS_QUOTED, /* %R */
-	ARGS_QUOTED, /* %T */
-	ARGS_QUOTED, /* %V */
+	0, /* %A */
+	0, /* %B */
+	0, /* %D */
+	0, /* %I */
+	0, /* %J */
+	0, /* %N */
+	0, /* %O */
+	0, /* %P */
+	0, /* %R */
+	0, /* %T */
+	0, /* %V */
 	ARGS_DELIM, /* Ac */
 	0, /* Ao */
 	ARGS_DELIM, /* Aq */
@@ -198,12 +174,12 @@ static	int mdoc_argflags[MDOC_MAX] = {
 	ARGS_DELIM, /* Sq */
 	0, /* Sm */
 	ARGS_DELIM, /* Sx */
-	ARGS_DELIM | ARGS_QUOTED, /* Sy */
+	ARGS_DELIM, /* Sy */
 	ARGS_DELIM, /* Tn */
 	ARGS_DELIM, /* Ux */
 	ARGS_DELIM, /* Xc */
 	0, /* Xo */
-	ARGS_QUOTED, /* Fo */ 
+	0, /* Fo */ 
 	0, /* Fc */ 
 	0, /* Oo */
 	ARGS_DELIM, /* Oc */
@@ -214,18 +190,20 @@ static	int mdoc_argflags[MDOC_MAX] = {
 	0, /* Fr */
 	0, /* Ud */
 	0, /* Lb */
-	0, /* Ap */
 	ARGS_DELIM, /* Lp */
-	ARGS_DELIM | ARGS_QUOTED, /* Lk */
-	ARGS_DELIM | ARGS_QUOTED, /* Mt */
+	ARGS_DELIM, /* Lk */
+	ARGS_DELIM, /* Mt */
 	ARGS_DELIM, /* Brq */
 	0, /* Bro */
 	ARGS_DELIM, /* Brc */
-	ARGS_QUOTED, /* %C */
+	0, /* %C */
 	0, /* Es */
 	0, /* En */
 	0, /* Dx */
-	ARGS_QUOTED, /* %Q */
+	0, /* %Q */
+	0, /* br */
+	0, /* sp */
+	0, /* %U */
 };
 
 
@@ -235,10 +213,9 @@ static	int mdoc_argflags[MDOC_MAX] = {
  * one mandatory value, an optional single value, or no value.
  */
 int
-mdoc_argv(struct mdoc *mdoc, int line, int tok,
+mdoc_argv(struct mdoc *m, int line, int tok,
 		struct mdoc_arg **v, int *pos, char *buf)
 {
-	int		  i;
 	char		 *p, sv;
 	struct mdoc_argv tmp;
 	struct mdoc_arg	 *arg;
@@ -248,12 +225,8 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 
 	assert(' ' != buf[*pos]);
 
-	if ('-' != buf[*pos] || ARGS_ARGVLIKE & mdoc_argflags[tok])
-		return(ARGV_WORD);
-
 	/* Parse through to the first unescaped space. */
 
-	i = *pos;
 	p = &buf[++(*pos)];
 
 	assert(*pos > 0);
@@ -284,21 +257,19 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 		/* XXX - restore saved zeroed byte. */
 		if (sv)
 			buf[*pos - 1] = sv;
-		if ( ! pwarn(mdoc, line, i, WARGVPARM))
-			return(ARGV_ERROR);
 		return(ARGV_WORD);
 	}
 
 	while (buf[*pos] && ' ' == buf[*pos])
 		(*pos)++;
 
-	if ( ! argv(mdoc, line, &tmp, pos, buf))
+	if ( ! argv(m, line, &tmp, pos, buf))
 		return(ARGV_ERROR);
 
 	if (NULL == (arg = *v)) {
 		*v = calloc(1, sizeof(struct mdoc_arg));
 		if (NULL == *v) {
-			(void)verr(mdoc, EMALLOC);
+			(void)mdoc_nerr(m, m->last, EMALLOC);
 			return(ARGV_ERROR);
 		}
 		arg = *v;
@@ -309,7 +280,7 @@ mdoc_argv(struct mdoc *mdoc, int line, int tok,
 			sizeof(struct mdoc_argv));
 
 	if (NULL == arg->argv) {
-		(void)verr(mdoc, EMALLOC);
+		(void)mdoc_nerr(m, m->last, EMALLOC);
 		return(ARGV_ERROR);
 	}
 
@@ -339,9 +310,13 @@ mdoc_argv_free(struct mdoc_arg *p)
 	for (i = 0; i < (int)p->argc; i++) {
 		if (0 == p->argv[i].sz)
 			continue;
+		if (NULL == p->argv[i].value)
+			continue;
+
 		/* LINTED */
 		for (j = 0; j < (int)p->argv[i].sz; j++) 
-			free(p->argv[i].value[j]);
+			if (p->argv[i].value[j])
+				free(p->argv[i].value[j]);
 
 		free(p->argv[i].value);
 	}
@@ -351,60 +326,17 @@ mdoc_argv_free(struct mdoc_arg *p)
 }
 
 
-
-static int
-perr(struct mdoc *mdoc, int line, int pos, enum merr code)
+int
+mdoc_zargs(struct mdoc *m, int line, int *pos, 
+		char *buf, int flags, char **v)
 {
-	char		*p;
 
-	p = NULL;
-	switch (code) {
-	case (EMALLOC):
-		p = "memory exhausted";
-		break;
-	case (EQUOTTERM):
-		p = "unterminated quoted parameter";
-		break;
-	case (EARGVAL):
-		p = "argument requires a value";
-		break;
-	}
-	assert(p);
-	return(mdoc_perr(mdoc, line, pos, p));
-}
-
-
-static int
-pwarn(struct mdoc *mdoc, int line, int pos, enum mwarn code)
-{
-	char		*p;
-	int		 c;
-
-	p = NULL;
-	c = WARN_SYNTAX;
-	switch (code) {
-	case (WQUOTPARM):
-		p = "unexpected quoted parameter";
-		break;
-	case (WARGVPARM):
-		p = "argument-like parameter";
-		break;
-	case (WCOLEMPTY):
-		p = "last list column is empty";
-		c = WARN_COMPAT;
-		break;
-	case (WTAILWS):
-		p = "trailing whitespace";
-		c = WARN_COMPAT;
-		break;
-	}
-	assert(p);
-	return(mdoc_pwarn(mdoc, line, pos, c, p));
+	return(args(m, line, pos, buf, flags, v));
 }
 
 
 int
-mdoc_args(struct mdoc *mdoc, int line, 
+mdoc_args(struct mdoc *m, int line, 
 		int *pos, char *buf, int tok, char **v)
 {
 	int		  fl, c, i;
@@ -412,72 +344,62 @@ mdoc_args(struct mdoc *mdoc, int line,
 
 	fl = (0 == tok) ? 0 : mdoc_argflags[tok];
 
+	if (MDOC_It != tok)
+		return(args(m, line, pos, buf, fl, v));
+
 	/* 
-	 * Override per-macro argument flags with context-specific ones.
-	 * As of now, this is only valid for `It' depending on its list
-	 * context.
+	 * The `It' macro is a special case, as it acquires parameters from its
+	 * parent `Bl' context, specifically, we're concerned with -column.
 	 */
 
-	switch (tok) {
-	case (MDOC_It):
-		for (n = mdoc->last; n; n = n->parent)
-			if (MDOC_BLOCK == n->type && MDOC_Bl == n->tok)
-				break;
+	for (n = m->last; n; n = n->parent)
+		if (MDOC_BLOCK == n->type && MDOC_Bl == n->tok)
+			break;
 
-		assert(n);
-		c = (int)(n->args ? n->args->argc : 0);
-		assert(c > 0);
+	assert(n);
+	c = (int)(n->args ? n->args->argc : 0);
+	assert(c > 0);
 
-		/*
-		 * Using `Bl -column' adds ARGS_TABSEP to the arguments
-		 * and invalidates ARGS_DELIM.  Using `Bl -diag' allows
-		 * for quoted arguments.
-		 */
-
-		/* LINTED */
-		for (i = 0; i < c; i++) {
-			switch (n->args->argv[i].arg) {
-			case (MDOC_Column):
-				fl |= ARGS_TABSEP;
-				fl &= ~ARGS_DELIM;
-				i = c;
-				break;
-			case (MDOC_Diag):
-				fl |= ARGS_QUOTED;
-				i = c;
-				break;
-			default:
-				break;
-			}
-		}
-		break;
-	default:
+	/* LINTED */
+	for (i = 0; i < c; i++) {
+		if (MDOC_Column != n->args->argv[i].arg) 
+			continue;
+		fl |= ARGS_TABSEP;
+		fl &= ~ARGS_DELIM;
 		break;
 	}
 
-	return(args(mdoc, line, pos, buf, fl, v));
+	return(args(m, line, pos, buf, fl, v));
 }
 
 
 static int
-args(struct mdoc *mdoc, int line, 
-		int *pos, char *buf, int fl, char **v)
+args(struct mdoc *m, int line, int *pos, 
+		char *buf, int fl, char **v)
 {
 	int		  i;
 	char		 *p, *pp;
 
-	assert(*pos > 0);
+	/*
+	 * Parse out the terms (like `val' in `.Xx -arg val' or simply
+	 * `.Xx val'), which can have all sorts of properties:
+	 *
+	 *   ARGS_DELIM: use special handling if encountering trailing
+	 *   delimiters in the form of [[::delim::][ ]+]+.
+	 *
+	 *   ARGS_NOWARN: don't post warnings.  This is only used when
+	 *   re-parsing delimiters, as the warnings have already been
+	 *   posted.
+	 *
+	 *   ARGS_TABSEP: use special handling for tab/`Ta' separated
+	 *   phrases like in `Bl -column'.
+	 */
+
+	assert(*pos);
+	assert(' ' != buf[*pos]);
 
 	if (0 == buf[*pos])
 		return(ARGS_EOLN);
-
-	if ('\"' == buf[*pos] && ! (fl & ARGS_QUOTED))
-		if ( ! pwarn(mdoc, line, *pos, WQUOTPARM))
-			return(ARGS_ERROR);
-
-	if ( ! (fl & ARGS_ARGVLIKE) && '-' == buf[*pos]) 
-		if ( ! pwarn(mdoc, line, *pos, WARGVPARM))
-			return(ARGS_ERROR);
 
 	/* 
 	 * If the first character is a delimiter and we're to look for
@@ -490,172 +412,153 @@ args(struct mdoc *mdoc, int line,
 			if ( ! mdoc_iscdelim(buf[i]))
 				break;
 			i++;
-			/* There must be at least one space... */
 			if (0 == buf[i] || ' ' != buf[i])
 				break;
 			i++;
 			while (buf[i] && ' ' == buf[i])
 				i++;
 		}
+
 		if (0 == buf[i]) {
 			*v = &buf[*pos];
+			if (' ' != buf[i - 1])
+				return(ARGS_PUNCT);
+			if (ARGS_NOWARN & fl)
+				return(ARGS_PUNCT);
+			if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
+				return(ARGS_ERROR);
 			return(ARGS_PUNCT);
 		}
 	}
 
-	/* First parse non-quoted strings. */
+	*v = &buf[*pos];
 
-	if ('\"' != buf[*pos] || ! (ARGS_QUOTED & fl)) {
-		*v = &buf[*pos];
+	/*
+	 * First handle TABSEP items, restricted to `Bl -column'.  This
+	 * ignores conventional token parsing and instead uses tabs or
+	 * `Ta' macros to separate phrases.  Phrases are parsed again
+	 * for arguments at a later phase.
+	 */
+
+	if (ARGS_TABSEP & fl) {
+		/* Scan ahead to tab (can't be escaped). */
+		p = strchr(*v, '\t');
+
+		/* Scan ahead to unescaped `Ta'. */
+		for (pp = *v; ; pp++) {
+			if (NULL == (pp = strstr(pp, "Ta")))
+				break;
+			if (pp > *v && ' ' != *(pp - 1))
+				continue;
+			if (' ' == *(pp + 2) || 0 == *(pp + 2))
+				break;
+		}
 
 		/* 
-		 * Thar be dragons here!  If we're tab-separated, search
-		 * ahead for either a tab or the `Ta' macro.  
-		 * If a `Ta' is detected, it must be space-buffered before and
-		 * after.  If either of these hold true, then prune out the
-		 * extra spaces and call it an argument.
+		 * Adjust new-buffer position to be beyond delimiter
+		 * mark (e.g., Ta -> end + 2).
 		 */
-
-		if (ARGS_TABSEP & fl) {
-			/* Scan ahead to unescaped tab. */
-
-			p = strchr(*v, '\t');
-
-			/* Scan ahead to unescaped `Ta'. */
-
-			for (pp = *v; ; pp++) {
-				if (NULL == (pp = strstr(pp, "Ta")))
-					break;
-				if (pp > *v && ' ' != *(pp - 1))
-					continue;
-				if (' ' == *(pp + 2) || 0 == *(pp + 2))
-					break;
-			}
-
-			/* Choose delimiter tab/Ta. */
-
-			if (p && pp)
-				p = (p < pp ? p : pp);
-			else if ( ! p && pp)
-				p = pp;
-
-			/* Strip delimiter's preceding whitespace. */
-
-			if (p && p > *v) {
-				pp = p - 1;
-				while (pp > *v && ' ' == *pp)
-					pp--;
-				if (pp == *v && ' ' == *pp) 
-					*pp = 0;
-				else if (' ' == *pp)
-					*(pp + 1) = 0;
-			}
-
-			/* ...in- and proceding whitespace. */
-
-			if (p && ('\t' != *p)) {
-				*p++ = 0;
-				*p++ = 0;
-			} else if (p)
-				*p++ = 0;
-
-			if (p) {
-				while (' ' == *p)
-					p++;
-				if (0 != *p)
-					*(p - 1) = 0;
-				*pos += (int)(p - *v);
-			} 
-
-			if (p && 0 == *p)
-				if ( ! pwarn(mdoc, line, *pos, WCOLEMPTY))
-					return(0);
-			if (p && 0 == *p && p > *v && ' ' == *(p - 1))
-				if ( ! pwarn(mdoc, line, *pos, WTAILWS))
-					return(0);
-
-			if (p)
-				return(ARGS_PHRASE);
-
-			/* Configure the eoln case, too. */
-
+		if (p && pp) {
+			*pos += pp < p ? 2 : 1;
+			p = pp < p ? pp : p;
+		} else if (p && ! pp) {
+			*pos += 1;
+		} else if (pp && ! p) {
+			p = pp;
+			*pos += 2;
+		} else
 			p = strchr(*v, 0);
-			assert(p);
 
-			if (p > *v && ' ' == *(p - 1))
-				if ( ! pwarn(mdoc, line, *pos, WTAILWS))
-					return(0);
-			*pos += (int)(p - *v);
+		/* Whitespace check for eoln case... */
+		if (0 == *p && ' ' == *(p - 1) && ! (ARGS_NOWARN & fl))
+			if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
+				return(ARGS_ERROR);
 
-			return(ARGS_PHRASE);
-		} 
-		
-		/* Do non-tabsep look-ahead here. */
-		
-		if ( ! (ARGS_TABSEP & fl))
-			while (buf[*pos]) {
-				if (' ' == buf[*pos])
-					if ('\\' != buf[*pos - 1])
-						break;
-				(*pos)++;
-			}
+		*pos += (int)(p - *v);
 
-		if (0 == buf[*pos])
-			return(ARGS_WORD);
+		/* Strip delimiter's preceding whitespace. */
+		pp = p - 1;
+		while (pp > *v && ' ' == *pp) {
+			if (pp > *v && '\\' == *(pp - 1))
+				break;
+			pp--;
+		}
+		*(pp + 1) = 0;
+
+		/* Strip delimiter's proceeding whitespace. */
+		for (pp = &buf[*pos]; ' ' == *pp; pp++, (*pos)++)
+			/* Skip ahead. */ ;
+
+		return(ARGS_PHRASE);
+	} 
+
+	/* 
+	 * Process a quoted literal.  A quote begins with a double-quote
+	 * and ends with a double-quote NOT preceded by a double-quote.
+	 * Whitespace is NOT involved in literal termination.
+	 */
+
+	if ('\"' == buf[*pos]) {
+		*v = &buf[++(*pos)];
+
+		for ( ; buf[*pos]; (*pos)++) {
+			if ('\"' != buf[*pos])
+				continue;
+			if ('\"' != buf[*pos + 1])
+				break;
+			(*pos)++;
+		}
+
+		if (0 == buf[*pos]) {
+			if (ARGS_NOWARN & fl)
+				return(ARGS_QWORD);
+			if ( ! mdoc_pwarn(m, line, *pos, EQUOTTERM))
+				return(ARGS_ERROR);
+			return(ARGS_QWORD);
+		}
 
 		buf[(*pos)++] = 0;
 
 		if (0 == buf[*pos])
-			return(ARGS_WORD);
+			return(ARGS_QWORD);
 
-		if ( ! (ARGS_TABSEP & fl))
-			while (buf[*pos] && ' ' == buf[*pos])
-				(*pos)++;
+		while (' ' == buf[*pos])
+			(*pos)++;
 
-		if (buf[*pos])
-			return(ARGS_WORD);
+		if (0 == buf[*pos] && ! (ARGS_NOWARN & fl))
+			if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
+				return(ARGS_ERROR);
 
-		if ( ! pwarn(mdoc, line, *pos, WTAILWS))
-			return(ARGS_ERROR);
-
-		return(ARGS_WORD);
+		return(ARGS_QWORD);
 	}
 
-	/*
-	 * If we're a quoted string (and quoted strings are allowed),
-	 * then parse ahead to the next quote.  If none's found, it's an
-	 * error.  After, parse to the next word.  
+	/* 
+	 * A non-quoted term progresses until either the end of line or
+	 * a non-escaped whitespace.
 	 */
 
-	*v = &buf[++(*pos)];
+	for ( ; buf[*pos]; (*pos)++)
+		if (' ' == buf[*pos] && '\\' != buf[*pos - 1])
+			break;
 
-	while (buf[*pos] && '\"' != buf[*pos])
-		(*pos)++;
-
-	if (0 == buf[*pos]) {
-		(void)perr(mdoc, line, *pos, EQUOTTERM);
-		return(ARGS_ERROR);
-	}
+	if (0 == buf[*pos])
+		return(ARGS_WORD);
 
 	buf[(*pos)++] = 0;
-	if (0 == buf[*pos])
-		return(ARGS_QWORD);
 
-	while (buf[*pos] && ' ' == buf[*pos])
+	while (' ' == buf[*pos])
 		(*pos)++;
 
-	if (buf[*pos])
-		return(ARGS_QWORD);
+	if (0 == buf[*pos] && ! (ARGS_NOWARN & fl))
+		if ( ! mdoc_pwarn(m, line, *pos, ETAILWS))
+			return(ARGS_ERROR);
 
-	if ( ! pwarn(mdoc, line, *pos, WTAILWS))
-		return(ARGS_ERROR);
-
-	return(ARGS_QWORD);
+	return(ARGS_WORD);
 }
 
 
 static int
-argv_a2arg(int tok, const char *argv)
+argv_a2arg(int tok, const char *p)
 {
 
 	/*
@@ -668,80 +571,82 @@ argv_a2arg(int tok, const char *argv)
 
 	switch (tok) {
 	case (MDOC_An):
-		if (0 == strcmp(argv, "split"))
+		if (0 == strcmp(p, "split"))
 			return(MDOC_Split);
-		else if (0 == strcmp(argv, "nosplit"))
+		else if (0 == strcmp(p, "nosplit"))
 			return(MDOC_Nosplit);
 		break;
 
 	case (MDOC_Bd):
-		if (0 == strcmp(argv, "ragged"))
+		if (0 == strcmp(p, "ragged"))
 			return(MDOC_Ragged);
-		else if (0 == strcmp(argv, "unfilled"))
+		else if (0 == strcmp(p, "unfilled"))
 			return(MDOC_Unfilled);
-		else if (0 == strcmp(argv, "filled"))
+		else if (0 == strcmp(p, "filled"))
 			return(MDOC_Filled);
-		else if (0 == strcmp(argv, "literal"))
+		else if (0 == strcmp(p, "literal"))
 			return(MDOC_Literal);
-		else if (0 == strcmp(argv, "file"))
+		else if (0 == strcmp(p, "file"))
 			return(MDOC_File);
-		else if (0 == strcmp(argv, "offset"))
+		else if (0 == strcmp(p, "offset"))
 			return(MDOC_Offset);
-		else if (0 == strcmp(argv, "compact"))
+		else if (0 == strcmp(p, "compact"))
 			return(MDOC_Compact);
+		else if (0 == strcmp(p, "centered"))
+			return(MDOC_Centred);
 		break;
 
 	case (MDOC_Bf):
-		if (0 == strcmp(argv, "emphasis"))
+		if (0 == strcmp(p, "emphasis"))
 			return(MDOC_Emphasis);
-		else if (0 == strcmp(argv, "literal"))
+		else if (0 == strcmp(p, "literal"))
 			return(MDOC_Literal);
-		else if (0 == strcmp(argv, "symbolic"))
+		else if (0 == strcmp(p, "symbolic"))
 			return(MDOC_Symbolic);
 		break;
 
 	case (MDOC_Bk):
-		if (0 == strcmp(argv, "words"))
+		if (0 == strcmp(p, "words"))
 			return(MDOC_Words);
 		break;
 
 	case (MDOC_Bl):
-		if (0 == strcmp(argv, "bullet"))
+		if (0 == strcmp(p, "bullet"))
 			return(MDOC_Bullet);
-		else if (0 == strcmp(argv, "dash"))
+		else if (0 == strcmp(p, "dash"))
 			return(MDOC_Dash);
-		else if (0 == strcmp(argv, "hyphen"))
+		else if (0 == strcmp(p, "hyphen"))
 			return(MDOC_Hyphen);
-		else if (0 == strcmp(argv, "item"))
+		else if (0 == strcmp(p, "item"))
 			return(MDOC_Item);
-		else if (0 == strcmp(argv, "enum"))
+		else if (0 == strcmp(p, "enum"))
 			return(MDOC_Enum);
-		else if (0 == strcmp(argv, "tag"))
+		else if (0 == strcmp(p, "tag"))
 			return(MDOC_Tag);
-		else if (0 == strcmp(argv, "diag"))
+		else if (0 == strcmp(p, "diag"))
 			return(MDOC_Diag);
-		else if (0 == strcmp(argv, "hang"))
+		else if (0 == strcmp(p, "hang"))
 			return(MDOC_Hang);
-		else if (0 == strcmp(argv, "ohang"))
+		else if (0 == strcmp(p, "ohang"))
 			return(MDOC_Ohang);
-		else if (0 == strcmp(argv, "inset"))
+		else if (0 == strcmp(p, "inset"))
 			return(MDOC_Inset);
-		else if (0 == strcmp(argv, "column"))
+		else if (0 == strcmp(p, "column"))
 			return(MDOC_Column);
-		else if (0 == strcmp(argv, "width"))
+		else if (0 == strcmp(p, "width"))
 			return(MDOC_Width);
-		else if (0 == strcmp(argv, "offset"))
+		else if (0 == strcmp(p, "offset"))
 			return(MDOC_Offset);
-		else if (0 == strcmp(argv, "compact"))
+		else if (0 == strcmp(p, "compact"))
 			return(MDOC_Compact);
-		else if (0 == strcmp(argv, "nested"))
+		else if (0 == strcmp(p, "nested"))
 			return(MDOC_Nested);
 		break;
 	
 	case (MDOC_Rv):
 		/* FALLTHROUGH */
 	case (MDOC_Ex):
-		if (0 == strcmp(argv, "std"))
+		if (0 == strcmp(p, "std"))
 			return(MDOC_Std);
 		break;
 	default:
@@ -753,18 +658,16 @@ argv_a2arg(int tok, const char *argv)
 
 
 static int
-argv_multi(struct mdoc *mdoc, int line, 
+argv_multi(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
-	int		 c, ppos;
+	int		 c;
 	char		*p;
-
-	ppos = *pos;
 
 	for (v->sz = 0; ; v->sz++) {
 		if ('-' == buf[*pos])
 			break;
-		c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+		c = args(m, line, pos, buf, 0, &p);
 		if (ARGS_ERROR == c)
 			return(0);
 		else if (ARGS_EOLN == c)
@@ -774,23 +677,20 @@ argv_multi(struct mdoc *mdoc, int line,
 			v->value = realloc(v->value, 
 				(v->sz + MULTI_STEP) * sizeof(char *));
 			if (NULL == v->value) {
-				(void)verr(mdoc, EMALLOC);
+				(void)mdoc_nerr(m, m->last, EMALLOC);
 				return(ARGV_ERROR);
 			}
 		}
 		if (NULL == (v->value[(int)v->sz] = strdup(p)))
-			return(verr(mdoc, EMALLOC));
+			return(mdoc_nerr(m, m->last, EMALLOC));
 	}
 
-	if (v->sz)
-		return(1);
-
-	return(perr(mdoc, line, ppos, EARGVAL));
+	return(1);
 }
 
 
 static int
-argv_opt_single(struct mdoc *mdoc, int line, 
+argv_opt_single(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	int		 c;
@@ -799,7 +699,7 @@ argv_opt_single(struct mdoc *mdoc, int line,
 	if ('-' == buf[*pos])
 		return(1);
 
-	c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+	c = args(m, line, pos, buf, 0, &p);
 	if (ARGS_ERROR == c)
 		return(0);
 	if (ARGS_EOLN == c)
@@ -807,9 +707,9 @@ argv_opt_single(struct mdoc *mdoc, int line,
 
 	v->sz = 1;
 	if (NULL == (v->value = calloc(1, sizeof(char *))))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	if (NULL == (v->value[0] = strdup(p)))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }
@@ -819,7 +719,7 @@ argv_opt_single(struct mdoc *mdoc, int line,
  * Parse a single, mandatory value from the stream.
  */
 static int
-argv_single(struct mdoc *mdoc, int line, 
+argv_single(struct mdoc *m, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	int		 c, ppos;
@@ -827,17 +727,17 @@ argv_single(struct mdoc *mdoc, int line,
 
 	ppos = *pos;
 
-	c = args(mdoc, line, pos, buf, ARGS_QUOTED, &p);
+	c = args(m, line, pos, buf, 0, &p);
 	if (ARGS_ERROR == c)
 		return(0);
 	if (ARGS_EOLN == c)
-		return(perr(mdoc, line, ppos, EARGVAL));
+		return(mdoc_perr(m, line, ppos, EARGVAL));
 
 	v->sz = 1;
 	if (NULL == (v->value = calloc(1, sizeof(char *))))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	if (NULL == (v->value[0] = strdup(p)))
-		return(verr(mdoc, EMALLOC));
+		return(mdoc_nerr(m, m->last, EMALLOC));
 
 	return(1);
 }

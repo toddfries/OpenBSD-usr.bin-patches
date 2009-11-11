@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.325 2009/03/17 21:37:00 markus Exp $ */
+/* $OpenBSD: ssh.c,v 1.328 2009/10/28 16:38:18 reyk Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -42,6 +42,7 @@
 
 #include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/param.h>
 #include <sys/queue.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
@@ -90,6 +91,7 @@
 #include "match.h"
 #include "msg.h"
 #include "uidswap.h"
+#include "roaming.h"
 #include "version.h"
 
 #ifdef SMARTCARD
@@ -195,8 +197,8 @@ void muxserver_listen(void);
 int
 main(int ac, char **av)
 {
-	int i, opt, exit_status, use_syslog;
-	char *p, *cp, *line, *argv0, buf[256];
+	int i, r, opt, exit_status, use_syslog;
+	char *p, *cp, *line, *argv0, buf[MAXPATHLEN];
 	struct stat st;
 	struct passwd *pw;
 	int dummy, timeout_ms;
@@ -601,9 +603,10 @@ main(int ac, char **av)
 			fatal("Can't open user config file %.100s: "
 			    "%.100s", config, strerror(errno));
 	} else {
-		snprintf(buf, sizeof buf, "%.100s/%.100s", pw->pw_dir,
+		r = snprintf(buf, sizeof buf, "%s/%s", pw->pw_dir,
 		    _PATH_SSH_USER_CONFFILE);
-		(void)read_config_file(buf, host, &options, 1);
+		if (r > 0 && (size_t)r < sizeof(buf))
+			(void)read_config_file(buf, host, &options, 1);
 
 		/* Read systemwide configuration file after use config. */
 		(void)read_config_file(_PATH_HOST_CONFIG_FILE, host,
@@ -614,6 +617,7 @@ main(int ac, char **av)
 	fill_default_options(&options);
 
 	channel_set_af(options.address_family);
+	channel_set_rdomain(options.rdomain);
 
 	/* reinit */
 	log_init(argv0, options.log_level, SYSLOG_FACILITY_USER, !use_syslog);
@@ -748,9 +752,9 @@ main(int ac, char **av)
 	 * Now that we are back to our own permissions, create ~/.ssh
 	 * directory if it doesn't already exist.
 	 */
-	snprintf(buf, sizeof buf, "%.100s%s%.100s", pw->pw_dir,
+	r = snprintf(buf, sizeof buf, "%s%s%s", pw->pw_dir,
 	    strcmp(pw->pw_dir, "/") ? "/" : "", _PATH_SSH_USER_DIR);
-	if (stat(buf, &st) < 0)
+	if (r > 0 && (size_t)r < sizeof(buf) && stat(buf, &st) < 0)
 		if (mkdir(buf, 0700) < 0)
 			error("Could not create directory '%.200s'.", buf);
 
@@ -1200,6 +1204,9 @@ ssh_session2(void)
 		if (daemon(1, 1) < 0)
 			fatal("daemon() failed: %.200s", strerror(errno));
 	}
+
+	if (options.use_roaming)
+		request_roaming();
 
 	return client_loop(tty_flag, tty_flag ?
 	    options.escape_char : SSH_ESCAPECHAR_NONE, id);

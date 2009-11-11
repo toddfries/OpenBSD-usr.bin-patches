@@ -1,4 +1,4 @@
-/*	$OpenBSD: nice.c,v 1.9 2003/06/10 22:20:49 deraadt Exp $	*/
+/*	$OpenBSD: nice.c,v 1.11 2009/10/27 23:59:41 deraadt Exp $	*/
 /*	$NetBSD: nice.c,v 1.9 1995/08/31 23:30:58 jtc Exp $	*/
 
 /*
@@ -29,19 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-char copyright[] =
-"@(#) Copyright (c) 1989 The Regents of the University of California.\n\
- All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static char sccsid[] = "@(#)nice.c	5.4 (Berkeley) 6/1/90";
-#endif
-static char rcsid[] = "$OpenBSD: nice.c,v 1.9 2003/06/10 22:20:49 deraadt Exp $";
-#endif /* not lint */
 
 #include <sys/time.h>
 #include <sys/resource.h>
@@ -108,7 +95,7 @@ static void
 usage(void)
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s [ -n increment ] utility [ argument ...]\n",
+	fprintf(stderr, "usage: %s [-n increment] utility [argument ...]\n",
 	    __progname);
 	exit(1);
 }

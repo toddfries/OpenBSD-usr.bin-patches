@@ -1,4 +1,4 @@
-/*	$OpenBSD: show.c,v 1.24 2009/05/31 18:03:42 claudio Exp $	*/
+/*	$OpenBSD: show.c,v 1.27 2009/08/07 09:09:31 martynas Exp $	*/
 /*	$NetBSD: show.c,v 1.1 1996/11/15 18:01:41 gwr Exp $	*/
 
 /*
@@ -96,6 +96,7 @@ static const struct bits bits[] = {
 	{ RTF_CLONED,	'c' },
 	{ RTF_JUMBO,	'J' },
 	{ RTF_MPATH,	'P' },
+	{ RTF_MPLS,	'T' },
 	{ 0 }
 };
 
@@ -553,7 +554,7 @@ static char domain[MAXHOSTNAMELEN];
 void
 p_sockaddr_mpls(struct sockaddr *in, struct sockaddr *out, int flags, int width)
 {
-	char *cp;
+	char buf[MAXHOSTNAMELEN], *cp;
 
 	if (in->sa_family != AF_MPLS)
 		return;
@@ -563,10 +564,10 @@ p_sockaddr_mpls(struct sockaddr *in, struct sockaddr *out, int flags, int width)
 	else
 		cp = label_print(in, out);
 
-	snprintf(cp, MAXHOSTNAMELEN, "%s %s", cp,
+	snprintf(buf, MAXHOSTNAMELEN, "%s %s", cp,
 	    label_print_op(flags));
 
-	printf("%-*s ", width, cp);
+	printf("%-*s ", width, buf);
 }
 
 void
@@ -970,6 +971,7 @@ index_pfk(struct sadb_msg *msg, void **headers)
 			break;
 		case SADB_X_EXT_FLOW_TYPE:
 			headers[SADB_X_EXT_FLOW_TYPE] = (void *)ext;
+			break;
 		default:
 			/* Ignore. */
 			break;

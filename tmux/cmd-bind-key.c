@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-bind-key.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-bind-key.c,v 1.5 2009/07/28 17:05:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,8 @@
 
 #include <sys/types.h>
 
+#include <string.h>
+
 #include "tmux.h"
 
 /*
@@ -26,26 +28,28 @@
 
 int	cmd_bind_key_parse(struct cmd *, int, char **, char **);
 int	cmd_bind_key_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_bind_key_send(struct cmd *, struct buffer *);
-void	cmd_bind_key_recv(struct cmd *, struct buffer *);
 void	cmd_bind_key_free(struct cmd *);
 size_t	cmd_bind_key_print(struct cmd *, char *, size_t);
+
+int	cmd_bind_key_table(struct cmd *, struct cmd_ctx *);
 
 struct cmd_bind_key_data {
 	int		 key;
 	int		 can_repeat;
 	struct cmd_list	*cmdlist;
+
+	int		 command_key;
+	char		*tablename;
+	char 		*modecmd;
 };
 
 const struct cmd_entry cmd_bind_key_entry = {
 	"bind-key", "bind",
-	"[-r] key command [arguments]",
-	0,
+	"[-cnr] [-t key-table] key command [arguments]",
+	0, 0,
 	NULL,
 	cmd_bind_key_parse,
 	cmd_bind_key_exec,
-	cmd_bind_key_send,
-	cmd_bind_key_recv,
 	cmd_bind_key_free,
 	cmd_bind_key_print
 };
@@ -54,16 +58,28 @@ int
 cmd_bind_key_parse(struct cmd *self, int argc, char **argv, char **cause)
 {
 	struct cmd_bind_key_data	*data;
-	int				 opt;
+	int				 opt, no_prefix = 0;
 
 	self->data = data = xmalloc(sizeof *data);
 	data->can_repeat = 0;
 	data->cmdlist = NULL;
+	data->command_key = 0;
+	data->tablename = NULL;
+	data->modecmd = NULL;
 
-	while ((opt = getopt(argc, argv, "r")) != -1) {
+	while ((opt = getopt(argc, argv, "cnrt:")) != -1) {
 		switch (opt) {
+		case 'c':
+			data->command_key = 1;
+			break;
+		case 'n':
+			no_prefix = 1;
+			break;
 		case 'r':
 			data->can_repeat = 1;
+			break;
+		case 't':
+			data->tablename = xstrdup(optarg);
 			break;
 		default:
 			goto usage;
@@ -78,11 +94,19 @@ cmd_bind_key_parse(struct cmd *self, int argc, char **argv, char **cause)
 		xasprintf(cause, "unknown key: %s", argv[0]);
 		goto error;
 	}
+	if (!no_prefix)
+		data->key |= KEYC_PREFIX;
 
 	argc--;
 	argv++;
-	if ((data->cmdlist = cmd_list_parse(argc, argv, cause)) == NULL)
-		goto error;
+	if (data->tablename != NULL) {
+		if (argc != 1)
+			goto usage;
+		data->modecmd = xstrdup(argv[0]);
+	} else {
+		if ((data->cmdlist = cmd_list_parse(argc, argv, cause)) == NULL)
+			goto error;
+	}
 
 	return (0);
 
@@ -101,6 +125,8 @@ cmd_bind_key_exec(struct cmd *self, unused struct cmd_ctx *ctx)
 
 	if (data == NULL)
 		return (0);
+	if (data->tablename != NULL)
+		return (cmd_bind_key_table(self, ctx));
 
 	key_bindings_add(data->key, data->can_repeat, data->cmdlist);
 	data->cmdlist = NULL;	/* avoid free */
@@ -108,23 +134,37 @@ cmd_bind_key_exec(struct cmd *self, unused struct cmd_ctx *ctx)
 	return (0);
 }
 
-void
-cmd_bind_key_send(struct cmd *self, struct buffer *b)
+int
+cmd_bind_key_table(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_bind_key_data	*data = self->data;
+	const struct mode_key_table	*mtab;
+	struct mode_key_binding		*mbind, mtmp;
+	enum mode_key_cmd		 cmd;
 
-	buffer_write(b, data, sizeof *data);
-	cmd_list_send(data->cmdlist, b);
-}
+	if ((mtab = mode_key_findtable(data->tablename)) == NULL) {
+		ctx->error(ctx, "unknown key table: %s", data->tablename);
+		return (-1);
+	}
 
-void
-cmd_bind_key_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_bind_key_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->cmdlist = cmd_list_recv(b);
+	cmd = mode_key_fromstring(mtab->cmdstr, data->modecmd);
+	if (cmd == MODEKEY_NONE) {
+		ctx->error(ctx, "unknown command: %s", data->modecmd);
+		return (-1);
+	}
+	
+	mtmp.key = data->key & ~KEYC_PREFIX;
+	mtmp.mode = data->command_key ? 1 : 0;
+	if ((mbind = SPLAY_FIND(mode_key_tree, mtab->tree, &mtmp)) != NULL) {
+		mbind->cmd = cmd;
+		return (0);
+	}
+	mbind = xmalloc(sizeof *mbind);
+	mbind->key = mtmp.key;
+	mbind->mode = mtmp.mode;
+	mbind->cmd = cmd;
+	SPLAY_INSERT(mode_key_tree, mtab->tree, mbind);
+	return (0);
 }
 
 void
@@ -134,6 +174,10 @@ cmd_bind_key_free(struct cmd *self)
 
 	if (data->cmdlist != NULL)
 		cmd_list_free(data->cmdlist);
+	if (data->tablename != NULL)
+		xfree(data->tablename);
+	if (data->modecmd != NULL)
+		xfree(data->modecmd);
 	xfree(data);
 }
 

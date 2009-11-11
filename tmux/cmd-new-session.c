@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.21 2009/10/10 10:02:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,9 @@
 
 #include <sys/types.h>
 
+#include <string.h>
+#include <termios.h>
+
 #include "tmux.h"
 
 /*
@@ -26,13 +29,12 @@
 
 int	cmd_new_session_parse(struct cmd *, int, char **, char **);
 int	cmd_new_session_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_new_session_send(struct cmd *, struct buffer *);
-void	cmd_new_session_recv(struct cmd *, struct buffer *);
 void	cmd_new_session_free(struct cmd *);
 void	cmd_new_session_init(struct cmd *, int);
 size_t	cmd_new_session_print(struct cmd *, char *, size_t);
 
 struct cmd_new_session_data {
+	char	*target;
 	char	*newname;
 	char	*winname;
 	char	*cmd;
@@ -41,13 +43,11 @@ struct cmd_new_session_data {
 
 const struct cmd_entry cmd_new_session_entry = {
 	"new-session", "new",
-	"[-d] [-n window-name] [-s session-name] [command]",
-	CMD_STARTSERVER|CMD_CANTNEST,
+	"[-d] [-n window-name] [-s session-name] [-t target-session] [command]",
+	CMD_STARTSERVER|CMD_CANTNEST|CMD_SENDENVIRON, 0,
 	cmd_new_session_init,
 	cmd_new_session_parse,
 	cmd_new_session_exec,
-	cmd_new_session_send,
-	cmd_new_session_recv,
 	cmd_new_session_free,
 	cmd_new_session_print
 };
@@ -59,6 +59,7 @@ cmd_new_session_init(struct cmd *self, unused int arg)
 
 	self->data = data = xmalloc(sizeof *data);
 	data->flag_detached = 0;
+	data->target = NULL;
 	data->newname = NULL;
 	data->winname = NULL;
 	data->cmd = NULL;
@@ -70,10 +71,10 @@ cmd_new_session_parse(struct cmd *self, int argc, char **argv, char **cause)
 	struct cmd_new_session_data	*data;
 	int				 opt;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
-	while ((opt = getopt(argc, argv, "ds:n:")) != -1) {
+	while ((opt = getopt(argc, argv, "ds:t:n:")) != -1) {
 		switch (opt) {
 		case 'd':
 			data->flag_detached = 1;
@@ -81,6 +82,10 @@ cmd_new_session_parse(struct cmd *self, int argc, char **argv, char **cause)
 		case 's':
 			if (data->newname == NULL)
 				data->newname = xstrdup(optarg);
+			break;
+		case 't':
+			if (data->target == NULL)
+				data->target = xstrdup(optarg);
 			break;
 		case 'n':
 			if (data->winname == NULL)
@@ -93,6 +98,9 @@ cmd_new_session_parse(struct cmd *self, int argc, char **argv, char **cause)
 	argc -= optind;
 	argv += optind;
 	if (argc != 0 && argc != 1)
+		goto usage;
+
+	if (data->target != NULL && (argc == 1 || data->winname != NULL))
 		goto usage;
 
 	if (argc == 1)
@@ -111,106 +119,166 @@ int
 cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_new_session_data	*data = self->data;
-	struct client			*c = ctx->cmdclient;
-	struct session			*s;
-	char				*cmd, *cwd, *cause;
+	struct session			*s, *groupwith;
+	struct window			*w;
+	struct environ			 env;
+	struct termios			 tio, *tiop;
+	const char			*update;
+	char				*overrides, *cmd, *cwd, *cause;
+	int				 detached, idx;
 	u_int				 sx, sy;
-
-	if (ctx->curclient != NULL)
-		return (0);
-
-	if (!data->flag_detached) {
-		if (c == NULL) {
-			ctx->error(ctx, "no client to attach to");
-			return (-1);
-		}
-		if (!(c->flags & CLIENT_TERMINAL)) {
-			ctx->error(ctx, "not a terminal");
-			return (-1);
-		}
-	}
 
 	if (data->newname != NULL && session_find(data->newname) != NULL) {
 		ctx->error(ctx, "duplicate session: %s", data->newname);
 		return (-1);
 	}
 
-	cmd = data->cmd;
-	if (cmd == NULL)
-		cmd = options_get_string(&global_options, "default-command");
-	if (c == NULL || c->cwd == NULL)
-		cwd = options_get_string(&global_options, "default-path");
-	else
-		cwd = c->cwd;
-
-	sx = 80;
-	sy = 25;
-	if (!data->flag_detached) {
-		sx = c->tty.sx;
-		sy = c->tty.sy;
-	}
-
-	if (options_get_number(&global_options, "status")) {
-		if (sy == 0)
-			sy = 1;
-		else
-			sy--;
-	}
-
-	if (!data->flag_detached && tty_open(&c->tty, &cause) != 0) {
-		ctx->error(ctx, "open terminal failed: %s", cause);
-		xfree(cause);
+	groupwith = NULL;
+	if (data->target != NULL &&
+	    (groupwith = cmd_find_session(ctx, data->target)) == NULL)
 		return (-1);
+
+	/*
+	 * There are three cases:
+	 *
+	 * 1. If cmdclient is non-NULL, new-session has been called from the
+	 *    command-line - cmdclient is to become a new attached, interactive
+	 *    client. Unless -d is given, the terminal must be opened and then
+	 *    the client sent MSG_READY.
+	 *
+	 * 2. If cmdclient is NULL, new-session has been called from an
+	 *    existing client (such as a key binding).
+	 *
+	 * 3. Both are NULL, the command was in the configuration file. Treat
+	 *    this as if -d was given even if it was not.
+	 *
+	 * In all cases, a new additional session needs to be created and
+	 * (unless -d) set as the current session for the client.
+	 */
+
+	/* Set -d if no client. */
+	detached = data->flag_detached;
+	if (ctx->cmdclient == NULL && ctx->curclient == NULL)
+		detached = 1;
+
+	/*
+	 * Save the termios settings, part of which is used for new windows in
+	 * this session.
+	 *
+	 * This is read again with tcgetattr() rather than using tty.tio as if
+	 * detached, tty_open won't be called. Because of this, it must be done
+	 * before opening the terminal as that calls tcsetattr() to prepare for
+	 * tmux taking over.
+	 */
+	if (ctx->cmdclient != NULL && ctx->cmdclient->tty.fd != -1) {
+		if (tcgetattr(ctx->cmdclient->tty.fd, &tio) != 0)
+			fatal("tcgetattr failed");
+		tiop = &tio;
+	} else
+		tiop = NULL;
+
+	/* Open the terminal if necessary. */
+	if (!detached && ctx->cmdclient != NULL) {
+		if (!(ctx->cmdclient->flags & CLIENT_TERMINAL)) {
+			ctx->error(ctx, "not a terminal");
+			return (-1);
+		}
+		
+		overrides = 
+		    options_get_string(&global_s_options, "terminal-overrides");
+		if (tty_open(&ctx->cmdclient->tty, overrides, &cause) != 0) {
+			ctx->error(ctx, "open terminal failed: %s", cause);
+			xfree(cause);
+			return (-1);
+		}
 	}
 
+	/* Get the new session working directory. */
+	if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
+		cwd = ctx->cmdclient->cwd;
+	else
+		cwd = options_get_string(&global_s_options, "default-path");
 
-	s = session_create(data->newname, cmd, cwd, sx, sy, &cause);
+	/* Find new session size. */
+	if (detached) {
+		sx = 80;
+		sy = 24;
+	} else if (ctx->cmdclient != NULL) {
+		sx = ctx->cmdclient->tty.sx;
+		sy = ctx->cmdclient->tty.sy;
+	} else {
+		sx = ctx->curclient->tty.sx;
+		sy = ctx->curclient->tty.sy;
+	}
+	if (sy > 0 && options_get_number(&global_s_options, "status"))
+		sy--;
+	if (sx == 0)
+		sx = 1;
+	if (sy == 0)
+		sy = 1;
+
+	/* Figure out the command for the new window. */
+	if (data->target != NULL)
+		cmd = NULL;
+	else if (data->cmd != NULL)
+		cmd = data->cmd;
+	else
+		cmd = options_get_string(&global_s_options, "default-command");
+
+	/* Construct the environment. */
+	environ_init(&env);
+	update = options_get_string(&global_s_options, "update-environment");
+	if (ctx->cmdclient != NULL)
+		environ_update(update, &ctx->cmdclient->environ, &env);
+
+	/* Create the new session. */
+	idx = -1 - options_get_number(&global_s_options, "base-index");
+	s = session_create(
+	    data->newname, cmd, cwd, &env, tiop, idx, sx, sy, &cause);
 	if (s == NULL) {
 		ctx->error(ctx, "create session failed: %s", cause);
 		xfree(cause);
 		return (-1);
 	}
-	if (data->winname != NULL) {
-		xfree(s->curw->window->name);
-		s->curw->window->name = xstrdup(data->winname);
-		options_set_number(
-		    &s->curw->window->options, "automatic-rename", 0);
+	environ_free(&env);
+
+	/* Set the initial window name if one given. */
+	if (cmd != NULL && data->winname != NULL) {
+		w = s->curw->window;
+
+		xfree(w->name);
+		w->name = xstrdup(data->winname);
+
+		options_set_number(&w->options, "automatic-rename", 0);
 	}
 
-	if (data->flag_detached) {
-		if (c != NULL)
-			server_write_client(c, MSG_EXIT, NULL, 0);
-	} else {
-		c->session = s;
-		server_write_client(c, MSG_READY, NULL, 0);
-		server_redraw_client(c);
+	/*
+	 * If a target session is given, this is to be part of a session group,
+	 * so add it to the group and synchronize.
+	 */
+	if (groupwith != NULL) {
+		session_group_add(groupwith, s);
+		session_group_synchronize_to(s);
+		session_select(s, RB_ROOT(&s->windows)->idx);
+	}
+
+	/*
+	 * Set the client to the new session. If a command client exists, it is
+	 * taking this session and needs to get MSG_READY and stay around.
+	 */
+ 	if (!detached) {
+		if (ctx->cmdclient != NULL) {
+			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
+ 			ctx->cmdclient->session = s;
+			server_redraw_client(ctx->cmdclient);
+		} else {
+ 			ctx->curclient->session = s;
+			server_redraw_client(ctx->curclient);
+		}
 	}
 	recalculate_sizes();
 
-	return (1);
-}
-
-void
-cmd_new_session_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_session_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->newname);
-	cmd_send_string(b, data->winname);
-	cmd_send_string(b, data->cmd);
-}
-
-void
-cmd_new_session_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_session_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->newname = cmd_recv_string(b);
-	data->winname = cmd_recv_string(b);
-	data->cmd = cmd_recv_string(b);
+	return (!detached);	/* 1 means don't tell command client to exit */
 }
 
 void

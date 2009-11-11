@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-paste-buffer.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-paste-buffer.c,v 1.7 2009/11/04 22:43:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,16 +27,15 @@
  */
 
 int	cmd_paste_buffer_exec(struct cmd *, struct cmd_ctx *);
+void	cmd_paste_buffer_lf2cr(struct window_pane *, const char *, size_t);
 
 const struct cmd_entry cmd_paste_buffer_entry = {
 	"paste-buffer", "pasteb",
-	"[-d] " CMD_BUFFER_WINDOW_USAGE,
-	CMD_DFLAG,
+	"[-dr] " CMD_BUFFER_WINDOW_USAGE,
+	0, CMD_CHFLAG('d')|CMD_CHFLAG('r'),
 	cmd_buffer_init,
 	cmd_buffer_parse,
 	cmd_paste_buffer_exec,
-	cmd_buffer_send,
-	cmd_buffer_recv,
 	cmd_buffer_free,
 	cmd_buffer_print
 };
@@ -46,13 +45,13 @@ cmd_paste_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_buffer_data	*data = self->data;
 	struct winlink		*wl;
-	struct window		*w;
+	struct window_pane	*wp;
 	struct session		*s;
 	struct paste_buffer	*pb;
 
 	if ((wl = cmd_find_window(ctx, data->target, &s)) == NULL)
 		return (-1);
-	w = wl->window;
+	wp = wl->window->active;
 
 	if (data->buffer == -1)
 		pb = paste_get_top(&s->buffers);
@@ -63,11 +62,16 @@ cmd_paste_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 		}
 	}
 
-	if (pb != NULL)
-		buffer_write(w->active->out, pb->data, strlen(pb->data));
+	if (pb != NULL && *pb->data != '\0') {
+		/* -r means raw data without LF->CR conversion. */
+		if (data->chflags & CMD_CHFLAG('r'))
+			bufferevent_write(wp->event, pb->data, pb->size);
+		else
+			cmd_paste_buffer_lf2cr(wp, pb->data, pb->size);
+	}
 
 	/* Delete the buffer if -d. */
-	if (data->flags & CMD_DFLAG) {
+	if (data->chflags & CMD_CHFLAG('d')) {
 		if (data->buffer == -1)
 			paste_free_top(&s->buffers);
 		else
@@ -75,4 +79,22 @@ cmd_paste_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 
  	return (0);
+}
+
+/* Add bytes to a buffer but change every '\n' to '\r'. */
+void
+cmd_paste_buffer_lf2cr(struct window_pane *wp, const char *data, size_t size)
+{
+	const char	*end = data + size;
+	const char	*lf;
+
+	while ((lf = memchr(data, '\n', end - data)) != NULL) {
+		if (lf != data)
+			bufferevent_write(wp->event, data, lf - data);
+		bufferevent_write(wp->event, "\r", 1);
+		data = lf + 1;
+	}
+
+	if (end != data)
+		bufferevent_write(wp->event, data, end - data);
 }

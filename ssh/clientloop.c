@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.c,v 1.212 2009/05/28 16:50:16 andreas Exp $ */
+/* $OpenBSD: clientloop.c,v 1.214 2009/10/24 11:15:29 andreas Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -152,6 +152,8 @@ static int session_closed = 0;	/* In SSH2: login session closed. */
 
 static void client_init_dispatch(void);
 int	session_ident = -1;
+
+int	session_resumed = 0;
 
 /* Track escape per proto2 channel */
 struct escape_filter_ctx {
@@ -1448,6 +1450,14 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 			client_process_output(writeset);
 		}
 
+		if (session_resumed) {
+			connection_in = packet_get_connection_in();
+			connection_out = packet_get_connection_out();
+			max_fd = MAX(max_fd, connection_out);
+			max_fd = MAX(max_fd, connection_in);
+			session_resumed = 0;
+		}
+
 		/*
 		 * Send as much buffered packet data as possible to the
 		 * sender.
@@ -1465,11 +1475,13 @@ client_loop(int have_pty, int escape_char_arg, int ssh2_chan_id)
 	/* Stop watching for window change. */
 	signal(SIGWINCH, SIG_DFL);
 
-	packet_start(SSH2_MSG_DISCONNECT);
-	packet_put_int(SSH2_DISCONNECT_BY_APPLICATION);
-	packet_put_cstring("disconnected by user");
-	packet_send();
-	packet_write_wait();
+	if (compat20) {
+		packet_start(SSH2_MSG_DISCONNECT);
+		packet_put_int(SSH2_DISCONNECT_BY_APPLICATION);
+		packet_put_cstring("disconnected by user");
+		packet_send();
+		packet_write_wait();
+	}
 
 	channel_free_all();
 

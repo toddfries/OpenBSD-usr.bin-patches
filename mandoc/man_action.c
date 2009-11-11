@@ -1,20 +1,18 @@
-/* $Id: man_action.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: man_action.c,v 1.9 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/utsname.h>
 
@@ -29,12 +27,12 @@ struct	actions {
 	int	(*post)(struct man *);
 };
 
-
 static	int	  post_TH(struct man *);
-static	time_t	  man_atotime(const char *);
+static	int	  post_fi(struct man *);
+static	int	  post_nf(struct man *);
 
 const	struct actions man_actions[MAN_MAX] = {
-	{ NULL }, /* __ */
+	{ NULL }, /* br */
 	{ post_TH }, /* TH */
 	{ NULL }, /* SH */
 	{ NULL }, /* SS */
@@ -55,10 +53,20 @@ const	struct actions man_actions[MAN_MAX] = {
 	{ NULL }, /* I */
 	{ NULL }, /* IR */
 	{ NULL }, /* RI */
-	{ NULL }, /* br */
 	{ NULL }, /* na */
 	{ NULL }, /* i */
+	{ NULL }, /* sp */
+	{ post_nf }, /* nf */
+	{ post_fi }, /* fi */
+	{ NULL }, /* r */
+	{ NULL }, /* RE */
+	{ NULL }, /* RS */
+	{ NULL }, /* DT */
+	{ NULL }, /* UC */
+	{ NULL }, /* PD */
 };
+
+static	time_t	  man_atotime(const char *);
 
 
 int
@@ -71,14 +79,39 @@ man_action_post(struct man *m)
 
 	switch (m->last->type) {
 	case (MAN_TEXT):
-		break;
+		/* FALLTHROUGH */
 	case (MAN_ROOT):
-		break;
+		return(1);
 	default:
-		if (NULL == man_actions[m->last->tok].post)
-			break;
-		return((*man_actions[m->last->tok].post)(m));
+		break;
 	}
+
+	if (NULL == man_actions[m->last->tok].post)
+		return(1);
+	return((*man_actions[m->last->tok].post)(m));
+}
+
+
+static int
+post_fi(struct man *m)
+{
+
+	if ( ! (MAN_LITERAL & m->flags))
+		if ( ! man_nwarn(m, m->last, WNLITERAL))
+			return(0);
+	m->flags &= ~MAN_LITERAL;
+	return(1);
+}
+
+
+static int
+post_nf(struct man *m)
+{
+
+	if (MAN_LITERAL & m->flags)
+		if ( ! man_nwarn(m, m->last, WOLITERAL))
+			return(0);
+	m->flags |= MAN_LITERAL;
 	return(1);
 }
 
@@ -107,8 +140,7 @@ post_TH(struct man *m)
 	assert(n);
 
 	if (NULL == (m->meta.title = strdup(n->string)))
-		return(man_verr(m, n->line, n->pos, 
-					"memory exhausted"));
+		return(man_nerr(m, n, WNMEM));
 
 	/* TITLE ->MSEC<- DATE SOURCE VOL */
 
@@ -119,7 +151,7 @@ post_TH(struct man *m)
 	lval = strtol(n->string, &ep, 10);
 	if (n->string[0] != '\0' && *ep == '\0')
 		m->meta.msec = (int)lval;
-	else if ( ! man_vwarn(m, n->line, n->pos, "invalid section"))
+	else if ( ! man_nwarn(m, n, WMSEC))
 		return(0);
 
 	/* TITLE MSEC ->DATE<- SOURCE VOL */
@@ -127,7 +159,7 @@ post_TH(struct man *m)
 	if (NULL == (n = n->next))
 		m->meta.date = time(NULL);
 	else if (0 == (m->meta.date = man_atotime(n->string))) {
-		if ( ! man_vwarn(m, n->line, n->pos, "invalid date"))
+		if ( ! man_nwarn(m, n, WDATE))
 			return(0);
 		m->meta.date = time(NULL);
 	}
@@ -136,15 +168,13 @@ post_TH(struct man *m)
 
 	if (n && (n = n->next))
 		if (NULL == (m->meta.source = strdup(n->string)))
-			return(man_verr(m, n->line, n->pos, 
-						"memory exhausted"));
+			return(man_nerr(m, n, WNMEM));
 
 	/* TITLE MSEC DATE SOURCE ->VOL<- */
 
 	if (n && (n = n->next))
 		if (NULL == (m->meta.vol = strdup(n->string)))
-			return(man_verr(m, n->line, n->pos, 
-						"memory exhausted"));
+			return(man_nerr(m, n, WNMEM));
 
 	/* 
 	 * The end document shouldn't have the prologue macros as part
@@ -152,12 +182,10 @@ post_TH(struct man *m)
 	 */
 
 	if (m->last->parent->child == m->last) {
-		assert(MAN_ROOT == m->last->parent->type);
 		m->last->parent->child = NULL;
 		n = m->last;
 		m->last = m->last->parent;
 		m->next = MAN_NEXT_CHILD;
-		assert(m->last == m->first);
 	} else {
 		assert(m->last->prev);
 		m->last->prev->next = NULL;
@@ -177,7 +205,7 @@ man_atotime(const char *p)
 	struct tm	 tm;
 	char		*pp;
 
-	(void)memset(&tm, 0, sizeof(struct tm));
+	bzero(&tm, sizeof(struct tm));
 
 	if ((pp = strptime(p, "%b %d %Y", &tm)) && 0 == *pp)
 		return(mktime(&tm));

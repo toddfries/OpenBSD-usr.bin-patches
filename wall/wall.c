@@ -1,4 +1,4 @@
-/*	$OpenBSD: wall.c,v 1.22 2004/02/21 00:45:34 tom Exp $	*/
+/*	$OpenBSD: wall.c,v 1.25 2009/10/27 23:59:49 deraadt Exp $	*/
 /*	$NetBSD: wall.c,v 1.6 1994/11/17 07:17:58 jtc Exp $	*/
 
 /*
@@ -29,19 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1988, 1990, 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static const char sccsid[] = "@(#)wall.c	8.2 (Berkeley) 11/16/93";
-#endif
-static const char rcsid[] = "$OpenBSD: wall.c,v 1.22 2004/02/21 00:45:34 tom Exp $";
-#endif /* not lint */
 
 /*
  * This program is not related to David Wall, whose Stanford Ph.D. thesis
@@ -104,7 +91,6 @@ main(int argc, char **argv)
 				nobanner = 1;
 			break;
 		case 'g':
-			grp = getgrnam(optarg);
 			if ((grp = getgrnam(optarg)) == NULL)
 				errx(1, "unknown group `%s'", optarg);
 			addgroup(grp, optarg);
@@ -254,7 +240,7 @@ addgroup(struct group *grp, char *name)
 		err(1, NULL);
 	g->gid = grp->gr_gid;
 	g->name = name;
-	g->mem = (char **)malloc(i + 1);
+	g->mem = (char **)calloc(i + 1, sizeof(char *));
 	if (g->mem == NULL)
 		err(1, NULL);
 	for (i = 0; grp->gr_mem[i] != NULL; i++) {

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-kill-pane.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-kill-pane.c,v 1.8 2009/10/24 10:12:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,43 +30,47 @@ int	cmd_kill_pane_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_kill_pane_entry = {
 	"kill-pane", "killp",
-	CMD_PANE_WINDOW_USAGE,
-	0,
-	cmd_pane_init,
-	cmd_pane_parse,
+	"[-a] " CMD_TARGET_PANE_USAGE,
+	0, CMD_CHFLAG('a'),
+	cmd_target_init,
+	cmd_target_parse,
 	cmd_kill_pane_exec,
-       	cmd_pane_send,
-	cmd_pane_recv,
-	cmd_pane_free,
-	cmd_pane_print
+	cmd_target_free,
+	cmd_target_print
 };
 
 int
 cmd_kill_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_pane_data	*data = self->data;
+	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
-	struct window_pane	*wp;
+	struct window_pane	*loopwp, *nextwp, *wp;
 
-	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
+	if ((wl = cmd_find_pane(ctx, data->target, NULL, &wp)) == NULL)
 		return (-1);
-	if (data->pane == -1)
-		wp = wl->window->active;
-	else {
-		wp = window_pane_at_index(wl->window, data->pane);
-		if (wp == NULL) {
-			ctx->error(ctx, "no pane: %d", data->pane);
-			return (-1);
-		}
-	}
 
 	if (window_count_panes(wl->window) == 1) {
-		ctx->error(ctx, "can't kill pane: %d", data->pane);
-		return (-1);
+		/* Only one pane, kill the window. */
+		server_kill_window(wl->window);
+		recalculate_sizes();
+		return (0);
 	}
 
-	window_remove_pane(wl->window, wp);
+	if (data->chflags & CMD_CHFLAG('a')) {
+		loopwp = TAILQ_FIRST(&wl->window->panes);
+		while (loopwp != NULL) {
+			nextwp = TAILQ_NEXT(loopwp, entry);
+			if (loopwp != wp) {
+				layout_close_pane(loopwp);
+				window_remove_pane(wl->window, loopwp);
+			}
+			loopwp = nextwp;
+		}
+	} else {
+		layout_close_pane(wp);
+		window_remove_pane(wl->window, wp);
+	}
 	server_redraw_window(wl->window);
-	layout_refresh(wl->window, 0);
+
 	return (0);
 }

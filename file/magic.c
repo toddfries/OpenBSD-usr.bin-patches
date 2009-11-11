@@ -1,4 +1,4 @@
-/* $OpenBSD: magic.c,v 1.6 2009/04/24 18:54:34 chl Exp $ */
+/* $OpenBSD: magic.c,v 1.8 2009/10/27 23:59:37 deraadt Exp $ */
 /*
  * Copyright (c) Christos Zoulas 2003.
  * All Rights Reserved.
@@ -26,6 +26,10 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/types.h>
+#include <sys/param.h>	/* for MAXPATHLEN */
+#include <sys/stat.h>
+
 #include "file.h"
 #include "magic.h"
 
@@ -33,9 +37,6 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/types.h>
-#include <sys/param.h>	/* for MAXPATHLEN */
-#include <sys/stat.h>
 #ifdef QUICK
 #include <sys/mman.h>
 #endif
@@ -62,10 +63,6 @@
 #include <netinet/in.h>		/* for byte swapping */
 
 #include "patchlevel.h"
-
-#ifndef	lint
-FILE_RCSID("@(#)$Id: magic.c,v 1.6 2009/04/24 18:54:34 chl Exp $")
-#endif	/* lint */
 
 #ifndef PIPE_BUF 
 /* Get the PIPE_BUF from pathconf */

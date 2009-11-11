@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.171 2009/03/05 07:18:19 djm Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.174 2009/11/10 04:30:45 dtucker Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -31,6 +31,7 @@
 #include <sys/stat.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <stdio.h>
 #include <string.h>
@@ -146,6 +147,11 @@ ssh_kex2(char *host, struct sockaddr *hostaddr)
 
 	dispatch_run(DISPATCH_BLOCK, &kex->done, kex);
 
+	if (options.use_roaming && !kex->roaming) {
+		debug("Roaming not allowed by server");
+		options.use_roaming = 0;
+	}
+
 	session_id2 = kex->session_id;
 	session_id2_len = kex->session_id_len;
 
@@ -204,6 +210,7 @@ struct Authmethod {
 };
 
 void	input_userauth_success(int, u_int32_t, void *);
+void	input_userauth_success_unexpected(int, u_int32_t, void *);
 void	input_userauth_failure(int, u_int32_t, void *);
 void	input_userauth_banner(int, u_int32_t, void *);
 void	input_userauth_error(int, u_int32_t, void *);
@@ -421,17 +428,32 @@ void
 input_userauth_success(int type, u_int32_t seq, void *ctxt)
 {
 	Authctxt *authctxt = ctxt;
+
 	if (authctxt == NULL)
 		fatal("input_userauth_success: no authentication context");
 	if (authctxt->authlist) {
 		xfree(authctxt->authlist);
 		authctxt->authlist = NULL;
 	}
+	if (authctxt->method != NULL && authctxt->method->cleanup != NULL)
+		authctxt->method->cleanup(authctxt);
 	if (authctxt->methoddata) {
 		xfree(authctxt->methoddata);
 		authctxt->methoddata = NULL;
 	}
 	authctxt->success = 1;			/* break out */
+}
+
+void
+input_userauth_success_unexpected(int type, u_int32_t seq, void *ctxt)
+{
+	Authctxt *authctxt = ctxt;
+
+	if (authctxt == NULL)
+		fatal("%s: no authentication context", __func__);
+
+	fatal("Unexpected authentication success during %s.",
+	    authctxt->method->name);
 }
 
 /* ARGSUSED */
@@ -1500,6 +1522,8 @@ ssh_keysign(Key *key, u_char **sigp, u_int *lenp,
 		return -1;
 	}
 	if (pid == 0) {
+		/* keep the socket on exec */
+		fcntl(packet_get_connection_in(), F_SETFD, 0);
 		permanently_drop_suid(getuid());
 		close(from[0]);
 		if (dup2(from[1], STDOUT_FILENO) < 0)
@@ -1703,6 +1727,8 @@ userauth_jpake(Authctxt *authctxt)
 	/* Expect step 1 packet from peer */
 	dispatch_set(SSH2_MSG_USERAUTH_JPAKE_SERVER_STEP1,
 	    input_userauth_jpake_server_step1);
+	dispatch_set(SSH2_MSG_USERAUTH_SUCCESS,
+	    &input_userauth_success_unexpected);
 
 	return 1;
 }
@@ -1715,6 +1741,7 @@ userauth_jpake_cleanup(Authctxt *authctxt)
 		jpake_free(authctxt->methoddata);
 		authctxt->methoddata = NULL;
 	}
+	dispatch_set(SSH2_MSG_USERAUTH_SUCCESS, &input_userauth_success);
 }
 #endif /* JPAKE */
 

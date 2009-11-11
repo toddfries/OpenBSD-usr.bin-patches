@@ -1,4 +1,4 @@
-/* $OpenBSD: array.h,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: array.h,v 1.3 2009/10/29 08:59:17 nicm Exp $ */
 
 /*
  * Copyright (c) 2006 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -85,7 +85,7 @@
 		    ARRAY_ITEMSIZE(a) * ((a)->num - (i) - 1));		\
 	}								\
 	(a)->num--;							\
-        if ((a)->num == 0)						\
+	if ((a)->num == 0)						\
 		ARRAY_FREE(a);						\
 } while (0)
 
@@ -102,7 +102,7 @@
 
 #define ARRAY_CONCAT(a, b) do {						\
 	ARRAY_ENSURE(a, (b)->num);					\
-	memcpy((a)->list + (a)->num, (b)->list, (b)->num * ARRAY_ITEMSIZE(a)) \
+	memcpy((a)->list + (a)->num, (b)->list, (b)->num * ARRAY_ITEMSIZE(a)); \
 	(a)->num += (b)->num;						\
 } while (0)
 

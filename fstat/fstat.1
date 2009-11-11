@@ -1,4 +1,4 @@
-.\"	$OpenBSD: fstat.1,v 1.40 2008/12/15 09:49:59 jmc Exp $
+.\"	$OpenBSD: fstat.1,v 1.45 2009/10/22 15:02:12 sobrado Exp $
 .\"
 .\" Copyright (c) 1987, 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -29,7 +29,7 @@
 .\"
 .\"     from: @(#)fstat.1	8.3 (Berkeley) 2/25/94
 .\"
-.Dd $Mdocdate: December 15 2008 $
+.Dd $Mdocdate: October 22 2009 $
 .Dt FSTAT 1
 .Os
 .Sh NAME
@@ -42,12 +42,12 @@
 .Op Fl N Ar system
 .Op Fl p Ar pid
 .Op Fl u Ar user
-.Op Ar file ...
+.Op Ar
 .Sh DESCRIPTION
 .Nm
 identifies open files.
 A file is considered open by a process if it was explicitly opened,
-is the working directory, root directory, active pure text, or kernel
+is the working directory, root directory, active executable text, or kernel
 trace file for that process.
 If no options are specified,
 .Nm
@@ -105,7 +105,7 @@ is running.
 This is normal and unavoidable since the rest of the system is running while
 .Nm
 itself is running.
-.It Ar file ...
+.It Ar
 Restrict reports to the specified files.
 .El
 .Pp
@@ -121,7 +121,7 @@ The process ID.
 The file number in the per-process open file table or one of the following
 special names:
 .Bd -literal -offset indent
-text	\- pure text inode
+text	\- executable text inode
 wd 	\- current working directory
 root	\- root inode
 tr	\- kernel trace file
@@ -201,7 +201,9 @@ In all cases the first field is the domain name
 and the second field is the socket type (stream, dgram, etc).
 The remaining fields are protocol dependent.
 For TCP, it is the address of the tcpcb, and for UDP, the inpcb (socket pcb).
-For Unix domain sockets, it's the address of the socket pcb and the address
+For
+.Ux Ns -domain
+sockets, it's the address of the socket pcb and the address
 of the connected pcb (if connected).
 Otherwise the protocol number and address of the socket itself are printed.
 The attempt is to make enough information available to
@@ -210,8 +212,11 @@ permit further analysis without duplicating
 .Pp
 For example, the addresses mentioned above are the addresses which the
 .Ic netstat -A
-command would print for TCP, UDP, and Unix domain.
-A unidirectional Unix domain socket indicates the direction of flow with
+command would print for TCP, UDP, and
+.Ux Ns -domain.
+A unidirectional
+.Ux Ns -domain
+socket indicates the direction of flow with
 an arrow
 .Pf ( Dq <-
 or

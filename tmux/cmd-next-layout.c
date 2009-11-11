@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-next-layout.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-next-layout.c,v 1.4 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,12 +29,10 @@ int	cmd_next_layout_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_next_layout_entry = {
 	"next-layout", "nextl",
 	CMD_TARGET_WINDOW_USAGE,
-	0,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_next_layout_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -44,12 +42,13 @@ cmd_next_layout_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
+	u_int			 layout;
 
 	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 		return (-1);
 
-	layout_next(wl->window);
-	ctx->info(ctx, "layout now: %s", layout_name(wl->window));
+	layout = layout_set_next(wl->window);
+	ctx->info(ctx, "arranging in: %s", layout_set_name(layout));
 
 	return (0);
 }

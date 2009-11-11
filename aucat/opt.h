@@ -1,6 +1,6 @@
+/*	$OpenBSD: opt.h,v 1.2 2009/11/03 21:31:37 ratchov Exp $	*/
 /*
- * Copyright (c) 1996, 1998-2005, 2008
- *	Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,17 +13,26 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- *
- * Sponsored in part by the Defense Advanced Research Projects
- * Agency (DARPA) and Air Force Research Laboratory, Air Force
- * Materiel Command, USAF, under agreement number F39502-99-1-0512.
- *
- * $Sudo: version.h,v 1.72 2009/03/01 01:00:28 millert Exp $
  */
+#ifndef OPT_H
+#define OPT_H
 
-#ifndef _SUDO_VERSION_H
-#define _SUDO_VERSION_H
+#include <sys/queue.h>
+#include "aparams.h"
 
-static const char version[] = "1.7.1";
+struct opt {
+	SLIST_ENTRY(opt) entry;
+#define OPT_NAMEMAX 11
+	char name[OPT_NAMEMAX + 1];
+	int maxweight;		/* max dynamic range for clients */
+	struct aparams wpar;	/* template for clients write params */
+	struct aparams rpar;	/* template for clients read params */
+	int mmc;		/* true if MMC control enabled */
+};
 
-#endif /* _SUDO_VERSION_H */
+SLIST_HEAD(optlist,opt);
+
+void opt_new(char *, struct aparams *, struct aparams *, int, int);
+struct opt *opt_byname(char *);
+
+#endif /* !defined(OPT_H) */

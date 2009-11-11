@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.6 2009/02/03 19:44:58 ratchov Exp $	*/
+/*	$OpenBSD: conf.h,v 1.11 2009/11/03 21:31:37 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -17,34 +17,9 @@
 #ifndef CONF_H
 #define CONF_H
 
-/*
- * debug trace levels:
- *
- * 0 - traces are off
- * 1 - init, free, stuff that's done only once
- * 2 - rare real-time events: eof / hup, etc...
- * 3 - poll(), block / unblock state changes
- * 4 - read()/write()
- */
-#ifdef DEBUG
-
-/* defined in main.c */
-void debug_printf(int, char *, char *, ...);
-extern int debug_level;
-
-#define DPRINTF(...) DPRINTFN(1, __VA_ARGS__)
-#define DPRINTFN(n, ...)					\
-	do {							\
-		if (debug_level >= (n))				\
-			fprintf(stderr, __VA_ARGS__);		\
-	} while(0)
-#else
-#define DPRINTF(...) do {} while(0)
-#define DPRINTFN(n, ...) do {} while(0)
-#endif
 
 /*
- * number of blocks in the device play/record buffers.  because Sun API
+ * Number of blocks in the device play/record buffers.  Because Sun API
  * cannot notify apps of the current positions, we have to use all N
  * buffers devices blocks plus one extra block, to make write() block,
  * so that poll() can return the exact postition.
@@ -52,11 +27,25 @@ extern int debug_level;
 #define DEV_NBLK 2
 
 /*
- * number of blocks in the wav-file i/o buffers
+ * Number of blocks in the wav-file i/o buffers.
  */
 #define WAV_NBLK 6
 
-#define DEFAULT_DEVICE	"/dev/audio"
-#define DEFAULT_SOCKET	"default"
+/*
+ * socket and option names
+ */
+#define DEFAULT_MIDITHRU	"midithru"
+#define DEFAULT_SOFTAUDIO	"softaudio"
+#define DEFAULT_OPT		"default"
+
+/*
+ * MIDI buffer size
+ */
+#define MIDI_BUFSZ		3125	/* 1 second at 31.25kbit/s */
+
+/*
+ * units used for MTC clock.
+ */
+#define MTC_SEC			2400	/* 1 second is 2400 ticks */
 
 #endif /* !defined(CONF_H) */

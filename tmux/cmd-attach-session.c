@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-attach-session.c,v 1.2 2009/06/05 03:13:16 ray Exp $ */
+/* $OpenBSD: cmd-attach-session.c,v 1.8 2009/08/08 21:52:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,12 +29,10 @@ int	cmd_attach_session_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_attach_session_entry = {
 	"attach-session", "attach",
 	"[-d] " CMD_TARGET_SESSION_USAGE,
-       	CMD_DFLAG|CMD_CANTNEST|CMD_STARTSERVER,
+       	CMD_CANTNEST|CMD_STARTSERVER|CMD_SENDENVIRON, CMD_CHFLAG('d'),
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_attach_session_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -44,10 +42,10 @@ cmd_attach_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct session		*s;
-	char			*cause;
-
-	if (ctx->curclient != NULL)
-		return (0);
+	struct client		*c;
+	const char		*update;
+	char			*overrides, *cause;
+	u_int			 i;
 
 	if (ARRAY_LENGTH(&sessions) == 0) {
 		ctx->error(ctx, "no sessions");
@@ -56,24 +54,53 @@ cmd_attach_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if ((s = cmd_find_session(ctx, data->target)) == NULL)
 		return (-1);
 
-	if (!(ctx->cmdclient->flags & CLIENT_TERMINAL)) {
-		ctx->error(ctx, "not a terminal");
-		return (-1);
+	if (ctx->cmdclient == NULL && ctx->curclient == NULL)
+		return (0);
+
+	if (ctx->cmdclient == NULL) {
+		if (data->chflags & CMD_CHFLAG('d')) {
+			/* 
+			 * Can't use server_write_session in case attaching to
+			 * the same session as currently attached to.
+			 */
+			for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+				c = ARRAY_ITEM(&clients, i);
+				if (c == NULL || c->session != s)
+					continue;
+				if (c == ctx->curclient)
+					continue;
+				server_write_client(c, MSG_DETACH, NULL, 0);
+			}
+		}
+		
+		ctx->curclient->session = s;
+		server_redraw_client(ctx->curclient);
+	} else {
+		if (!(ctx->cmdclient->flags & CLIENT_TERMINAL)) {
+			ctx->error(ctx, "not a terminal");
+			return (-1);
+		}
+
+		overrides =
+		    options_get_string(&s->options, "terminal-overrides");
+		if (tty_open(&ctx->cmdclient->tty, overrides, &cause) != 0) {
+			ctx->error(ctx, "terminal open failed: %s", cause);
+			xfree(cause);
+			return (-1);
+		}
+
+		if (data->chflags & CMD_CHFLAG('d'))
+			server_write_session(s, MSG_DETACH, NULL, 0);
+
+		ctx->cmdclient->session = s;
+		server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
+
+		update = options_get_string(&s->options, "update-environment");
+		environ_update(update, &ctx->cmdclient->environ, &s->environ);
+
+		server_redraw_client(ctx->cmdclient);
 	}
-
-	if (tty_open(&ctx->cmdclient->tty, &cause) != 0) {
-		ctx->error(ctx, "terminal open failed: %s", cause);
-		xfree(cause);
-		return (-1);
-	}
-
-	if (data->flags & CMD_DFLAG)
-		server_write_session(s, MSG_DETACH, NULL, 0);
-	ctx->cmdclient->session = s;
-
-	server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
 	recalculate_sizes();
-	server_redraw_client(ctx->cmdclient);
 
-	return (1);
+	return (1);	/* 1 means don't tell command client to exit */
 }

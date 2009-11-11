@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.h,v 1.10 2009/02/06 08:26:34 ratchov Exp $	*/
+/*	$OpenBSD: dev.h,v 1.15 2009/11/03 21:31:37 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -19,30 +19,28 @@
 
 struct aproc;
 struct aparams;
-struct file;
 struct abuf;
 
 extern unsigned dev_bufsz, dev_round, dev_rate;
-extern unsigned dev_rate_div, dev_round_div;
 extern struct aparams dev_ipar, dev_opar;
-extern struct aproc *dev_mix, *dev_sub, *dev_rec, *dev_play;
+extern struct aproc *dev_mix, *dev_sub, *dev_midi;
 
+void dev_thruinit(void);
+void dev_midiattach(struct abuf *, struct abuf *);
 unsigned dev_roundof(unsigned);
 void dev_loopinit(struct aparams *, struct aparams *, unsigned);
-void dev_loopdone(void);
-int  dev_init(char *, struct aparams *, struct aparams *, unsigned);
+int  dev_init(char *, struct aparams *, struct aparams *, unsigned, unsigned);
 void dev_start(void);
 void dev_stop(void);
 void dev_run(int);
 void dev_done(void);
 int  dev_getep(struct abuf **, struct abuf **);
 void dev_sync(struct abuf *, struct abuf *);
+int dev_getpos(void);
 void dev_attach(char *,
     struct abuf *, struct aparams *, unsigned,
     struct abuf *, struct aparams *, unsigned, int);
 void dev_setvol(struct abuf *, int);
 void dev_clear(void);
-
-extern struct devops *devops, devops_sun, devops_aucat;
 
 #endif /* !define(DEV_H) */

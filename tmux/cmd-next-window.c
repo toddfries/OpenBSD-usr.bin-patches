@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-next-window.c,v 1.2 2009/06/03 15:58:40 nicm Exp $ */
+/* $OpenBSD: cmd-next-window.c,v 1.5 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,12 +30,10 @@ int	cmd_next_window_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_next_window_entry = {
 	"next-window", "next",
 	"[-a] " CMD_TARGET_SESSION_USAGE,
-	CMD_AFLAG,
+	0, CMD_CHFLAG('a'),
 	cmd_next_window_init,
 	cmd_target_parse,
 	cmd_next_window_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -48,8 +46,8 @@ cmd_next_window_init(struct cmd *self, int key)
 	cmd_target_init(self, key);
 	data = self->data;
 
-	if (key == KEYC_ADDESC('n'))
-		data->flags |= CMD_AFLAG;
+	if (key == ('n' | KEYC_ESCAPE))
+		data->chflags |= CMD_CHFLAG('a');
 }
 
 int
@@ -63,7 +61,7 @@ cmd_next_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		return (-1);
 
 	activity = 0;
-	if (data->flags & CMD_AFLAG)
+	if (data->chflags & CMD_CHFLAG('a'))
 		activity = 1;
 
 	if (session_next(s, activity) == 0)

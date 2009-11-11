@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.176 2009/02/12 03:00:56 djm Exp $ */
+/* $OpenBSD: readconf.c,v 1.179 2009/10/28 16:38:18 reyk Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -127,8 +127,8 @@ typedef enum {
 	oServerAliveInterval, oServerAliveCountMax, oIdentitiesOnly,
 	oSendEnv, oControlPath, oControlMaster, oHashKnownHosts,
 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
-	oVisualHostKey, oZeroKnowledgePasswordAuthentication,
-	oDeprecated, oUnsupported
+	oVisualHostKey, oUseRoaming, oRDomain,
+	oZeroKnowledgePasswordAuthentication, oDeprecated, oUnsupported
 } OpCodes;
 
 /* Textual representations of the tokens. */
@@ -225,6 +225,8 @@ static struct {
 	{ "localcommand", oLocalCommand },
 	{ "permitlocalcommand", oPermitLocalCommand },
 	{ "visualhostkey", oVisualHostKey },
+	{ "useroaming", oUseRoaming },
+	{ "rdomain", oRDomain },
 #ifdef JPAKE
 	{ "zeroknowledgepasswordauthentication",
 	    oZeroKnowledgePasswordAuthentication },
@@ -909,6 +911,23 @@ parse_int:
 		intptr = &options->visual_host_key;
 		goto parse_flag;
 
+	case oUseRoaming:
+		intptr = &options->use_roaming;
+		goto parse_flag;
+
+	case oRDomain:
+		arg = strdelim(&s);
+		if (!arg || *arg == '\0')
+			fatal("%.200s line %d: Missing argument.",
+			    filename, linenum);
+		value = a2port(arg);
+		if (value == -1)
+			fatal("%.200s line %d: Bad rdomain.",
+			    filename, linenum);
+		if (*activep)
+			options->rdomain = value;
+		break;
+
 	case oDeprecated:
 		debug("%s line %d: Deprecated option \"%s\"",
 		    filename, linenum, keyword);
@@ -1058,6 +1077,8 @@ initialize_options(Options * options)
 	options->tun_remote = -1;
 	options->local_command = NULL;
 	options->permit_local_command = -1;
+	options->use_roaming = -1;
+	options->rdomain = -1;
 	options->visual_host_key = -1;
 	options->zero_knowledge_password_authentication = -1;
 }
@@ -1131,7 +1152,7 @@ fill_default_options(Options * options)
 	/* options->macs, default set in myproposals.h */
 	/* options->hostkeyalgorithms, default set in myproposals.h */
 	if (options->protocol == SSH_PROTO_UNKNOWN)
-		options->protocol = SSH_PROTO_1|SSH_PROTO_2;
+		options->protocol = SSH_PROTO_2;
 	if (options->num_identity_files == 0) {
 		if (options->protocol & SSH_PROTO_1) {
 			len = 2 + strlen(_PATH_SSH_CLIENT_IDENTITY) + 1;
@@ -1194,6 +1215,8 @@ fill_default_options(Options * options)
 		options->tun_remote = SSH_TUNID_ANY;
 	if (options->permit_local_command == -1)
 		options->permit_local_command = 0;
+	if (options->use_roaming == -1)
+		options->use_roaming = 1;
 	if (options->visual_host_key == -1)
 		options->visual_host_key = 0;
 	if (options->zero_knowledge_password_authentication == -1)
@@ -1204,6 +1227,7 @@ fill_default_options(Options * options)
 	/* options->hostname will be set in the main program if appropriate */
 	/* options->host_key_alias should not be set by default */
 	/* options->preferred_authentications will be set in ssh */
+	/* options->rdomain should not be set by default */
 }
 
 /*

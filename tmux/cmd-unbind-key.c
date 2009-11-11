@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-unbind-key.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-unbind-key.c,v 1.5 2009/07/28 17:05:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,23 +26,24 @@
 
 int	cmd_unbind_key_parse(struct cmd *, int, char **, char **);
 int	cmd_unbind_key_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_unbind_key_send(struct cmd *, struct buffer *);
-void	cmd_unbind_key_recv(struct cmd *, struct buffer *);
 void	cmd_unbind_key_free(struct cmd *);
+
+int	cmd_unbind_key_table(struct cmd *, struct cmd_ctx *);
 
 struct cmd_unbind_key_data {
 	int	key;
+
+	int	command_key;
+	char   *tablename;
 };
 
 const struct cmd_entry cmd_unbind_key_entry = {
 	"unbind-key", "unbind",
-	"key",
-	0,
+	"[-cn] [-t key-table] key",
+	0, 0,
 	NULL,
 	cmd_unbind_key_parse,
 	cmd_unbind_key_exec,
-	cmd_unbind_key_send,
-	cmd_unbind_key_recv,
 	cmd_unbind_key_free,
 	NULL
 };
@@ -51,12 +52,23 @@ int
 cmd_unbind_key_parse(struct cmd *self, int argc, char **argv, char **cause)
 {
 	struct cmd_unbind_key_data	*data;
-	int				 opt;
+	int				 opt, no_prefix = 0;
 
 	self->data = data = xmalloc(sizeof *data);
+	data->command_key = 0;
+	data->tablename = NULL;
 
-	while ((opt = getopt(argc, argv, "")) != -1) {
+	while ((opt = getopt(argc, argv, "cnt:")) != -1) {
 		switch (opt) {
+		case 'c':
+			data->command_key = 1;
+			break;
+		case 'n':
+			no_prefix = 1;
+			break;
+		case 't':
+			data->tablename = xstrdup(optarg);
+			break;
 		default:
 			goto usage;
 		}
@@ -70,6 +82,8 @@ cmd_unbind_key_parse(struct cmd *self, int argc, char **argv, char **cause)
 		xasprintf(cause, "unknown key: %s", argv[0]);
 		goto error;
 	}
+	if (!no_prefix)
+		data->key |= KEYC_PREFIX;
 
 	return (0);
 
@@ -88,27 +102,33 @@ cmd_unbind_key_exec(struct cmd *self, unused struct cmd_ctx *ctx)
 
 	if (data == NULL)
 		return (0);
+	if (data->tablename != NULL)
+		return (cmd_unbind_key_table(self, ctx));
 
 	key_bindings_remove(data->key);
 
 	return (0);
 }
 
-void
-cmd_unbind_key_send(struct cmd *self, struct buffer *b)
+int
+cmd_unbind_key_table(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_unbind_key_data	*data = self->data;
+	const struct mode_key_table	*mtab;
+	struct mode_key_binding		*mbind, mtmp;
 
-	buffer_write(b, data, sizeof *data);
-}
+	if ((mtab = mode_key_findtable(data->tablename)) == NULL) {
+		ctx->error(ctx, "unknown key table: %s", data->tablename);
+		return (-1);
+	}
 
-void
-cmd_unbind_key_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_unbind_key_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
+	mtmp.key = data->key & ~KEYC_PREFIX;
+	mtmp.mode = data->command_key ? 1 : 0;
+	if ((mbind = SPLAY_FIND(mode_key_tree, mtab->tree, &mtmp)) != NULL) {
+		SPLAY_REMOVE(mode_key_tree, mtab->tree, mbind);
+		xfree(mbind);
+	}
+	return (0);
 }
 
 void
@@ -116,5 +136,7 @@ cmd_unbind_key_free(struct cmd *self)
 {
 	struct cmd_unbind_key_data	*data = self->data;
 
+	if (data->tablename != NULL)
+		xfree(data->tablename);
 	xfree(data);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: amsg.h,v 1.7 2009/05/16 12:20:31 ratchov Exp $	*/
+/*	$OpenBSD: amsg.h,v 1.12 2009/10/22 21:41:30 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -39,6 +39,7 @@ struct amsg {
 #define AMSG_GETCAP	7	/* get capabilities */
 #define AMSG_SETVOL	8	/* set volume */
 #define AMSG_HELLO	9	/* say hello, check versions and so ... */
+#define AMSG_BYE	10	/* ask server to drop connection */
 	uint32_t cmd;
 	uint32_t __pad;
 	union {
@@ -88,21 +89,24 @@ struct amsg {
 #define AMSG_MIDIOUT	0x8			/* MIDI thru output */
 #define AMSG_MIXER	0x10			/* MIDI mixer */
 			uint16_t proto;		/* protocol type */
-			uint8_t reserved1[18];	/* for future use */
+#define AMSG_VERSION	1
+			uint8_t version;	/* protocol version */
+			uint8_t reserved1[5];	/* for future use */
+			char opt[12];		/* profile name */
 			char who[12];		/* hint for leases */
 		} hello;
 	} u;
 };
 
 /*
- * initialize an amsg structure: fill all fields with 0xff, so the read
- * can test which fields were set
+ * Initialize an amsg structure: fill all fields with 0xff, so the read
+ * can test which fields were set.
  */
 #define AMSG_INIT(m) do { memset((m), 0xff, sizeof(struct amsg)); } while (0)
 
 /*
- * since the structure is memset to 0xff, the MSB can be used to check
- * if any filed was set
+ * Since the structure is memset to 0xff, the MSB can be used to check
+ * if any field was set.
  */
 #define AMSG_ISSET(x) (((x) & (1 << (8 * sizeof(x) - 1))) == 0)
 

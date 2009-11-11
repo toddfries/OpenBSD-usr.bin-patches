@@ -34,8 +34,8 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: sshd_config.5,v 1.106 2009/04/21 15:13:17 stevesk Exp $
-.Dd $Mdocdate: April 21 2009 $
+.\" $OpenBSD: sshd_config.5,v 1.112 2009/11/10 02:58:56 djm Exp $
+.Dd $Mdocdate: November 10 2009 $
 .Dt SSHD_CONFIG 5
 .Os
 .Sh NAME
@@ -615,6 +615,7 @@ Available keywords are
 .Cm PermitEmptyPasswords ,
 .Cm PermitOpen ,
 .Cm PermitRootLogin ,
+.Cm PubkeyAuthentication ,
 .Cm RhostsRSAAuthentication ,
 .Cm RSAAuthentication ,
 .Cm X11DisplayOffset ,
@@ -793,7 +794,7 @@ and
 .Sq 2 .
 Multiple versions must be comma-separated.
 The default is
-.Dq 2,1 .
+.Sq 2 .
 Note that the order of the protocol list does not indicate preference,
 because the client selects among multiple protocol versions offered
 by the server.
@@ -806,6 +807,9 @@ Specifies whether public key authentication is allowed.
 The default is
 .Dq yes .
 Note that this option applies to protocol version 2 only.
+.It Cm RDomain
+Set the routing domain number.
+The default routing domain is set by the system.
 .It Cm RhostsRSAAuthentication
 Specifies whether rhosts or /etc/hosts.equiv authentication together
 with successful RSA host authentication is allowed.
@@ -829,6 +833,9 @@ This is normally desirable because novices sometimes accidentally leave their
 directory or files world-writable.
 The default is
 .Dq yes .
+Note that this does not apply to
+.Cm ChrootDirectory ,
+whose permissions and ownership are checked unconditionally.
 .It Cm Subsystem
 Configures an external subsystem (e.g. file transfer daemon).
 Arguments should be a subsystem name and a command (with optional arguments)

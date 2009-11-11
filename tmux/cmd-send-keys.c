@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-send-keys.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-send-keys.c,v 1.5 2009/09/21 15:25:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,27 +28,22 @@
 
 int	cmd_send_keys_parse(struct cmd *, int, char **, char **);
 int	cmd_send_keys_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_send_keys_send(struct cmd *, struct buffer *);
-void	cmd_send_keys_recv(struct cmd *, struct buffer *);
 void	cmd_send_keys_free(struct cmd *);
 size_t	cmd_send_keys_print(struct cmd *, char *, size_t);
 
 struct cmd_send_keys_data {
 	char	*target;
-	int	 idx;
   	u_int	 nkeys;
 	int	*keys;
 };
 
 const struct cmd_entry cmd_send_keys_entry = {
 	"send-keys", "send",
-	"[-t target-window] key ...",
-	0,
+	"[-t target-pane] key ...",
+	0, 0,
 	NULL,
 	cmd_send_keys_parse,
 	cmd_send_keys_exec,
-	cmd_send_keys_send,
-	cmd_send_keys_recv,
 	cmd_send_keys_free,
 	cmd_send_keys_print
 };
@@ -62,7 +57,6 @@ cmd_send_keys_parse(struct cmd *self, int argc, char **argv, char **cause)
 
 	self->data = data = xmalloc(sizeof *data);
 	data->target = NULL;
-	data->idx = -1;
 	data->nkeys = 0;
 	data->keys = NULL;
 
@@ -110,43 +104,19 @@ int
 cmd_send_keys_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_send_keys_data	*data = self->data;
-	struct winlink			*wl;
+	struct window_pane		*wp;
 	u_int				 i;
 
 	if (data == NULL)
 		return (-1);
 
-	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
+	if (cmd_find_pane(ctx, data->target, NULL, &wp) == NULL)
 		return (-1);
 
-	for (i = 0; i < data->nkeys; i++) {
-		window_pane_key(
-		    wl->window->active, ctx->curclient, data->keys[i]);
-	}
+	for (i = 0; i < data->nkeys; i++)
+		window_pane_key(wp, ctx->curclient, data->keys[i]);
 
 	return (0);
-}
-
-void
-cmd_send_keys_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_send_keys_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->target);
-	buffer_write(b, data->keys, data->nkeys * sizeof *data->keys);
-}
-
-void
-cmd_send_keys_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_send_keys_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->target = cmd_recv_string(b);
-	data->keys = xcalloc(data->nkeys, sizeof *data->keys);
-	buffer_read(b, data->keys, data->nkeys * sizeof *data->keys);
 }
 
 void
@@ -171,8 +141,6 @@ cmd_send_keys_print(struct cmd *self, char *buf, size_t len)
 		return (off);
 	if (off < len && data->target != NULL)
 		off += cmd_prarg(buf + off, len - off, " -t ", data->target);
-	if (off < len && data->idx != -1)
-		off += xsnprintf(buf + off, len - off, " -i %d", data->idx);
 
 	for (i = 0; i < data->nkeys; i++) {
 		if (off >= len)

@@ -1,78 +1,71 @@
-/* $Id: mdoc_action.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc_action.c,v 1.24 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#ifndef	OSNAME
 #include <sys/utsname.h>
+#endif
 
 #include <assert.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "libmdoc.h"
 
-enum	mwarn {
-	WBADSEC,
-	WNOWIDTH,
-	WBADDATE
-};
-
-enum	merr {
-	ETOOLONG,
-	EMALLOC,
-	ENUMFMT
-};
-
+#define	POST_ARGS struct mdoc *m, struct mdoc_node *n
 #define	PRE_ARGS  struct mdoc *m, const struct mdoc_node *n
-#define	POST_ARGS struct mdoc *m
 
 struct	actions {
 	int	(*pre)(PRE_ARGS);
 	int	(*post)(POST_ARGS);
 };
 
-static	int	  pwarn(struct mdoc *, int, int, enum mwarn);
-static	int	  perr(struct mdoc *, int, int, enum merr);
-static	int	  concat(struct mdoc *, const struct mdoc_node *, 
+static	int	  concat(struct mdoc *, 
+			const struct mdoc_node *, 
 			char *, size_t);
+static	inline int order_rs(int);
 
 static	int	  post_ar(POST_ARGS);
+static	int	  post_at(POST_ARGS);
 static	int	  post_bl(POST_ARGS);
-static	int	  post_bl_width(POST_ARGS);
+static	int	  post_bl_head(POST_ARGS);
 static	int	  post_bl_tagwidth(POST_ARGS);
+static	int	  post_bl_width(POST_ARGS);
 static	int	  post_dd(POST_ARGS);
 static	int	  post_display(POST_ARGS);
 static	int	  post_dt(POST_ARGS);
+static	int	  post_lb(POST_ARGS);
 static	int	  post_nm(POST_ARGS);
 static	int	  post_os(POST_ARGS);
 static	int	  post_prol(POST_ARGS);
+static	int	  post_rs(POST_ARGS);
 static	int	  post_sh(POST_ARGS);
+static	int	  post_st(POST_ARGS);
 static	int	  post_std(POST_ARGS);
+static	int	  post_tilde(POST_ARGS);
 
 static	int	  pre_bd(PRE_ARGS);
+static	int	  pre_bl(PRE_ARGS);
 static	int	  pre_dl(PRE_ARGS);
+static	int	  pre_offset(PRE_ARGS);
 
-#define	vwarn(m, t) pwarn((m), (m)->last->line, (m)->last->pos, (t))
-#define	verr(m, t) perr((m), (m)->last->line, (m)->last->pos, (t))
-#define	nerr(m, n, t) perr((m), (n)->line, (n)->pos, (t))
-
-const	struct actions mdoc_actions[MDOC_MAX] = {
-	{ NULL, NULL }, /* \" */
+static	const struct actions mdoc_actions[MDOC_MAX] = {
+	{ NULL, NULL }, /* Ap */
 	{ NULL, post_dd }, /* Dd */ 
 	{ NULL, post_dt }, /* Dt */ 
 	{ NULL, post_os }, /* Os */ 
@@ -83,7 +76,7 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ pre_dl, post_display }, /* Dl */
 	{ pre_bd, post_display }, /* Bd */ 
 	{ NULL, NULL }, /* Ed */
-	{ NULL, post_bl }, /* Bl */ 
+	{ pre_bl, post_bl }, /* Bl */ 
 	{ NULL, NULL }, /* El */
 	{ NULL, NULL }, /* It */
 	{ NULL, NULL }, /* Ad */ 
@@ -107,9 +100,9 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, post_nm }, /* Nm */ 
 	{ NULL, NULL }, /* Op */
 	{ NULL, NULL }, /* Ot */
-	{ NULL, NULL }, /* Pa */
+	{ NULL, post_tilde }, /* Pa */
 	{ NULL, post_std }, /* Rv */
-	{ NULL, NULL }, /* St */
+	{ NULL, post_st }, /* St */
 	{ NULL, NULL }, /* Va */
 	{ NULL, NULL }, /* Vt */ 
 	{ NULL, NULL }, /* Xr */
@@ -127,7 +120,7 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* Ac */
 	{ NULL, NULL }, /* Ao */
 	{ NULL, NULL }, /* Aq */
-	{ NULL, NULL }, /* At */ 
+	{ NULL, post_at }, /* At */ 
 	{ NULL, NULL }, /* Bc */
 	{ NULL, NULL }, /* Bf */ 
 	{ NULL, NULL }, /* Bo */
@@ -157,7 +150,7 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* Qo */
 	{ NULL, NULL }, /* Qq */
 	{ NULL, NULL }, /* Re */
-	{ NULL, NULL }, /* Rs */
+	{ NULL, post_rs }, /* Rs */
 	{ NULL, NULL }, /* Sc */
 	{ NULL, NULL }, /* So */
 	{ NULL, NULL }, /* Sq */
@@ -178,8 +171,7 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* Hf */
 	{ NULL, NULL }, /* Fr */
 	{ NULL, NULL }, /* Ud */
-	{ NULL, NULL }, /* Lb */
-	{ NULL, NULL }, /* Ap */
+	{ NULL, post_lb }, /* Lb */
 	{ NULL, NULL }, /* Lp */
 	{ NULL, NULL }, /* Lk */
 	{ NULL, NULL }, /* Mt */
@@ -191,6 +183,28 @@ const	struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* En */
 	{ NULL, NULL }, /* Dx */
 	{ NULL, NULL }, /* %Q */
+	{ NULL, NULL }, /* br */
+	{ NULL, NULL }, /* sp */
+	{ NULL, NULL }, /* %U */
+};
+
+#define	RSORD_MAX 14
+
+static	const int rsord[RSORD_MAX] = {
+	MDOC__A,
+	MDOC__T,
+	MDOC__B,
+	MDOC__I,
+	MDOC__J,
+	MDOC__R,
+	MDOC__N,
+	MDOC__V,
+	MDOC__P,
+	MDOC__Q,
+	MDOC__D,
+	MDOC__O,
+	MDOC__C,
+	MDOC__U
 };
 
 
@@ -232,7 +246,7 @@ mdoc_action_post(struct mdoc *m)
 
 	if (NULL == mdoc_actions[m->last->tok].post)
 		return(1);
-	return((*mdoc_actions[m->last->tok].post)(m));
+	return((*mdoc_actions[m->last->tok].post)(m, m->last));
 }
 
 
@@ -244,11 +258,11 @@ concat(struct mdoc *m, const struct mdoc_node *n,
 	for ( ; n; n = n->next) {
 		assert(MDOC_TEXT == n->type);
 		if (strlcat(buf, n->string, sz) >= sz)
-			return(nerr(m, n, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 		if (NULL == n->next)
 			continue;
 		if (strlcat(buf, " ", sz) >= sz)
-			return(nerr(m, n, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 	}
 
 	return(1);
@@ -256,76 +270,19 @@ concat(struct mdoc *m, const struct mdoc_node *n,
 
 
 static int
-perr(struct mdoc *m, int line, int pos, enum merr type)
-{
-	char		*p;
-
-	p = NULL;
-	switch (type) {
-	case (ENUMFMT):
-		p = "bad number format";
-		break;
-	case (ETOOLONG):
-		p = "argument text too long";
-		break;
-	case (EMALLOC):
-		p = "memory exhausted";
-		break;
-	}
-	assert(p);
-	return(mdoc_perr(m, line, pos, p));
-}
-
-
-static int
-pwarn(struct mdoc *m, int line, int pos, enum mwarn type)
-{
-	char		*p;
-	int		 c;
-
-	p = NULL;
-	c = WARN_SYNTAX;
-	switch (type) {
-	case (WBADSEC):
-		p = "inappropriate document section in manual section";
-		c = WARN_COMPAT;
-		break;
-	case (WNOWIDTH):
-		p = "cannot determine default width";
-		break;
-	case (WBADDATE):
-		p = "malformed date syntax";
-		break;
-	}
-	assert(p);
-	return(mdoc_pwarn(m, line, pos, c, p));
-}
-
-
-static int
 post_std(POST_ARGS)
 {
+	struct mdoc_node	*nn;
 
-	/*
-	 * If '-std' is invoked without an argument, fill it in with our
-	 * name (if it's been set).
-	 */
-
-	if (NULL == m->last->args)
+	if (n->child)
 		return(1);
-	if (m->last->args->argv[0].sz)
-		return(1);
-
+	
+	nn = n;
+	m->next = MDOC_NEXT_CHILD;
 	assert(m->meta.name);
-
-	m->last->args->argv[0].value = calloc(1, sizeof(char *));
-	if (NULL == m->last->args->argv[0].value)
-		return(verr(m, EMALLOC));
-
-	m->last->args->argv[0].sz = 1;
-	m->last->args->argv[0].value[0] = strdup(m->meta.name);
-	if (NULL == m->last->args->argv[0].value[0])
-		return(verr(m, EMALLOC));
+	if ( ! mdoc_word_alloc(m, n->line, n->pos, m->meta.name))
+		return(0);
+	m->last = nn;
 
 	return(1);
 }
@@ -340,10 +297,87 @@ post_nm(POST_ARGS)
 		return(1);
 
 	buf[0] = 0;
-	if ( ! concat(m, m->last->child, buf, sizeof(buf)))
+	if ( ! concat(m, n->child, buf, sizeof(buf)))
 		return(0);
 	if (NULL == (m->meta.name = strdup(buf)))
-		return(verr(m, EMALLOC));
+		return(mdoc_nerr(m, n, EMALLOC));
+
+	return(1);
+}
+
+
+static int
+post_lb(POST_ARGS)
+{
+	const char	*p;
+	char		*buf;
+	size_t		 sz;
+
+	assert(MDOC_TEXT == n->child->type);
+	p = mdoc_a2lib(n->child->string);
+	if (NULL == p) {
+		sz = strlen(n->child->string) +
+			2 + strlen("\\(lqlibrary\\(rq");
+		buf = malloc(sz);
+		if (NULL == buf)
+			return(mdoc_nerr(m, n, EMALLOC));
+		(void)snprintf(buf, sz, "library \\(lq%s\\(rq", 
+				n->child->string);
+		free(n->child->string);
+		n->child->string = buf;
+		return(1);
+	}
+
+	free(n->child->string);
+	n->child->string = strdup(p);
+	if (NULL == n->child->string)
+		return(mdoc_nerr(m, n, EMALLOC));
+
+	return(1);
+}
+
+
+static int
+post_st(POST_ARGS)
+{
+	const char	*p;
+
+	assert(MDOC_TEXT == n->child->type);
+	p = mdoc_a2st(n->child->string);
+	assert(p);
+	free(n->child->string);
+	n->child->string = strdup(p);
+	if (NULL == n->child->string)
+		return(mdoc_nerr(m, n, EMALLOC));
+
+	return(1);
+}
+
+
+static int
+post_at(POST_ARGS)
+{
+	struct mdoc_node	*nn;
+	const char		*p;
+
+	if (n->child) {
+		assert(MDOC_TEXT == n->child->type);
+		p = mdoc_a2att(n->child->string);
+		assert(p);
+		free(n->child->string);
+		n->child->string = strdup(p);
+		if (NULL == n->child->string)
+			return(mdoc_nerr(m, n, EMALLOC));
+		return(1);
+	}
+
+	nn = n;
+	m->next = MDOC_NEXT_CHILD;
+
+	if ( ! mdoc_word_alloc(m, nn->line, nn->pos, "AT&T UNIX"))
+		return(0);
+	m->last = nn;
+
 	return(1);
 }
 
@@ -360,11 +394,11 @@ post_sh(POST_ARGS)
 	 * check ordering.
 	 */
 
-	if (MDOC_HEAD != m->last->type)
+	if (MDOC_HEAD != n->type)
 		return(1);
 
 	buf[0] = 0;
-	if ( ! concat(m, m->last->child, buf, sizeof(buf)))
+	if ( ! concat(m, n->child, buf, sizeof(buf)))
 		return(0);
 	if (SEC_CUSTOM != (sec = mdoc_atosec(buf)))
 		m->lastnamed = sec;
@@ -381,7 +415,7 @@ post_sh(POST_ARGS)
 		case (9):
 			break;
 		default:
-			return(vwarn(m, WBADSEC));
+			return(mdoc_nwarn(m, n, EBADSEC));
 		}
 		break;
 	default:
@@ -394,7 +428,7 @@ post_sh(POST_ARGS)
 static int
 post_dt(POST_ARGS)
 {
-	struct mdoc_node *n;
+	struct mdoc_node *nn;
 	const char	 *cp;
 	char		 *ep;
 	long		  lval;
@@ -413,25 +447,25 @@ post_dt(POST_ARGS)
 	 *   --> title = unknown, volume = local, msec = 0, arch = NULL
 	 */
 
-	if (NULL == (n = m->last->child)) {
+	if (NULL == (nn = n->child)) {
 		if (NULL == (m->meta.title = strdup("unknown")))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, n, EMALLOC));
 		if (NULL == (m->meta.vol = strdup("local")))
-			return(verr(m, EMALLOC));
-		return(post_prol(m));
+			return(mdoc_nerr(m, n, EMALLOC));
+		return(post_prol(m, n));
 	}
 
 	/* Handles: `.Dt TITLE' 
 	 *   --> title = TITLE, volume = local, msec = 0, arch = NULL
 	 */
 
-	if (NULL == (m->meta.title = strdup(n->string)))
-		return(verr(m, EMALLOC));
+	if (NULL == (m->meta.title = strdup(nn->string)))
+		return(mdoc_nerr(m, n, EMALLOC));
 
-	if (NULL == (n = n->next)) {
+	if (NULL == (nn = nn->next)) {
 		if (NULL == (m->meta.vol = strdup("local")))
-			return(verr(m, EMALLOC));
-		return(post_prol(m));
+			return(mdoc_nerr(m, n, EMALLOC));
+		return(post_prol(m, n));
 	}
 
 	/* Handles: `.Dt TITLE SEC'
@@ -441,19 +475,19 @@ post_dt(POST_ARGS)
 	 *       arch = NULL
 	 */
 
-	cp = mdoc_a2msec(n->string);
+	cp = mdoc_a2msec(nn->string);
 	if (cp) {
 		if (NULL == (m->meta.vol = strdup(cp)))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, n, EMALLOC));
 		errno = 0;
-		lval = strtol(n->string, &ep, 10);
-		if (n->string[0] != '\0' && *ep == '\0')
+		lval = strtol(nn->string, &ep, 10);
+		if (nn->string[0] != '\0' && *ep == '\0')
 			m->meta.msec = (int)lval;
-	} else if (NULL == (m->meta.vol = strdup(n->string)))
-		return(verr(m, EMALLOC));
+	} else if (NULL == (m->meta.vol = strdup(nn->string)))
+		return(mdoc_nerr(m, n, EMALLOC));
 
-	if (NULL == (n = n->next))
-		return(post_prol(m));
+	if (NULL == (nn = nn->next))
+		return(post_prol(m, n));
 
 	/* Handles: `.Dt TITLE SEC VOL'
 	 *   --> title = TITLE, volume = VOL is vol ?
@@ -462,25 +496,24 @@ post_dt(POST_ARGS)
 	 *               VOL
 	 */
 
-	cp = mdoc_a2vol(n->string);
+	cp = mdoc_a2vol(nn->string);
 	if (cp) {
 		free(m->meta.vol);
 		if (NULL == (m->meta.vol = strdup(cp)))
-			return(verr(m, EMALLOC));
-		n = n->next;
+			return(mdoc_nerr(m, n, EMALLOC));
 	} else {
-		cp = mdoc_a2arch(n->string);
+		cp = mdoc_a2arch(nn->string);
 		if (NULL == cp) {
 			free(m->meta.vol);
-			if (NULL == (m->meta.vol = strdup(n->string)))
-				return(verr(m, EMALLOC));
+			if (NULL == (m->meta.vol = strdup(nn->string)))
+				return(mdoc_nerr(m, n, EMALLOC));
 		} else if (NULL == (m->meta.arch = strdup(cp)))
-			return(verr(m, EMALLOC));
+			return(mdoc_nerr(m, n, EMALLOC));
 	}	
 
 	/* Ignore any subsequent parameters... */
 
-	return(post_prol(m));
+	return(post_prol(m, n));
 }
 
 
@@ -488,31 +521,43 @@ static int
 post_os(POST_ARGS)
 {
 	char		  buf[64];
+#ifndef	OSNAME
 	struct utsname	  utsname;
+#endif
+
+	/*
+	 * Setting OSNAME to be the name of the target operating system,
+	 * e.g., "OpenBSD 4.4", will result in the compile-time constant
+	 * by supplied instead of the value in uname().
+	 */
 
 	if (m->meta.os)
 		free(m->meta.os);
 
 	buf[0] = 0;
-	if ( ! concat(m, m->last->child, buf, sizeof(buf)))
+	if ( ! concat(m, n->child, buf, sizeof(buf)))
 		return(0);
 
 	if (0 == buf[0]) {
+#ifdef	OSNAME
+		if (strlcat(buf, OSNAME, 64) >= 64)
+			return(mdoc_nerr(m, n, EUTSNAME));
+#else
 		if (-1 == uname(&utsname))
-			return(mdoc_err(m, "utsname"));
+			return(mdoc_nerr(m, n, EUTSNAME));
 		if (strlcat(buf, utsname.sysname, 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 		if (strlcat(buf, " ", 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
 		if (strlcat(buf, utsname.release, 64) >= 64)
-			return(verr(m, ETOOLONG));
+			return(mdoc_nerr(m, n, ETOOLONG));
+#endif
 	}
 
 	if (NULL == (m->meta.os = strdup(buf)))
-		return(verr(m, EMALLOC));
-	m->lastnamed = m->lastsec = SEC_BODY;
+		return(mdoc_nerr(m, n, EMALLOC));
 
-	return(post_prol(m));
+	return(post_prol(m, n));
 }
 
 
@@ -521,9 +566,9 @@ post_os(POST_ARGS)
  * Uses the first head macro.
  */
 static int
-post_bl_tagwidth(struct mdoc *m)
+post_bl_tagwidth(POST_ARGS)
 {
-	struct mdoc_node  *n;
+	struct mdoc_node  *nn;
 	int		   sz;
 	char		   buf[32];
 
@@ -532,74 +577,75 @@ post_bl_tagwidth(struct mdoc *m)
 	 * width if a macro.
 	 */
 
-	if ((n = m->last->body->child)) {
-		assert(MDOC_BLOCK == n->type);
-		assert(MDOC_It == n->tok);
-		n = n->head->child;
+	nn = n->body->child;
+	if (nn) {
+		assert(MDOC_BLOCK == nn->type);
+		assert(MDOC_It == nn->tok);
+		nn = nn->head->child;
 	}
 
 	sz = 10; /* Default size. */
 
-	if (n) {
-		if (MDOC_TEXT != n->type) {
-			if (0 == (sz = (int)mdoc_macro2len(n->tok)))
-				if ( ! vwarn(m, WNOWIDTH))
+	if (nn) {
+		if (MDOC_TEXT != nn->type) {
+			if (0 == (sz = (int)mdoc_macro2len(nn->tok)))
+				if ( ! mdoc_nwarn(m, n, ENOWIDTH))
 					return(0);
 		} else
-			sz = (int)strlen(n->string) + 1;
+			sz = (int)strlen(nn->string) + 1;
 	} 
 
 	if (-1 == snprintf(buf, sizeof(buf), "%dn", sz))
-		return(verr(m, ENUMFMT));
+		return(mdoc_nerr(m, n, ENUMFMT));
 
 	/*
 	 * We have to dynamically add this to the macro's argument list.
 	 * We're guaranteed that a MDOC_Width doesn't already exist.
 	 */
 
-	n = m->last;
-	assert(n->args);
-	sz = (int)(n->args->argc)++;
+	nn = n;
+	assert(nn->args);
+	sz = (int)(nn->args->argc)++;
 
-	n->args->argv = realloc(n->args->argv, 
-			n->args->argc * sizeof(struct mdoc_argv));
+	nn->args->argv = realloc(nn->args->argv, 
+			nn->args->argc * sizeof(struct mdoc_argv));
 
-	if (NULL == n->args->argv)
-		return(verr(m, EMALLOC));
+	if (NULL == nn->args->argv)
+		return(mdoc_nerr(m, n, EMALLOC));
 
-	n->args->argv[sz].arg = MDOC_Width;
-	n->args->argv[sz].line = m->last->line;
-	n->args->argv[sz].pos = m->last->pos;
-	n->args->argv[sz].sz = 1;
-	n->args->argv[sz].value = calloc(1, sizeof(char *));
+	nn->args->argv[sz].arg = MDOC_Width;
+	nn->args->argv[sz].line = n->line;
+	nn->args->argv[sz].pos = n->pos;
+	nn->args->argv[sz].sz = 1;
+	nn->args->argv[sz].value = calloc(1, sizeof(char *));
 
-	if (NULL == n->args->argv[sz].value)
-		return(verr(m, EMALLOC));
-	if (NULL == (n->args->argv[sz].value[0] = strdup(buf)))
-		return(verr(m, EMALLOC));
+	if (NULL == nn->args->argv[sz].value)
+		return(mdoc_nerr(m, n, EMALLOC));
+	if (NULL == (nn->args->argv[sz].value[0] = strdup(buf)))
+		return(mdoc_nerr(m, n, EMALLOC));
 
 	return(1);
 }
 
 
 static int
-post_bl_width(struct mdoc *m)
+post_bl_width(POST_ARGS)
 {
 	size_t		  width;
 	int		  i, tok;
 	char		  buf[32];
 	char		 *p;
 
-	if (NULL == m->last->args)
+	if (NULL == n->args)
 		return(1);
 
-	for (i = 0; i < (int)m->last->args->argc; i++)
-		if (MDOC_Width == m->last->args->argv[i].arg)
+	for (i = 0; i < (int)n->args->argc; i++)
+		if (MDOC_Width == n->args->argv[i].arg)
 			break;
 
-	if (i == (int)m->last->args->argc)
+	if (i == (int)n->args->argc)
 		return(1);
-	p = m->last->args->argv[i].value[0];
+	p = n->args->argv[i].value[0];
 
 	/*
 	 * If the value to -width is a macro, then we re-write it to be
@@ -607,21 +653,70 @@ post_bl_width(struct mdoc *m)
 	 */
 
 	if (0 == strcmp(p, "Ds"))
-		width = 8;
-	else if (MDOC_MAX == (tok = mdoc_hash_find(m->htab, p)))
+		width = 6;
+	else if (MDOC_MAX == (tok = mdoc_hash_find(p)))
 		return(1);
 	else if (0 == (width = mdoc_macro2len(tok))) 
-		return(vwarn(m, WNOWIDTH));
+		return(mdoc_nwarn(m, n, ENOWIDTH));
 
 	/* The value already exists: free and reallocate it. */
 
 	if (-1 == snprintf(buf, sizeof(buf), "%zun", width))
-		return(verr(m, ENUMFMT));
+		return(mdoc_nerr(m, n, ENUMFMT));
 
-	free(m->last->args->argv[i].value[0]);
-	m->last->args->argv[i].value[0] = strdup(buf);
-	if (NULL == m->last->args->argv[i].value[0])
-		return(verr(m, EMALLOC));
+	free(n->args->argv[i].value[0]);
+	n->args->argv[i].value[0] = strdup(buf);
+	if (NULL == n->args->argv[i].value[0])
+		return(mdoc_nerr(m, n, EMALLOC));
+
+	return(1);
+}
+
+
+/* ARGSUSED */
+static int
+post_bl_head(POST_ARGS)
+{
+	int			 i, c;
+	struct mdoc_node	*np, *nn, *nnp;
+
+	if (NULL == n->child)
+		return(1);
+
+	np = n->parent;
+	assert(np->args);
+
+	for (c = 0; c < (int)np->args->argc; c++) 
+		if (MDOC_Column == np->args->argv[c].arg)
+			break;
+
+	/* Only process -column. */
+
+	if (c == (int)np->args->argc)
+		return(1);
+	
+	assert(0 == np->args->argv[c].sz);
+
+	/*
+	 * Accomodate for new-style groff column syntax.  Shuffle the
+	 * child nodes, all of which must be TEXT, as arguments for the
+	 * column field.  Then, delete the head children.
+	 */
+
+	np->args->argv[c].sz = (size_t)n->nchild;
+	np->args->argv[c].value = malloc
+		((size_t)n->nchild * sizeof(char *));
+
+	for (i = 0, nn = n->child; nn; i++) {
+		np->args->argv[c].value[i] = nn->string;
+		nn->string = NULL;
+		nnp = nn;
+		nn = nn->next;
+		mdoc_node_free(nnp);
+	}
+
+	n->nchild = 0;
+	n->child = NULL;
 
 	return(1);
 }
@@ -632,7 +727,9 @@ post_bl(POST_ARGS)
 {
 	int		  i, r, len;
 
-	if (MDOC_BLOCK != m->last->type)
+	if (MDOC_HEAD == n->type)
+		return(post_bl_head(m, n));
+	if (MDOC_BLOCK != n->type)
 		return(1);
 
 	/*
@@ -643,21 +740,40 @@ post_bl(POST_ARGS)
 	 * rewritten into real lengths).
 	 */
 
-	len = (int)(m->last->args ? m->last->args->argc : 0);
+	len = (int)(n->args ? n->args->argc : 0);
 
 	for (r = i = 0; i < len; i++) {
-		if (MDOC_Tag == m->last->args->argv[i].arg)
+		if (MDOC_Tag == n->args->argv[i].arg)
 			r |= 1 << 0;
-		if (MDOC_Width == m->last->args->argv[i].arg)
+		if (MDOC_Width == n->args->argv[i].arg)
 			r |= 1 << 1;
 	}
 
 	if (r & (1 << 0) && ! (r & (1 << 1))) {
-		if ( ! post_bl_tagwidth(m))
+		if ( ! post_bl_tagwidth(m, n))
 			return(0);
 	} else if (r & (1 << 1))
-		if ( ! post_bl_width(m))
+		if ( ! post_bl_width(m, n))
 			return(0);
+
+	return(1);
+}
+
+
+static int
+post_tilde(POST_ARGS)
+{
+	struct mdoc_node *np;
+
+	if (n->child)
+		return(1);
+	
+	np = n;
+	m->next = MDOC_NEXT_CHILD;
+
+	if ( ! mdoc_word_alloc(m, n->line, n->pos, "~"))
+		return(0);
+	m->last = np;
 
 	return(1);
 }
@@ -666,23 +782,19 @@ post_bl(POST_ARGS)
 static int
 post_ar(POST_ARGS)
 {
-	struct mdoc_node *n;
+	struct mdoc_node *np;
 
-	if (m->last->child)
+	if (n->child)
 		return(1);
 	
-	n = m->last;
+	np = n;
 	m->next = MDOC_NEXT_CHILD;
-	if ( ! mdoc_word_alloc(m, m->last->line,
-				m->last->pos, "file"))
+	if ( ! mdoc_word_alloc(m, n->line, n->pos, "file"))
 		return(0);
-	m->next = MDOC_NEXT_SIBLING;
-	if ( ! mdoc_word_alloc(m, m->last->line, 
-				m->last->pos, "..."))
+	if ( ! mdoc_word_alloc(m, n->line, n->pos, "..."))
 		return(0);
+	m->last = np;
 
-	m->last = n;
-	m->next = MDOC_NEXT_SIBLING;
 	return(1);
 }
 
@@ -693,46 +805,47 @@ post_dd(POST_ARGS)
 	char		  buf[64];
 
 	buf[0] = 0;
-	if ( ! concat(m, m->last->child, buf, sizeof(buf)))
+	if ( ! concat(m, n->child, buf, sizeof(buf)))
 		return(0);
 
 	if (0 == (m->meta.date = mdoc_atotime(buf))) {
-		if ( ! vwarn(m, WBADDATE))
+		if ( ! mdoc_nwarn(m, n, EBADDATE))
 			return(0);
 		m->meta.date = time(NULL);
 	}
 
-	return(post_prol(m));
+	return(post_prol(m, n));
 }
 
 
 static int
 post_prol(POST_ARGS)
 {
-	struct mdoc_node *n;
+	struct mdoc_node *np;
 
-	/* 
-	 * The end document shouldn't have the prologue macros as part
-	 * of the syntax tree (they encompass only meta-data).  
-	 */
+	/* Remove prologue macros from AST.  */
 
-	if (m->last->parent->child == m->last)
-		m->last->parent->child = m->last->prev;
-	if (m->last->prev)
-		m->last->prev->next = NULL;
+	if (n->parent->child == n)
+		n->parent->child = n->prev;
+	if (n->prev)
+		n->prev->next = NULL;
 
-	n = m->last;
-	assert(NULL == m->last->next);
+	np = n;
+	assert(NULL == n->next);
 
-	if (m->last->prev) {
-		m->last = m->last->prev;
+	if (n->prev) {
+		m->last = n->prev;
 		m->next = MDOC_NEXT_SIBLING;
 	} else {
-		m->last = m->last->parent;
+		m->last = n->parent;
 		m->next = MDOC_NEXT_CHILD;
 	}
 
-	mdoc_node_freelist(n);
+	mdoc_node_freelist(np);
+
+	if (m->meta.title && m->meta.date && m->meta.os)
+		m->flags |= MDOC_PBODY;
+
 	return(1);
 }
 
@@ -741,10 +854,50 @@ static int
 pre_dl(PRE_ARGS)
 {
 
-	if (MDOC_BODY != n->type)
-		return(1);
-	m->flags |= MDOC_LITERAL;
+	if (MDOC_BODY == n->type)
+		m->flags |= MDOC_LITERAL;
 	return(1);
+}
+
+
+static int
+pre_offset(PRE_ARGS)
+{
+	int		 i;
+
+	/* 
+	 * Make sure that an empty offset produces an 8n length space as
+	 * stipulated by mdoc.samples. 
+	 */
+
+	assert(n->args);
+	for (i = 0; i < (int)n->args->argc; i++) {
+		if (MDOC_Offset != n->args->argv[i].arg) 
+			continue;
+		if (n->args->argv[i].sz)
+			break;
+		assert(1 == n->args->refcnt);
+		/* If no value set, length of <string>. */
+		n->args->argv[i].value = 
+		calloc(1, sizeof(char *));
+		if (NULL == n->args->argv[i].value)
+			return(mdoc_nerr(m, n, EMALLOC));
+		n->args->argv[i].sz++;
+		n->args->argv[i].value[0] = strdup("8n");
+		if (NULL == n->args->argv[i].value[0])
+			return(mdoc_nerr(m, n, EMALLOC));
+		break;
+	}
+
+	return(1);
+}
+
+
+static int
+pre_bl(PRE_ARGS)
+{
+
+	return(MDOC_BLOCK == n->type ? pre_offset(m, n) : 1);
 }
 
 
@@ -753,19 +906,18 @@ pre_bd(PRE_ARGS)
 {
 	int		 i;
 
+	if (MDOC_BLOCK == n->type)
+		return(pre_offset(m, n));
 	if (MDOC_BODY != n->type)
 		return(1);
 
-	/* Enter literal context if `Bd -literal' or * -unfilled'. */
+	/* Enter literal context if `Bd -literal' or `-unfilled'. */
 
 	for (n = n->parent, i = 0; i < (int)n->args->argc; i++)
 		if (MDOC_Literal == n->args->argv[i].arg)
-			break;
+			m->flags |= MDOC_LITERAL;
 		else if (MDOC_Unfilled == n->args->argv[i].arg)
-			break;
-
-	if (i < (int)n->args->argc)
-		m->flags |= MDOC_LITERAL;
+			m->flags |= MDOC_LITERAL;
 
 	return(1);
 }
@@ -775,9 +927,71 @@ static int
 post_display(POST_ARGS)
 {
 
-	if (MDOC_BODY == m->last->type)
+	if (MDOC_BODY == n->type)
 		m->flags &= ~MDOC_LITERAL;
 	return(1);
 }
 
 
+static inline int
+order_rs(int t)
+{
+	int		i;
+
+	for (i = 0; i < RSORD_MAX; i++)
+		if (rsord[i] == t)
+			return(i);
+
+	abort();
+	/* NOTREACHED */
+}
+
+
+/* ARGSUSED */
+static int
+post_rs(POST_ARGS)
+{
+	struct mdoc_node	*nn, *next, *prev;
+	int			 o;
+
+	if (MDOC_BLOCK != n->type)
+		return(1);
+
+	assert(n->body->child);
+	for (next = NULL, nn = n->body->child->next; nn; nn = next) {
+		o = order_rs(nn->tok);
+
+		/* Remove `nn' from the chain. */
+		next = nn->next;
+		if (next)
+			next->prev = nn->prev;
+
+		prev = nn->prev;
+		if (prev)
+			prev->next = nn->next;
+
+		nn->prev = nn->next = NULL;
+
+		/* 
+		 * Scan back until we reach a node that's ordered before
+		 * us, then set ourselves as being the next. 
+		 */
+		for ( ; prev; prev = prev->prev)
+			if (order_rs(prev->tok) <= o)
+				break;
+
+		nn->prev = prev;
+		if (prev) {
+			if (prev->next)
+				prev->next->prev = nn;
+			nn->next = prev->next;
+			prev->next = nn;
+			continue;
+		} 
+
+		n->body->child->prev = nn;
+		nn->next = n->body->child;
+		n->body->child = nn;
+	}
+	return(1);
+}

@@ -1,4 +1,4 @@
-/* $OpenBSD: screen.c,v 1.3 2009/06/04 18:48:24 nicm Exp $ */
+/* $OpenBSD: screen.c,v 1.11 2009/08/08 13:29:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -54,7 +54,7 @@ screen_reinit(struct screen *s)
 	
 	screen_reset_tabs(s);
 
-	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy - 1);
+	grid_clear_lines(s->grid, s->grid->hsize, s->grid->sy);
 
 	screen_clear_selection(s);
 }
@@ -63,6 +63,8 @@ screen_reinit(struct screen *s)
 void
 screen_free(struct screen *s)
 {
+	if (s->tabs != NULL)
+		xfree(s->tabs);
 	xfree(s->title);
 	grid_destroy(s->grid);
 }
@@ -122,44 +124,19 @@ void
 screen_resize_x(struct screen *s, u_int sx)
 {
 	struct grid		*gd = s->grid;
-	const struct grid_cell	*gc;
-	const struct grid_utf8	*gu;
-	u_int			 xx, yy;
 
 	if (sx == 0)
 		fatalx("zero size");
 
-	/* If getting larger, not much to do. */
-	if (sx > screen_size_x(s)) {
-		gd->sx = sx;
-		return;
-	}
-
-	/* If getting smaller, nuke any data in lines over the new size. */
-	for (yy = gd->hsize; yy < gd->hsize + screen_size_y(s); yy++) {
-		/*
-		 * If the character after the last is wide or padding, remove
-		 * it and any leading padding.
-		 */
-		gc = &grid_default_cell;
-		for (xx = sx; xx > 0; xx--) {
-			gc = grid_peek_cell(gd, xx - 1, yy);
-			if (!(gc->flags & GRID_FLAG_PADDING))
-				break;
-			grid_set_cell(gd, xx - 1, yy, &grid_default_cell);
-		}
-		if (xx > 0 && xx != sx && gc->flags & GRID_FLAG_UTF8) {
-			gu = grid_peek_utf8(gd, xx - 1, yy);
-			if (gu->width > 1) {
-				grid_set_cell(
-				    gd, xx - 1, yy, &grid_default_cell);
-			}
-		}
-
-		/* Reduce the line size. */
-		grid_reduce_line(gd, yy, sx);
-	}
-
+	/*
+	 * Treat resizing horizontally simply: just ensure the cursor is
+	 * on-screen and change the size. Don't bother to truncate any lines -
+	 * then the data should be accessible if the size is then incrased.
+	 *
+	 * The only potential wrinkle is if UTF-8 double-width characters are
+	 * left in the last column, but UTF-8 terminals should deal with this
+	 * sanely.
+	 */
 	if (s->cx >= sx)
 		s->cx = sx - 1;
 	gd->sx = sx;
@@ -169,58 +146,82 @@ void
 screen_resize_y(struct screen *s, u_int sy)
 {
 	struct grid	*gd = s->grid;
-	u_int		 oy, yy, ny;
+	u_int		 needed, available, oldy, i;
 
 	if (sy == 0)
 		fatalx("zero size");
+	oldy = screen_size_y(s);
+
+	/* 
+	 * When resizing:
+	 *
+	 * If the height is decreasing, delete lines from the bottom until
+	 * hitting the cursor, then push lines from the top into the history.
+	 * 
+	 * When increasing, pull as many lines as possible from the history to
+	 * the top, then fill the remaining with blanks at the bottom.
+	 */
 
 	/* Size decreasing. */
-	if (sy < screen_size_y(s)) {
-		oy = screen_size_y(s);
+	if (sy < oldy) {
+		needed = oldy - sy;
 
-		if (s->cy != 0) {
-			/*
-			 * The cursor is not at the start. Try to remove as
-			 * many lines as possible from the top. (Up to the
-			 * cursor line.)
-			 */
-			ny = s->cy;
-			if (ny > oy - sy)
-				ny = oy - sy;
-
-			grid_view_delete_lines(gd, 0, ny);
-
- 			s->cy -= ny;
-			oy -= ny;
+		/* Delete as many lines as possible from the bottom. */
+		available = oldy - 1 - s->cy;
+		if (available > 0) {
+			if (available > needed)
+				available = needed;
+			grid_view_delete_lines(gd, oldy - available, available);
 		}
+		needed -= available;
 
-		if (sy < oy) {
-			/* Remove any remaining lines from the bottom. */
-			grid_view_delete_lines(gd, sy, oy - sy);
-			if (s->cy >= sy)
-				s->cy = sy - 1;
+		/*
+		 * Now just increase the history size, if possible, to take
+		 * over the lines which are left. If history is off, delete
+		 * lines from the top.
+		 *
+		 * XXX Should apply history limit?
+		 */
+		available = s->cy;
+		if (gd->flags & GRID_HISTORY)
+			gd->hsize += needed;
+		else if (needed > 0 && available > 0) {
+			if (available > needed)
+				available = needed;
+			grid_view_delete_lines(gd, 0, available);
 		}
-	}
+		s->cy -= needed;
+ 	}
 
 	/* Resize line arrays. */
-	gd->size = xrealloc(gd->size, gd->hsize + sy, sizeof *gd->size);
-	gd->data = xrealloc(gd->data, gd->hsize + sy, sizeof *gd->data);
-	gd->usize = xrealloc(gd->usize, gd->hsize + sy, sizeof *gd->usize);
-	gd->udata = xrealloc(gd->udata, gd->hsize + sy, sizeof *gd->udata);
+	gd->linedata = xrealloc(
+	    gd->linedata, gd->hsize + sy, sizeof *gd->linedata);
 
 	/* Size increasing. */
-	if (sy > screen_size_y(s)) {
-		oy = screen_size_y(s);
-		for (yy = gd->hsize + oy; yy < gd->hsize + sy; yy++) {
-			gd->size[yy] = 0;
-			gd->data[yy] = NULL;
-			gd->usize[yy] = 0;
-			gd->udata[yy] = NULL;
-		}
+	if (sy > oldy) {
+		needed = sy - oldy;
+
+		/*
+		 * Try to pull as much as possible out of the history, if is
+		 * is enabled.
+		 */
+		available = gd->hsize;
+		if (gd->flags & GRID_HISTORY && available > 0) {
+			if (available > needed)
+				available = needed;
+			gd->hsize -= available;
+			s->cy += available;
+		} else
+			available = 0;
+		needed -= available;
+
+		/* Then fill the rest in with blanks. */
+		for (i = gd->hsize + sy - needed; i < gd->hsize + sy; i++)
+			memset(&gd->linedata[i], 0, sizeof gd->linedata[i]);
 	}
 
+	/* Set the new size, and reset the scroll region. */
 	gd->sy = sy;
-
 	s->rupper = 0;
 	s->rlower = screen_size_y(s) - 1;
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: grid-view.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: grid-view.c,v 1.7 2009/10/13 15:38:37 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -92,15 +92,20 @@ grid_view_scroll_region_up(struct grid *gd, u_int rupper, u_int rlower)
 {
 	GRID_DEBUG(gd, "rupper=%u, rlower=%u", rupper, rlower);
 
-	if (rupper == 0 && rlower == gd->sy - 1) {
-		grid_scroll_line(gd);
-		return;
+	if (gd->flags & GRID_HISTORY) {
+		grid_collect_history(gd);
+		if (rupper == 0 && rlower == gd->sy - 1)
+			grid_scroll_history(gd);
+		else {
+			rupper = grid_view_y(gd, rupper);
+			rlower = grid_view_y(gd, rlower);
+			grid_scroll_history_region(gd, rupper, rlower);
+		}
+	} else {
+		rupper = grid_view_y(gd, rupper);
+		rlower = grid_view_y(gd, rlower);
+		grid_move_lines(gd, rupper, rupper + 1, rlower - rupper);
 	}
-
-	rupper = grid_view_y(gd, rupper);
-	rlower = grid_view_y(gd, rlower);
-
-	grid_move_lines(gd, rupper, rupper + 1, rlower - rupper);
 }
 
 /* Scroll region down. */
@@ -132,17 +137,19 @@ grid_view_insert_lines(struct grid *gd, u_int py, u_int ny)
 
 /* Insert lines in region. */
 void
-grid_view_insert_lines_region(
-    struct grid *gd, unused u_int rupper, u_int rlower, u_int py, u_int ny)
+grid_view_insert_lines_region(struct grid *gd, u_int rlower, u_int py, u_int ny)
 {
-	GRID_DEBUG(
-	    gd, "rupper=%u, rlower=%u, py=%u, ny=%u", rupper, rlower, py, ny);
+	u_int	ny2;
+
+	GRID_DEBUG(gd, "rlower=%u, py=%u, ny=%u", rlower, py, ny);
 
 	rlower = grid_view_y(gd, rlower);
 
 	py = grid_view_y(gd, py);
 
-	grid_move_lines(gd, py + ny, py, (rlower + 1) - py - ny);
+	ny2 = rlower + 1 - py - ny;
+	grid_move_lines(gd, rlower + 1 - ny2, py, ny2);
+ 	grid_clear(gd, 0, py + ny2, gd->sx, ny - ny2);
 }
 
 /* Delete lines. */
@@ -158,21 +165,24 @@ grid_view_delete_lines(struct grid *gd, u_int py, u_int ny)
 	sy = grid_view_y(gd, gd->sy);
 
 	grid_move_lines(gd, py, py + ny, sy - py - ny);
+ 	grid_clear(gd, 0, sy - ny, gd->sx, py + ny - (sy - ny));
 }
 
 /* Delete lines inside scroll region. */
 void
-grid_view_delete_lines_region(
-    struct grid *gd, unused u_int rupper, u_int rlower, u_int py, u_int ny)
+grid_view_delete_lines_region(struct grid *gd, u_int rlower, u_int py, u_int ny)
 {
-	GRID_DEBUG(
-	    gd, "rupper=%u, rlower=%u, py=%u, ny=%u", rupper, rlower, py, ny);
+	u_int	ny2;
+
+	GRID_DEBUG(gd, "rlower=%u, py=%u, ny=%u", rlower, py, ny);
 
 	rlower = grid_view_y(gd, rlower);
 
 	py = grid_view_y(gd, py);
 
-	grid_move_lines(gd, py, py + ny, (rlower + 1) - py - ny);
+	ny2 = rlower + 1 - py - ny;
+	grid_move_lines(gd, py, py + ny, ny2);
+ 	grid_clear(gd, 0, py + ny2, gd->sx, ny - ny2);
 }
 
 /* Insert characters. */
@@ -191,7 +201,7 @@ grid_view_insert_cells(struct grid *gd, u_int px, u_int py, u_int nx)
 	if (px == sx - 1)
 		grid_clear(gd, px, py, 1, 1);
 	else
-		grid_move_cells(gd, px + nx, px, py, (sx - 1) - (px + nx));
+		grid_move_cells(gd, px + nx, px, py, sx - px - nx);
 }
 
 /* Delete characters. */
@@ -207,5 +217,18 @@ grid_view_delete_cells(struct grid *gd, u_int px, u_int py, u_int nx)
 
 	sx = grid_view_x(gd, gd->sx);
 
-	grid_move_cells(gd, px, px + nx, py, (sx - 1) - (px + nx));
+	grid_move_cells(gd, px, px + nx, py, sx - px - nx);
+	grid_clear(gd, sx - nx, py, px + nx - (sx - nx), 1);
+}
+
+/* Convert cells into a string. */
+char *
+grid_view_string_cells(struct grid *gd, u_int px, u_int py, u_int nx)
+{
+	GRID_DEBUG(gd, "px=%u, py=%u, nx=%u", px, py, nx);
+
+	px = grid_view_x(gd, px);
+	py = grid_view_y(gd, py);
+
+	return (grid_string_cells(gd, px, py, nx));
 }

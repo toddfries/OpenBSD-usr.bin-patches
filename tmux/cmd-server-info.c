@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-server-info.c,v 1.2 2009/06/03 19:37:27 nicm Exp $ */
+/* $OpenBSD: cmd-server-info.c,v 1.14 2009/11/03 20:29:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,12 +36,10 @@ int	cmd_server_info_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_server_info_entry = {
 	"server-info", "info",
 	"",
-	0,
+	0, 0,
 	NULL,
 	NULL,
 	cmd_server_info_exec,
-	NULL,
-	NULL,
 	NULL,
 	NULL
 };
@@ -58,7 +56,9 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	struct tty_code			*code;
 	struct tty_term_code_entry	*ent;
 	struct utsname			 un;
+	struct job			*job;
 	struct grid			*gd;
+	struct grid_line		*gl;
 	u_int		 		 i, j, k;
 	char				 out[80];
 	char				*tim;
@@ -71,8 +71,8 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	ctx->print(ctx, "pid %ld, started %s", (long) getpid(), tim);
 	ctx->print(ctx, "socket path %s, debug level %d%s",
 	    socket_path, debug_level, be_quiet ? ", quiet" : "");
-        if (uname(&un) == 0) {
-                ctx->print(ctx, "system is %s %s %s %s",
+	if (uname(&un) == 0) {
+		ctx->print(ctx, "system is %s %s %s %s",
 		    un.sysname, un.release, un.version, un.machine);
 	}
 	if (cfg_file != NULL)
@@ -82,7 +82,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	ctx->print(ctx, "protocol version is %d", PROTOCOL_VERSION);
 	ctx->print(ctx, "%u clients, %u sessions",
 	    ARRAY_LENGTH(&clients), ARRAY_LENGTH(&sessions));
-	ctx->print(ctx, "");
+	ctx->print(ctx, "%s", "");
 
 	ctx->print(ctx, "Clients:");
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
@@ -91,11 +91,12 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 			continue;
 
 		ctx->print(ctx, "%2d: %s (%d, %d): %s [%ux%u %s] "
-		    "[flags=0x%x/0x%x]", i, c->tty.path, c->fd, c->tty.fd,
-		    c->session->name, c->tty.sx, c->tty.sy, c->tty.termname,
-		    c->flags, c->tty.flags);
+		    "[flags=0x%x/0x%x, references=%u]", i, c->tty.path,
+		    c->ibuf.fd, c->tty.fd, c->session->name,
+		    c->tty.sx, c->tty.sy, c->tty.termname, c->flags, 
+		    c->tty.flags, c->references);
 	}
-	ctx->print(ctx, "");
+	ctx->print(ctx, "%s", "");
 
  	ctx->print(ctx, "Sessions: [%zu/%zu]",
 	    sizeof (struct grid_cell), sizeof (struct grid_utf8));
@@ -104,33 +105,35 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 		if (s == NULL)
 			continue;
 
-		t = s->tv.tv_sec;
+		t = s->creation_time.tv_sec;
 		tim = ctime(&t);
 		*strchr(tim, '\n') = '\0';
 
 		ctx->print(ctx, "%2u: %s: %u windows (created %s) [%ux%u] "
-		    "[flags=0x%x]", i, s->name, winlink_count(&s->windows),
-		    tim, s->sx, s->sy, s->flags);
+		    "[flags=0x%x, references=%u]", i, s->name,
+		    winlink_count(&s->windows), tim, s->sx, s->sy, s->flags,
+		    s->references);
 		RB_FOREACH(wl, winlinks, &s->windows) {
 			w = wl->window;
 			ctx->print(ctx, "%4u: %s [%ux%u] [flags=0x%x, "
-			    "references=%u, layout=%u]", wl->idx, w->name,
+			    "references=%u, last layout=%d]", wl->idx, w->name,
 			    w->sx, w->sy, w->flags, w->references,
-			    w->layout);
+			    w->lastlayout);
 			j = 0;
 			TAILQ_FOREACH(wp, &w->panes, entry) {
 				lines = ulines = size = usize = 0;
 				gd = wp->base.grid;
 				for (k = 0; k < gd->hsize + gd->sy; k++) {
-					if (gd->data[k] != NULL) {
+					gl = &gd->linedata[k];
+					if (gl->celldata != NULL) {
 						lines++;
-						size += gd->size[k] *
-						    sizeof (**gd->data);
+						size += gl->cellsize *
+						    sizeof *gl->celldata;
 					}
-					if (gd->udata[k] != NULL) {
+					if (gl->utf8data != NULL) {
 						ulines++;
-						usize += gd->usize[k] *
-						    sizeof (**gd->udata);
+						usize += gl->utf8size *
+						    sizeof *gl->utf8data;
 					}
 				}
 				ctx->print(ctx, "%6u: %s %lu %d %u/%u, %zu "
@@ -142,7 +145,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 			}
 		}
 	}
-	ctx->print(ctx, "");
+	ctx->print(ctx, "%s", "");
 
   	ctx->print(ctx, "Terminals:");
 	SLIST_FOREACH(term, &tty_terms, entry) {
@@ -174,7 +177,13 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 			}
 		}
 	}
-	ctx->print(ctx, "");
+	ctx->print(ctx, "%s", "");
+
+  	ctx->print(ctx, "Jobs:");
+	SLIST_FOREACH(job, &all_jobs, lentry) {
+		ctx->print(ctx, "%s [fd=%d, pid=%d, status=%d, flags=0x%x]",
+		    job->cmd, job->fd, job->pid, job->status, job->flags);
+	}
 
 	return (0);
 }

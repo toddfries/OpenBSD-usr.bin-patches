@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.12 2009/10/06 07:19:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,11 +27,23 @@
 SPLAY_GENERATE(key_bindings, key_binding, entry, key_bindings_cmp);
 
 struct key_bindings	key_bindings;
+struct key_bindings	dead_key_bindings;
 
 int
 key_bindings_cmp(struct key_binding *bd1, struct key_binding *bd2)
 {
-	return (bd1->key - bd2->key);
+	int	key1, key2;
+
+	key1 = bd1->key & ~KEYC_PREFIX;
+	key2 = bd2->key & ~KEYC_PREFIX;
+	if (key1 != key2)
+		return (key1 - key2);
+
+	if (bd1->key & KEYC_PREFIX && !(bd2->key & KEYC_PREFIX))
+		return (-1);
+	if (bd2->key & KEYC_PREFIX && !(bd1->key & KEYC_PREFIX))
+		return (1);
+	return (0);
 }
 
 struct key_binding *
@@ -48,12 +60,12 @@ key_bindings_add(int key, int can_repeat, struct cmd_list *cmdlist)
 {
 	struct key_binding	*bd;
 
-	if ((bd = key_bindings_lookup(key)) == NULL) {
-		bd = xmalloc(sizeof *bd);
-		bd->key = key;
-		SPLAY_INSERT(key_bindings, &key_bindings, bd);
-	} else
-		cmd_list_free(bd->cmdlist);
+	key_bindings_remove(key);
+		    
+	bd = xmalloc(sizeof *bd);
+	bd->key = key;
+	SPLAY_INSERT(key_bindings, &key_bindings, bd);
+	
 	bd->can_repeat = can_repeat;
 	bd->cmdlist = cmdlist;
 }
@@ -66,9 +78,20 @@ key_bindings_remove(int key)
 	if ((bd = key_bindings_lookup(key)) == NULL)
 		return;
 	SPLAY_REMOVE(key_bindings, &key_bindings, bd);
+	SPLAY_INSERT(key_bindings, &dead_key_bindings, bd);
+}
 
-	cmd_list_free(bd->cmdlist);
-	xfree(bd);
+void
+key_bindings_clean(void)
+{
+	struct key_binding	*bd;
+
+	while (!SPLAY_EMPTY(&dead_key_bindings)) {
+		bd = SPLAY_ROOT(&dead_key_bindings);
+		SPLAY_REMOVE(key_bindings, &dead_key_bindings, bd);
+		cmd_list_free(bd->cmdlist);
+		xfree(bd);
+	}
 }
 
 void
@@ -81,7 +104,8 @@ key_bindings_init(void)
 	} table[] = {
 		{ ' ',			  0, &cmd_next_layout_entry },
 		{ '!', 			  0, &cmd_break_pane_entry },
-		{ '"', 			  0, &cmd_split_window_entry },
+		{ '"', 			  0, &cmd_split_window_entry },	
+		{ '%', 			  0, &cmd_split_window_entry },	
 		{ '#', 			  0, &cmd_list_buffers_entry },
 		{ '&', 			  0, &cmd_confirm_before_entry },
 		{ ',', 			  0, &cmd_command_prompt_entry },
@@ -98,7 +122,6 @@ key_bindings_init(void)
 		{ '8', 			  0, &cmd_select_window_entry },
 		{ '9', 			  0, &cmd_select_window_entry },
 		{ ':', 			  0, &cmd_command_prompt_entry },
-		{ '=', 			  0, &cmd_scroll_mode_entry },
 		{ '?', 			  0, &cmd_list_keys_entry },
 		{ '[', 			  0, &cmd_copy_mode_entry },
 		{ '\'',			  0, &cmd_select_prompt_entry },
@@ -106,11 +129,14 @@ key_bindings_init(void)
 		{ ']', 			  0, &cmd_paste_buffer_entry },
 		{ 'c', 			  0, &cmd_new_window_entry },
 		{ 'd', 			  0, &cmd_detach_client_entry },
+		{ 'D',			  0, &cmd_choose_client_entry },
 		{ 'f', 			  0, &cmd_command_prompt_entry },
+		{ 'i',			  0, &cmd_display_message_entry },
 		{ 'l', 			  0, &cmd_last_window_entry },
 		{ 'n', 			  0, &cmd_next_window_entry },
 		{ 'o', 			  0, &cmd_down_pane_entry },
 		{ 'p', 			  0, &cmd_previous_window_entry },
+		{ 'q',			  0, &cmd_display_panes_entry },
 		{ 'r', 			  0, &cmd_refresh_client_entry },
 		{ 's', 			  0, &cmd_choose_session_entry },
 		{ 't', 			  0, &cmd_clock_mode_entry },
@@ -118,23 +144,26 @@ key_bindings_init(void)
 		{ 'x', 			  0, &cmd_confirm_before_entry },
 		{ '{',			  0, &cmd_swap_pane_entry },
 		{ '}',			  0, &cmd_swap_pane_entry },
-		{ '\002', 		  0, &cmd_send_prefix_entry },
-		{ KEYC_ADDESC('0'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('1'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('2'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDESC('9'),	  0, &cmd_select_layout_entry },
-		{ KEYC_ADDCTL(KEYC_DOWN), 1, &cmd_resize_pane_entry },
-		{ KEYC_PPAGE, 		  0, &cmd_scroll_mode_entry },
-		{ KEYC_ADDESC('n'), 	  0, &cmd_next_window_entry },
-		{ KEYC_ADDESC('p'), 	  0, &cmd_previous_window_entry },
-		{ KEYC_UP, 		  1, &cmd_up_pane_entry },
-		{ KEYC_DOWN, 		  1, &cmd_down_pane_entry },
-		{ KEYC_ADDESC(KEYC_UP),   1, &cmd_resize_pane_entry },
-		{ KEYC_ADDESC(KEYC_DOWN), 1, &cmd_resize_pane_entry },
-		{ KEYC_ADDCTL(KEYC_UP),   1, &cmd_resize_pane_entry },
-		{ KEYC_ADDCTL(KEYC_DOWN), 1, &cmd_resize_pane_entry },
-		{ KEYC_ADDESC('o'),	  0, &cmd_rotate_window_entry },
-		{ '\017',	          0, &cmd_rotate_window_entry },
+		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
+		{ '1' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '2' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '3' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ '4' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
+		{ KEYC_PPAGE, 		  0, &cmd_copy_mode_entry },
+		{ 'n' | KEYC_ESCAPE, 	  0, &cmd_next_window_entry },
+		{ 'p' | KEYC_ESCAPE, 	  0, &cmd_previous_window_entry },
+		{ KEYC_UP, 		  0, &cmd_up_pane_entry },
+		{ KEYC_DOWN, 		  0, &cmd_down_pane_entry },
+		{ KEYC_UP | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_DOWN | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_LEFT | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
+		{ KEYC_RIGHT | KEYC_ESCAPE, 1, &cmd_resize_pane_entry },
+		{ KEYC_UP | KEYC_CTRL,    1, &cmd_resize_pane_entry },
+		{ KEYC_DOWN | KEYC_CTRL,  1, &cmd_resize_pane_entry },	
+		{ KEYC_LEFT | KEYC_CTRL,  1, &cmd_resize_pane_entry },
+		{ KEYC_RIGHT | KEYC_CTRL, 1, &cmd_resize_pane_entry },
+		{ 'o' | KEYC_ESCAPE,	  0, &cmd_rotate_window_entry },
+		{ '\017', /* C-o */	  0, &cmd_rotate_window_entry },
 	};
 	u_int		 i;
 	struct cmd	*cmd;
@@ -153,7 +182,8 @@ key_bindings_init(void)
 			cmd->entry->init(cmd, table[i].key);
 		TAILQ_INSERT_HEAD(cmdlist, cmd, qentry);
 
-		key_bindings_add(table[i].key, table[i].can_repeat, cmdlist);
+		key_bindings_add(
+		    table[i].key | KEYC_PREFIX, table[i].can_repeat, cmdlist);
 	}
 }
 
@@ -162,6 +192,7 @@ key_bindings_free(void)
 {
 	struct key_binding	*bd;
 
+	key_bindings_clean();
 	while (!SPLAY_EMPTY(&key_bindings)) {
 		bd = SPLAY_ROOT(&key_bindings);
 		SPLAY_REMOVE(key_bindings, &key_bindings, bd);
@@ -181,14 +212,14 @@ key_bindings_error(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, msg);
+ 	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 
 void printflike2
 key_bindings_print(struct cmd_ctx *ctx, const char *fmt, ...)
 {
-	struct winlink	*wl = ctx->cursession->curw;
+	struct winlink	*wl = ctx->curclient->session->curw;
 	va_list		 ap;
 
 	if (wl->window->active->mode != &window_more_mode)
@@ -214,7 +245,7 @@ key_bindings_info(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, msg);
+ 	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 
@@ -224,7 +255,6 @@ key_bindings_dispatch(struct key_binding *bd, struct client *c)
 	struct cmd_ctx	 	 ctx;
 
 	ctx.msgdata = NULL;
-	ctx.cursession = c->session;
 	ctx.curclient = c;
 
 	ctx.error = key_bindings_error;

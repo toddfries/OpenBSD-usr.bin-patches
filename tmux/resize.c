@@ -1,4 +1,4 @@
-/* $OpenBSD: resize.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: resize.c,v 1.4 2009/09/24 07:02:56 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -48,6 +48,7 @@ recalculate_sizes(void)
 	struct session		*s;
 	struct client		*c;
 	struct window		*w;
+	struct window_pane	*wp;
 	u_int		 	 i, j, ssx, ssy, has, limit;
 	int		 	 flag;
 
@@ -59,7 +60,7 @@ recalculate_sizes(void)
 		ssx = ssy = UINT_MAX;
 		for (j = 0; j < ARRAY_LENGTH(&clients); j++) {
 			c = ARRAY_ITEM(&clients, j);
-			if (c == NULL)
+			if (c == NULL || c->flags & CLIENT_SUSPENDED)
 				continue;
 			if (c->session == s) {
 				if (c->tty.sx < ssx)
@@ -131,8 +132,22 @@ recalculate_sizes(void)
 		log_debug(
 		    "window size %u,%u (was %u,%u)", ssx, ssy, w->sx, w->sy);
 
+		layout_resize(w, ssx, ssy);
 		window_resize(w, ssx, ssy);
+
+		/*
+		 * If the current pane is now not visible, move to the next
+		 * that is.
+		 */
+		wp = w->active;
+		while (!window_pane_visible(w->active)) {
+			w->active = TAILQ_PREV(w->active, window_panes, entry);
+			if (w->active == NULL)
+				w->active = TAILQ_LAST(&w->panes, window_panes);
+			if (w->active == wp)
+			       break;
+		}
+
 		server_redraw_window(w);
-		layout_refresh(w, 0);
 	}
 }

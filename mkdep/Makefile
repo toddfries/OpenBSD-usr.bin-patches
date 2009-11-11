@@ -2,6 +2,7 @@
 
 MAN=	mkdep.1
 
+<<<<<<< HEAD
 
 all: mkdep.gcc
 
@@ -20,10 +21,10 @@ mkdep.gcc: mkdep.gcc.sh
 		sed 's/ /|/g')"'/' ${.CURDIR}/mkdep.gcc.sh > mkdep.gcc
 	
 
+=======
+>>>>>>> master
 beforeinstall:
 	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE} \
-	    mkdep.gcc ${DESTDIR}/usr/bin/mkdep
-
-CLEANFILES+= mkdep.list mkdep.gcc
+	    ${.CURDIR}/mkdep.gcc.sh ${DESTDIR}/usr/bin/mkdep
 
 .include <bsd.prog.mk>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: listen.c,v 1.8 2009/02/04 20:35:14 ratchov Exp $	*/
+/*	$OpenBSD: listen.c,v 1.11 2009/09/27 11:51:20 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -29,8 +29,8 @@
 #include <unistd.h>
 
 #include "conf.h"
-#include "sock.h"
 #include "listen.h"
+#include "sock.h"
 
 struct fileops listen_ops = {
 	"listen",
@@ -46,8 +46,7 @@ struct fileops listen_ops = {
 };
 
 struct listen *
-listen_new(struct fileops *ops, char *path,
-    struct aparams *wpar, struct aparams *rpar, int maxweight)
+listen_new(struct fileops *ops, char *path)
 {
 	int sock, oldumask;
 	struct sockaddr_un sockname;
@@ -84,18 +83,6 @@ listen_new(struct fileops *ops, char *path,
 		exit(1);
 	}
 	f->fd = sock;
-	f->wpar = *wpar;
-	f->rpar = *rpar;
-	f->maxweight = maxweight;
-#ifdef DEBUG
-	if (debug_level > 0) {
-		fprintf(stderr, "listen_new: %s: wpar=", f->path);
-		aparams_print(&f->wpar);
-		fprintf(stderr, ", rpar=");
-		aparams_print(&f->rpar);
-		fprintf(stderr, ", vol=%u\n", f->maxweight);
-	}
-#endif
 	return f;
  bad_close:
 	close(sock);
@@ -126,7 +113,6 @@ listen_revents(struct file *file, struct pollfd *pfd)
 	int sock;
 
 	if (pfd->revents & POLLIN) {
-		DPRINTF("listen_revents: %s: accepting connection\n", f->path);
 		caddrlen = sizeof(caddrlen);
 		sock = accept(f->fd, &caddr, &caddrlen);
 		if (sock < 0) {
@@ -138,8 +124,7 @@ listen_revents(struct file *file, struct pollfd *pfd)
 			close(sock);
 			return 0;
 		}
-		if (sock_new(&sock_ops, sock, "socket",
-			&f->wpar, &f->rpar, f->maxweight) == NULL) {
+		if (sock_new(&sock_ops, sock) == NULL) {
 			close(sock);
 			return 0;
 		}
@@ -152,7 +137,7 @@ listen_close(struct file *file)
 {
 	struct listen *f = (struct listen *)file;
 
-	(void)unlink(f->path);
+	unlink(f->path);
 	free(f->path);
-	(void)close(f->fd);
+	close(f->fd);
 }

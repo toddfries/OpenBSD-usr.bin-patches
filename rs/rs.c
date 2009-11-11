@@ -1,4 +1,4 @@
-/*	$OpenBSD: rs.c,v 1.18 2007/09/02 15:19:34 deraadt Exp $	*/
+/*	$OpenBSD: rs.c,v 1.20 2009/10/27 23:59:42 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1993
@@ -28,20 +28,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static const char sccsid[] = "@(#)rs.c	8.1 (Berkeley) 6/6/93";
-#else
-static const char rcsid[] = "$OpenBSD: rs.c,v 1.18 2007/09/02 15:19:34 deraadt Exp $";
-#endif
-#endif /* not lint */
 
 /*
  *	rs - reshape a data array
@@ -232,7 +218,7 @@ usage(void)
 	extern char *__progname;
 
 	fprintf(stderr,
-	    "usage: %s [-CcSs[x]] [-KkGgw N] [-EeHhjmnTtyz] [rows [cols]]\n",
+	    "usage: %s [-CcSs[x]] [-GgKkw N] [-EeHhjmnTtyz] [rows [cols]]\n",
 	    __progname);
 	exit(1);
 }

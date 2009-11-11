@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-scroll-mode.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-list-panes.c,v 1.2 2009/10/15 07:05:38 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,55 +18,57 @@
 
 #include <sys/types.h>
 
+#include <unistd.h>
+
 #include "tmux.h"
 
 /*
- * Enter scroll mode.
+ * List panes on given window..
  */
 
-void	cmd_scroll_mode_init(struct cmd *, int);
-int	cmd_scroll_mode_exec(struct cmd *, struct cmd_ctx *);
+int	cmd_list_panes_exec(struct cmd *, struct cmd_ctx *);
 
-const struct cmd_entry cmd_scroll_mode_entry = {
-	"scroll-mode", NULL,
+const struct cmd_entry cmd_list_panes_entry = {
+	"list-panes", "lsp",
 	CMD_TARGET_WINDOW_USAGE,
-	CMD_UFLAG,
-	cmd_scroll_mode_init,
+	0, 0,
+	cmd_target_init,
 	cmd_target_parse,
-	cmd_scroll_mode_exec,
-	cmd_target_send,
-	cmd_target_recv,
+	cmd_list_panes_exec,
 	cmd_target_free,
 	cmd_target_print
 };
 
-void
-cmd_scroll_mode_init(struct cmd *self, int key)
-{
-	struct cmd_target_data	*data;
-
-	cmd_target_init(self, key);
-	data = self->data;
-
-	switch (key) {
-	case KEYC_PPAGE:
-		data->flags |= CMD_UFLAG;
-		break;
-	}
-}
-
 int
-cmd_scroll_mode_exec(struct cmd *self, struct cmd_ctx *ctx)
+cmd_list_panes_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
+	struct window_pane	*wp;
+	struct grid		*gd;
+	struct grid_line	*gl;
+	u_int			 i, n;
+	unsigned long long	 size;
 
 	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 		return (-1);
 
-	window_pane_set_mode(wl->window->active, &window_scroll_mode);
-	if (data->flags & CMD_UFLAG)
-		window_scroll_pageup(wl->window->active);
+	n = 0;
+	TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+		gd = wp->base.grid;
+		
+		size = 0;
+		for (i = 0; i < gd->hsize; i++) {
+			gl = &gd->linedata[i];
+			size += gl->cellsize * sizeof *gl->celldata;
+			size += gl->utf8size * sizeof *gl->utf8data;
+		}
+		size += gd->hsize * sizeof *gd->linedata;
+		
+		ctx->print(ctx, "%u: [%ux%u] [history %u/%u, %llu bytes]",
+		    n, wp->sx, wp->sy, gd->hsize, gd->hlimit, size);
+		n++;
+	}
 
 	return (0);
 }

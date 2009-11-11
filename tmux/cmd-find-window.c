@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-find-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-find-window.c,v 1.5 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <fnmatch.h>
 #include <string.h>
 
 #include "tmux.h"
@@ -33,12 +34,10 @@ void	cmd_find_window_callback(void *, int);
 const struct cmd_entry cmd_find_window_entry = {
 	"find-window", "findw",
 	CMD_TARGET_WINDOW_USAGE " match-string",
-	CMD_ARG1,
+	CMD_ARG1, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_find_window_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -58,8 +57,8 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct window_pane		*wp;
 	ARRAY_DECL(, u_int)	 	 list_idx;
 	ARRAY_DECL(, char *)	 	 list_ctx;
-	char				*sres, *sctx;
-	u_int				 i;
+	char				*sres, *sctx, *searchstr;
+	u_int				 i, line;
 
 	if (ctx->curclient == NULL) {
 		ctx->error(ctx, "must be run interactively");
@@ -73,17 +72,18 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	ARRAY_INIT(&list_idx);
 	ARRAY_INIT(&list_ctx);
 
+	xasprintf(&searchstr, "*%s*", data->arg);
 	RB_FOREACH(wm, winlinks, &s->windows) {
 		i = 0;
 		TAILQ_FOREACH(wp, &wm->window->panes, entry) {
 			i++;
 
-			if (strstr(wm->window->name, data->arg) != NULL)
+			if (fnmatch(searchstr, wm->window->name, 0) == 0)
 				sctx = xstrdup("");
 			else {
-				sres = window_pane_search(wp, data->arg);
+				sres = window_pane_search(wp, data->arg, &line);
 				if (sres == NULL &&
-				    strstr(wp->base.title, data->arg) == NULL)
+				    fnmatch(searchstr, wp->base.title, 0) != 0)
 					continue;
 
 				if (sres == NULL) {
@@ -91,7 +91,9 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 					    "pane %u title: \"%s\"", i - 1,
 					    wp->base.title);
 				} else {
-					xasprintf(&sctx, "\"%s\"", sres);
+					xasprintf(&sctx,
+					    "pane %u line %u: \"%s\"", i - 1,
+					    line + 1, sres);
 					xfree(sres);
 				}
 			}
@@ -100,6 +102,7 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 			ARRAY_ADD(&list_ctx, sctx);
 		}
 	}
+	xfree(searchstr);
 
 	if (ARRAY_LENGTH(&list_idx) == 0) {
 		ctx->error(ctx, "no windows matching: %s", data->arg);
@@ -135,7 +138,7 @@ cmd_find_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		fatalx("session not found");
 
 	window_choose_ready(
-	    wl->window->active, 0, cmd_find_window_callback, cdata);
+	    wl->window->active, 0, cmd_find_window_callback, xfree, cdata);
 
 out:
 	ARRAY_FREE(&list_idx);
@@ -156,5 +159,4 @@ cmd_find_window_callback(void *data, int idx)
 			server_redraw_session(s);
 		recalculate_sizes();
 	}
-	xfree(cdata);
 }

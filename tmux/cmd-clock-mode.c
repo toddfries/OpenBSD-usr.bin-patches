@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-clock-mode.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-clock-mode.c,v 1.4 2009/08/18 16:21:04 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,13 +28,11 @@ int	cmd_clock_mode_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_clock_mode_entry = {
 	"clock-mode", NULL,
-	CMD_TARGET_WINDOW_USAGE,
-	0,
+	CMD_TARGET_PANE_USAGE,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_clock_mode_exec,
-       	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -43,12 +41,12 @@ int
 cmd_clock_mode_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
-	struct winlink		*wl;
+	struct window_pane	*wp;
 
-	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
+	if (cmd_find_pane(ctx, data->target, NULL, &wp) == NULL)
 		return (-1);
 
-	window_pane_set_mode(wl->window->active, &window_clock_mode);
+	window_pane_set_mode(wp, &window_clock_mode);
 
 	return (0);
 }

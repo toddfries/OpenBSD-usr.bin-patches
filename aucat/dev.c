@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.26 2009/02/06 08:26:34 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.37 2009/11/08 00:08:41 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -14,24 +14,54 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
-#include "dev.h"
 #include "abuf.h"
 #include "aproc.h"
-#include "pipe.h"
 #include "conf.h"
+#include "dev.h"
+#include "pipe.h"
 #include "safile.h"
+#include "midi.h"
 
 unsigned dev_bufsz, dev_round, dev_rate;
 struct aparams dev_ipar, dev_opar;
 struct aproc *dev_mix, *dev_sub, *dev_rec, *dev_play;
+struct aproc *dev_midi;
 
 /*
- * same as dev_init(), but create a fake device that records what is
- * played
+ * Create a MIDI thru box as the MIDI end of the device
+ */
+void
+dev_thruinit(void)
+{
+	dev_midi = thru_new("thru");
+	dev_midi->refs++;
+}
+
+/*
+ * Attach a bi-directional MIDI stream to the MIDI device
+ */
+void
+dev_midiattach(struct abuf *ibuf, struct abuf *obuf)
+{
+	if (ibuf)
+		aproc_setin(dev_midi, ibuf);
+	if (obuf) {
+		aproc_setout(dev_midi, obuf);
+		if (ibuf) {
+			ibuf->duplex = obuf;
+			obuf->duplex = ibuf;
+		}
+	}
+}
+
+/*
+ * Same as dev_init(), but create a fake device that records what is
+ * played.
  */
 void
 dev_loopinit(struct aparams *dipar, struct aparams *dopar, unsigned bufsz)
@@ -53,46 +83,18 @@ dev_loopinit(struct aparams *dipar, struct aparams *dopar, unsigned bufsz)
 	dev_play = NULL;
 
 	buf = abuf_new(dev_bufsz, &par);
-	dev_mix = mix_new("mix", dev_bufsz);
+	dev_mix = mix_new("mix", dev_bufsz, NULL);
 	dev_mix->refs++;
-	dev_sub = sub_new("sub", dev_bufsz);
+	dev_sub = sub_new("sub", dev_bufsz, NULL);
 	dev_sub->refs++;
 	aproc_setout(dev_mix, buf);
 	aproc_setin(dev_sub, buf);
 
-	dev_mix->u.mix.flags |= MIX_AUTOQUIT;
-	dev_sub->u.sub.flags |= SUB_AUTOQUIT;
+	dev_mix->flags |= APROC_QUIT;
+	dev_sub->flags |= APROC_QUIT;
 
 	*dipar = dev_ipar;
 	*dopar = dev_opar;
-}
-
-/*
- * same as dev_done(), but destroy a loopback device
- */
-void
-dev_loopdone(void)
-{
-	struct file *f;
-
-	DPRINTF("dev_loopdone:\n");
-
-	dev_sub->refs--;
-	dev_sub = NULL;
-	dev_mix->refs--;
-	dev_mix = NULL;
-	/*
-	 * generate EOF on all inputs
-	 */
- restart:
-	LIST_FOREACH(f, &file_list, entry) {
-		if (f->rproc != NULL) {
-			file_eof(f);
-			goto restart;
-		}
-	}
-	while (file_poll())
-		; /* nothing */
 }
 
 unsigned
@@ -102,13 +104,13 @@ dev_roundof(unsigned newrate)
 }
 
 /*
- * open the device with the given hardware parameters and create a mixer
+ * Open the device with the given hardware parameters and create a mixer
  * and a multiplexer connected to it with all necessary conversions
- * setup
+ * setup.
  */
 int
 dev_init(char *devpath,
-    struct aparams *dipar, struct aparams *dopar, unsigned bufsz)
+    struct aparams *dipar, struct aparams *dopar, unsigned bufsz, unsigned round)
 {
 	struct file *f;
 	struct aparams ipar, opar;
@@ -116,43 +118,33 @@ dev_init(char *devpath,
 	struct abuf *buf;
 	unsigned nfr, ibufsz, obufsz;
 
+	dev_midi = ctl_new("ctl");
+	dev_midi->refs++;
+
 	/*
-	 * ask for 1/4 of the buffer for the kernel ring and
-	 * limit the block size to 1/4 of the requested buffer
+	 * Ask for 1/4 of the buffer for the kernel ring and
+	 * limit the block size to 1/4 of the requested buffer.
 	 */
-	dev_bufsz = (bufsz + 3) / 4;
-	dev_round = (bufsz + 3) / 4;
+	dev_round = round;
+	dev_bufsz = (bufsz + 3) / 4 + (dev_round - 1);
+	dev_bufsz -= dev_bufsz % dev_round;
 	f = (struct file *)safile_new(&safile_ops, devpath,
 	    dipar, dopar, &dev_bufsz, &dev_round);
 	if (f == NULL)
 		return 0;
 	if (dipar) {
-#ifdef DEBUG
-		if (debug_level > 0) {
-			fprintf(stderr, "dev_init: hw recording ");
-			aparams_print(dipar);
-			fprintf(stderr, "\n");
-		}
-#endif
 		dev_rate = dipar->rate;
 	}
 	if (dopar) {
-#ifdef DEBUG
-		if (debug_level > 0) {
-			fprintf(stderr, "dev_init: hw playing ");
-			aparams_print(dopar);
-			fprintf(stderr, "\n");
-		}
-#endif
 		dev_rate = dopar->rate;
 	}
 	ibufsz = obufsz = dev_bufsz;
 	bufsz = (bufsz > dev_bufsz) ? bufsz - dev_bufsz : 0;
 
 	/*
-	 * use 1/8 of the buffer for the mixer/converters.  Since we
+	 * Use 1/8 of the buffer for the mixer/converters.  Since we
 	 * already consumed 1/4 for the device, bufsz represents the
-	 * remaining 3/4. So 1/8 is 1/6 of 3/4
+	 * remaining 3/4. So 1/8 is 1/6 of 3/4.
 	 */
 	nfr = (bufsz + 5) / 6;
 	nfr += dev_round - 1;
@@ -161,12 +153,12 @@ dev_init(char *devpath,
 		nfr = dev_round;
 
 	/*
-	 * create record chain
+	 * Create record chain.
 	 */
 	if (dipar) {
 		aparams_init(&ipar, dipar->cmin, dipar->cmax, dipar->rate);
 		/*
-		 * create the read end
+		 * Create the read end.
 		 */
 		dev_rec = rpipe_new(f);
 		dev_rec->refs++;
@@ -175,10 +167,10 @@ dev_init(char *devpath,
 		ibufsz += nfr;
 
 		/*
-		 * append a converter, if needed
+		 * Append a converter, if needed.
 		 */
 		if (!aparams_eqenc(dipar, &ipar)) {
-			conv = dec_new("subin", dipar);
+			conv = dec_new("rec", dipar);
 			aproc_setin(conv, buf);
 			buf = abuf_new(nfr, &ipar);
 			aproc_setout(conv, buf);
@@ -187,9 +179,10 @@ dev_init(char *devpath,
 		dev_ipar = ipar;
 
 		/*
-		 * append a "sub" to which clients will connect
+		 * Append a "sub" to which clients will connect.
+		 * Link it to the controller only in record-only mode
 		 */
-		dev_sub = sub_new("sub", nfr);
+		dev_sub = sub_new("rec", nfr, dopar ? NULL : dev_midi);
 		dev_sub->refs++;
 		aproc_setin(dev_sub, buf);
 	} else {
@@ -198,12 +191,12 @@ dev_init(char *devpath,
 	}
 
 	/*
-	 * create play chain
+	 * Create play chain.
 	 */
 	if (dopar) {
 		aparams_init(&opar, dopar->cmin, dopar->cmax, dopar->rate);
 		/*
-		 * create the write end
+		 * Create the write end.
 		 */
 		dev_play = wpipe_new(f);
 		dev_play->refs++;
@@ -212,10 +205,10 @@ dev_init(char *devpath,
 		obufsz += nfr;
 
 		/*
-		 * append a converter, if needed
+		 * Append a converter, if needed.
 		 */
 		if (!aparams_eqenc(&opar, dopar)) {
-			conv = enc_new("mixout", dopar);
+			conv = enc_new("play", dopar);
 			aproc_setout(conv, buf);
 			buf = abuf_new(nfr, &opar);
 			aproc_setin(conv, buf);
@@ -224,9 +217,9 @@ dev_init(char *devpath,
 		dev_opar = opar;
 
 		/*
-		 * append a "mix" to which clients will connect
+		 * Append a "mix" to which clients will connect.
 		 */
-		dev_mix = mix_new("mix", nfr);
+		dev_mix = mix_new("play", nfr, dev_midi);
 		dev_mix->refs++;
 		aproc_setout(dev_mix, buf);
 	} else {
@@ -234,84 +227,103 @@ dev_init(char *devpath,
 		dev_mix = NULL;
 	}
 	dev_bufsz = (dopar) ? obufsz : ibufsz;
-	DPRINTF("dev_init: using %u fpb\n", dev_bufsz);
 	dev_start();
 	return 1;
 }
 
 /*
- * cleanly stop and drain everything and close the device
- * once both play chain and record chain are gone
+ * Cleanly stop and drain everything and close the device
+ * once both play chain and record chain are gone.
  */
 void
 dev_done(void)
 {
 	struct file *f;
 
-	DPRINTF("dev_done: dev_mix = %p, dev_sub = %p\n", dev_mix, dev_sub);
 	if (dev_mix) {
-		dev_mix->refs--;
-		dev_mix->u.mix.flags |= MIX_AUTOQUIT;
-		dev_mix = NULL;
 		/*
-		 * generate EOF on all inputs (but not the device), and
-		 * put the mixer in ``autoquit'' state, so once buffers
-		 * are drained the mixer will terminate and shutdown the
-		 * write-end of the device
+		 * Put the mixer in ``autoquit'' state and generate
+		 * EOF on all inputs connected it. Once buffers are
+		 * drained the mixer will terminate and shutdown the
+		 * device.
 		 *
 		 * NOTE: since file_eof() can destroy the file and
 		 * reorder the file_list, we have to restart the loop
-		 * after each call to file_eof()
+		 * after each call to file_eof().
 		 */
-	restart:
+		dev_mix->flags |= APROC_QUIT;
+	restart_mix:
 		LIST_FOREACH(f, &file_list, entry) {
-			if (f->rproc != NULL && f->rproc != dev_rec) {
+			if (f->rproc != NULL &&
+			    aproc_depend(dev_mix, f->rproc)) {
 				file_eof(f);
-				goto restart;
+				goto restart_mix;
 			}
 		}
-
+	} else if (dev_sub) {
 		/*
-		 * wait play chain to terminate
-		 */
-		if (dev_play) {
-			while (!LIST_EMPTY(&dev_play->ibuflist)) {
-				if (!file_poll())
-					break;
+		 * Same as above, but since there's no mixer, 
+		 * we generate EOF on the record-end of the
+		 * device.
+		 */	
+	restart_sub:
+		LIST_FOREACH(f, &file_list, entry) {
+			if (f->rproc != NULL &&
+			    aproc_depend(dev_sub, f->rproc)) {
+				file_eof(f);
+				goto restart_sub;
 			}
-			dev_play->refs--;
-			aproc_del(dev_play);
-			dev_play = NULL;
 		}
+	}
+	if (dev_midi) {
+		dev_midi->flags |= APROC_QUIT;
+ 	restart_midi:
+		LIST_FOREACH(f, &file_list, entry) {
+			if (f->rproc &&
+			    aproc_depend(dev_midi, f->rproc)) {
+				file_eof(f);
+				goto restart_midi;
+			}
+		}
+	}
+	if (dev_mix) {
+		dev_mix->refs--;
+		if (dev_mix->flags & APROC_ZOMB)
+			aproc_del(dev_mix);
+		dev_mix = NULL;
+	}
+	if (dev_play) {
+		dev_play->refs--;
+		if (dev_play->flags & APROC_ZOMB)
+			aproc_del(dev_play);
+		dev_play = NULL;
 	}
 	if (dev_sub) {
 		dev_sub->refs--;
-		dev_sub->u.sub.flags |= SUB_AUTOQUIT;
+		if (dev_sub->flags & APROC_ZOMB)
+			aproc_del(dev_sub);
 		dev_sub = NULL;
-		/*
-		 * same as above, but for the record chain: generate eof
-		 * on the read-end of the device and wait record buffers
-		 * to desappear.  We must stop the device first, because
-		 * play-end will underrun (and xrun correction code will
-		 * insert silence on the record-end of the device)
-		 */
-		if (dev_rec) {
-			dev_stop();
-			if (dev_rec->u.io.file)
-				file_eof(dev_rec->u.io.file);
-			while (!LIST_EMPTY(&dev_rec->obuflist)) {
-				if (!file_poll())
-					break;
-			}
-			dev_rec->refs--;
+	}
+	if (dev_rec) {
+		dev_rec->refs--;
+		if (dev_rec->flags & APROC_ZOMB)
 			aproc_del(dev_rec);
-			dev_rec = NULL;
-		}
+		dev_rec = NULL;
+	}
+	if (dev_midi) {
+		dev_midi->refs--;
+		if (dev_midi->flags & APROC_ZOMB)
+			aproc_del(dev_midi);
+		dev_midi = NULL;
+	}
+	for (;;) {
+		if (!file_poll())
+			break;
 	}
 }
 
 /*
- * start the (paused) device. By default it's paused
+ * Start the (paused) device. By default it's paused.
  */
 void
 dev_start(void)
@@ -319,9 +331,9 @@ dev_start(void)
 	struct file *f;
 
 	if (dev_mix)
-		dev_mix->u.mix.flags |= MIX_DROP;
+		dev_mix->flags |= APROC_DROP;
 	if (dev_sub)
-		dev_sub->u.sub.flags |= SUB_DROP;
+		dev_sub->flags |= APROC_DROP;
 	if (dev_play && dev_play->u.io.file) {
 		f = dev_play->u.io.file;
 		f->ops->start(f);
@@ -332,7 +344,7 @@ dev_start(void)
 }
 
 /*
- * pause the device
+ * Pause the device.
  */
 void
 dev_stop(void)
@@ -347,24 +359,23 @@ dev_stop(void)
 		f->ops->stop(f);
 	}
 	if (dev_mix)
-		dev_mix->u.mix.flags &= ~MIX_DROP;
+		dev_mix->flags &= ~APROC_DROP;
 	if (dev_sub)
-		dev_sub->u.sub.flags &= ~SUB_DROP;
+		dev_sub->flags &= ~APROC_DROP;
 }
 
 /*
- * find the end points connected to the mix/sub
+ * Find the end points connected to the mix/sub.
  */
 int
 dev_getep(struct abuf **sibuf, struct abuf **sobuf)
 {
 	struct abuf *ibuf, *obuf;
 
-	if (sibuf) {
+	if (sibuf && *sibuf) {
 		ibuf = *sibuf;
 		for (;;) {
 			if (!ibuf || !ibuf->rproc) {
-				DPRINTF("dev_getep: reader desappeared\n");
 				return 0;
 			}
 			if (ibuf->rproc == dev_mix)
@@ -373,11 +384,10 @@ dev_getep(struct abuf **sibuf, struct abuf **sobuf)
 		}
 		*sibuf = ibuf;
 	}
-	if (sobuf) {
+	if (sobuf && *sobuf) {
 		obuf = *sobuf;
 		for (;;) {
 			if (!obuf || !obuf->wproc) {
-				DPRINTF("dev_getep: writer desappeared\n");
 				return 0;
 			}
 			if (obuf->wproc == dev_sub)
@@ -390,8 +400,8 @@ dev_getep(struct abuf **sibuf, struct abuf **sobuf)
 }
 
 /*
- * sync play buffer to rec buffer (for instance when one of
- * them underruns/overruns)
+ * Sync play buffer to rec buffer (for instance when one of
+ * them underruns/overruns).
  */
 void
 dev_sync(struct abuf *ibuf, struct abuf *obuf)
@@ -411,7 +421,7 @@ dev_sync(struct abuf *ibuf, struct abuf *obuf)
 		return;
 
 	/*
-	 * calculate delta, the number of frames the play chain is ahead
+	 * Calculate delta, the number of frames the play chain is ahead
 	 * of the record chain. It's necessary to schedule silences (or
 	 * drops) in order to start playback and record in sync.
 	 */
@@ -419,32 +429,68 @@ dev_sync(struct abuf *ibuf, struct abuf *obuf)
 	    rbuf->bpf * (pbuf->abspos + pbuf->used) -
 	    pbuf->bpf *  rbuf->abspos;
 	delta /= pbuf->bpf * rbuf->bpf;
-	DPRINTF("dev_sync: delta = %d, ppos = %u, pused = %u, rpos = %u\n",
-	    delta, pbuf->abspos, pbuf->used, rbuf->abspos);
-
 	if (delta > 0) {
 		/*
-		 * if the play chain is ahead (most cases) drop some of
-		 * the recorded input, to get both in sync
+		 * The play chain is ahead (most cases) drop some of
+		 * the recorded input, to get both in sync.
 		 */
-		obuf->drop += delta * obuf->bpf;
-		abuf_ipos(obuf, -delta);
+		if (obuf) {
+			obuf->drop += delta * obuf->bpf;
+			abuf_ipos(obuf, -delta);
+		}
 	} else if (delta < 0) {
 		/*
-		 * if record chain is ahead (should never happen,
-		 * right?) then insert silence to play
+		 * The record chain is ahead (should never happen,
+		 * right?) then insert silence to play.
 		 */
-		ibuf->silence += -delta * ibuf->bpf;
-		abuf_opos(ibuf, delta);
-	} else
-		DPRINTF("dev_sync: nothing to do\n");
+		 if (ibuf) {
+			ibuf->silence += -delta * ibuf->bpf;
+			abuf_opos(ibuf, delta);
+		}
+	}
 }
 
 /*
- * attach the given input and output buffers to the mixer and the
+ * return the current latency (in frames), ie the latency that
+ * a stream would have if dev_attach() is called on it.
+ */
+int
+dev_getpos(void)
+{
+	struct abuf *pbuf = NULL, *rbuf = NULL;
+	int plat = 0, rlat = 0;
+	int delta;
+
+	if (dev_mix) {
+		pbuf = LIST_FIRST(&dev_mix->obuflist);
+		if (!pbuf)
+			return 0;
+		plat = -dev_mix->u.mix.lat;
+	}
+	if (dev_sub) {
+		rbuf = LIST_FIRST(&dev_sub->ibuflist);
+		if (!rbuf)
+			return 0;
+		rlat = -dev_sub->u.sub.lat;
+	}
+	if (dev_mix && dev_sub) {
+		delta =
+		    rbuf->bpf * (pbuf->abspos + pbuf->used) -
+		    pbuf->bpf *  rbuf->abspos;
+		delta /= pbuf->bpf * rbuf->bpf;
+		if (delta > 0)
+			rlat -= delta;
+		else if (delta < 0)
+			plat += delta;
+	}
+	return dev_mix ? plat : rlat;
+}
+
+/*
+ * Attach the given input and output buffers to the mixer and the
  * multiplexer respectively. The operation is done synchronously, so
  * both buffers enter in sync. If buffers do not match play
- * and rec
+ * and rec.
  */
 void
 dev_attach(char *name,
@@ -490,8 +536,8 @@ dev_attach(char *name,
 		}
 		aproc_setin(dev_mix, ibuf);
 		abuf_opos(ibuf, -dev_mix->u.mix.lat);
-		ibuf->xrun = underrun;
-		ibuf->mixmaxweight = vol;
+		ibuf->r.mix.xrun = underrun;
+		ibuf->r.mix.maxweight = vol;
 		mix_setmaster(dev_mix);
 	}
 	if (obuf) {
@@ -528,37 +574,34 @@ dev_attach(char *name,
 		}
 		aproc_setout(dev_sub, obuf);
 		abuf_ipos(obuf, -dev_sub->u.sub.lat);
-		obuf->xrun = overrun;
+		obuf->w.sub.xrun = overrun;
 	}
 
 	/*
-	 * sync play to record
+	 * Sync play to record.
 	 */
 	if (ibuf && obuf) {
 		ibuf->duplex = obuf;
 		obuf->duplex = ibuf;
-		dev_sync(ibuf, obuf);
 	}
+	dev_sync(ibuf, obuf);
 }
 
 /*
- * change the playback volume of the fiven stream
+ * Change the playback volume of the given stream.
  */
 void
 dev_setvol(struct abuf *ibuf, int vol)
 {
-	DPRINTF("dev_setvol: %p\n", ibuf);
 	if (!dev_getep(&ibuf, NULL)) {
-		DPRINTF("dev_setvol: not connected yet\n");
 		return;
 	}
-	ibuf->mixvol = vol;
-	DPRINTF("dev_setvol: %p -> %d\n", ibuf, vol);
+	ibuf->r.mix.vol = vol;
 }
 
 /*
- * clear buffers of the play and record chains so that when the device
- * is started, playback and record start in sync
+ * Clear buffers of the play and record chains so that when the device
+ * is started, playback and record start in sync.
  */
 void
 dev_clear(void)
@@ -566,10 +609,6 @@ dev_clear(void)
 	struct abuf *buf;
 
 	if (dev_mix) {
-		if (!LIST_EMPTY(&dev_mix->ibuflist)) {
-			fprintf(stderr, "dev_clear: mixer not idle\n");
-			abort();
-		}
 		buf = LIST_FIRST(&dev_mix->obuflist);
 		while (buf) {
 			abuf_clear(buf);
@@ -578,10 +617,6 @@ dev_clear(void)
 		mix_clear(dev_mix);
 	}
 	if (dev_sub) {
-		if (!LIST_EMPTY(&dev_sub->obuflist)) {
-			fprintf(stderr, "dev_suspend: demux not idle\n");
-			abort();
-		}
 		buf = LIST_FIRST(&dev_sub->ibuflist);
 		while (buf) {
 			abuf_clear(buf);

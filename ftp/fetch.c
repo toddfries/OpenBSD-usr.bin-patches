@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.89 2009/06/04 23:37:09 halex Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.97 2009/10/16 12:28:04 martynas Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -103,6 +103,71 @@ jmp_buf	httpabort;
 static int	redirect_loop;
 
 /*
+ * Determine whether the character needs encoding, per RFC1738:
+ * 	- No corresponding graphic US-ASCII.
+ * 	- Unsafe characters.
+ */
+static int
+unsafe_char(const char *c)
+{
+	const char *unsafe_chars = " <>\"#{}|\\^~[]`";
+
+	/*
+	 * No corresponding graphic US-ASCII.
+	 * Control characters and octets not used in US-ASCII.
+	 */
+	return (iscntrl(*c) || !isascii(*c) ||
+
+	    /*
+	     * Unsafe characters.
+	     * '%' is also unsafe, if is not followed by two
+	     * hexadecimal digits.
+	     */
+	    strchr(unsafe_chars, *c) != NULL ||
+	    (*c == '%' && (!isxdigit(*++c) || !isxdigit(*++c))));
+}
+
+/*
+ * Encode given URL, per RFC1738.
+ * Allocate and return string to the caller.
+ */
+static char *
+url_encode(const char *path)
+{
+	size_t i, length, new_length;
+	char *epath, *epathp;
+
+	length = new_length = strlen(path);
+
+	/*
+	 * First pass:
+	 * Count unsafe characters, and determine length of the
+	 * final URL.
+	 */
+	for (i = 0; i < length; i++)
+		if (unsafe_char(path + i))
+			new_length += 2;
+
+	epath = epathp = malloc(new_length + 1);	/* One more for '\0'. */
+	if (epath == NULL)
+		return NULL;
+
+	/*
+	 * Second pass:
+	 * Encode, and copy final URL.
+	 */
+	for (i = 0; i < length; i++)
+		if (unsafe_char(path + i)) {
+			snprintf(epathp, 4, "%%" "%02x", path[i]);
+			epathp += 3;
+		} else
+			*(epathp++) = path[i];
+
+	*epathp = '\0';
+	return (epath);
+}
+
+/*
  * Retrieve URL, via the proxy in $proxyvar if necessary.
  * Modifies the string argument given.
  * Returns -1 on failure, 0 on success
@@ -112,13 +177,14 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 {
 	char pbuf[NI_MAXSERV], hbuf[NI_MAXHOST], *cp, *portnum, *path, ststr[4];
 	char *hosttail, *cause = "unknown", *newline, *host, *port, *buf = NULL;
+	char *epath;
 	int error, i, isftpurl = 0, isfileurl = 0, isredirect = 0, rval = -1;
 	struct addrinfo hints, *res0, *res;
 	const char * volatile savefile;
 	char * volatile proxyurl = NULL;
 	char *cookie = NULL;
 	volatile int s = -1, out;
-	volatile sig_t oldintr;
+	volatile sig_t oldintr, oldinti;
 	FILE *fin = NULL;
 	off_t hashbytes;
 	const char *errstr;
@@ -130,6 +196,8 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 #endif /* !SMALL */
 	SSL *ssl = NULL;
 	int status;
+
+	direction = "received";
 
 	newline = strdup(origline);
 	if (newline == NULL)
@@ -153,26 +221,42 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 	if (isfileurl) {
 		path = host;
 	} else {
-		path = strchr(host, '/');		/* find path */
+		path = strchr(host, '/');		/* Find path */
 		if (EMPTYSTRING(path)) {
+			if (outfile) {			/* No slash, but */
+				path=strchr(host,'\0');	/* we have outfile. */
+				goto noslash;
+			}
 			if (isftpurl)
 				goto noftpautologin;
-			warnx("Invalid URL (no `/' after host): %s", origline);
+			warnx("No `/' after host (use -o): %s", origline);
 			goto cleanup_url_get;
 		}
 		*path++ = '\0';
-		if (EMPTYSTRING(path)) {
+		if (EMPTYSTRING(path) && !outfile) {
 			if (isftpurl)
 				goto noftpautologin;
-			warnx("Invalid URL (no file after host): %s", origline);
+			warnx("No filename after host (use -o): %s", origline);
 			goto cleanup_url_get;
 		}
 	}
 
+noslash:
 	if (outfile)
 		savefile = outfile;
-	else
-		savefile = basename(path);
+	else {
+		if (path[strlen(path) - 1] == '/')	/* Consider no file */
+			savefile = NULL;		/* after dir invalid. */
+		else
+			savefile = basename(path);
+	}
+
+	if (EMPTYSTRING(savefile)) {
+		if (isftpurl)
+			goto noftpautologin;
+		warnx("No filename after directory (use -o): %s", origline);
+		goto cleanup_url_get;
+	}
 
 #ifndef SMALL
 	if (resume && (strcmp(savefile, "-") == 0)) {
@@ -180,13 +264,6 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 		goto cleanup_url_get;
 	}
 #endif /* !SMALL */
-
-	if (EMPTYSTRING(savefile)) {
-		if (isftpurl)
-			goto noftpautologin;
-		warnx("Invalid URL (no file after directory): %s", origline);
-		goto cleanup_url_get;
-	}
 
 	if (!isfileurl && proxyenv != NULL) {		/* use proxy */
 #ifndef SMALL
@@ -212,7 +289,8 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 			warnx("Malformed proxy URL: %s", proxyenv);
 			goto cleanup_url_get;
 		}
-		*--path = '/';			/* add / back to real path */
+		if (*--path == '\0')
+			*path = '/';		/* add / back to real path */
 		path = strchr(host, '/');	/* remove trailing / on host */
 		if (!EMPTYSTRING(path))
 			*path++ = '\0';		/* i guess this ++ is useless */
@@ -292,9 +370,12 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 
 		/* Trap signals */
 		oldintr = NULL;
+		oldinti = NULL;
 		if (setjmp(httpabort)) {
 			if (oldintr)
 				(void)signal(SIGINT, oldintr);
+			if (oldinti)
+				(void)signal(SIGINFO, oldinti);
 			goto cleanup_url_get;
 		}
 		oldintr = signal(SIGINT, abortfile);
@@ -308,11 +389,13 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 
 		/* Finally, suck down the file. */
 		i = 0;
+		oldinti = signal(SIGINFO, psummary);
 		while ((len = read(s, buf, 4096)) > 0) {
 			bytes += len;
 			for (cp = buf; len > 0; len -= i, cp += i) {
 				if ((i = write(out, cp, len)) == -1) {
 					warn("Writing %s", savefile);
+					signal(SIGINFO, oldinti);
 					goto cleanup_url_get;
 				}
 				else if (i == 0)
@@ -326,6 +409,7 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 				(void)fflush(ttyout);
 			}
 		}
+		signal(SIGINFO, oldinti);
 		if (hash && !progress && bytes > 0) {
 			if (bytes < mark)
 				(void)putc('#', ttyout);
@@ -338,7 +422,7 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 		}
 		progressmeter(1, NULL);
 		if (verbose)
-			fputs("Successfully retrieved file.\n", ttyout);
+			ptransfer(0);
 		(void)signal(SIGINT, oldintr);
 
 		rval = 0;
@@ -469,12 +553,17 @@ again:
 
 	if (verbose)
 		fprintf(ttyout, "Requesting %s", origline);
+
 	/*
 	 * Construct and send the request. Proxy requests don't want leading /.
 	 */
 #ifndef SMALL
 	cookie_get(host, path, ishttpsurl, &buf);
 #endif /* !SMALL */
+
+	epath = url_encode(path);
+	if (epath == NULL)
+		return (-1);
 	if (proxyurl) {
 		if (verbose)
 			fprintf(ttyout, " (via %s)\n", proxyurl);
@@ -485,15 +574,25 @@ again:
 		if (cookie)
 			ftp_printf(fin, ssl, "GET %s HTTP/1.0\r\n"
 			    "Proxy-Authorization: Basic %s%s\r\n%s\r\n\r\n",
-			    path, cookie, buf ? buf : "", HTTP_USER_AGENT);
+			    epath, cookie, buf ? buf : "", HTTP_USER_AGENT);
 		else
 			ftp_printf(fin, ssl, "GET %s HTTP/1.0\r\n%s%s\r\n\r\n",
-			    path, buf ? buf : "", HTTP_USER_AGENT);
+			    epath, buf ? buf : "", HTTP_USER_AGENT);
 
 	} else {
-		ftp_printf(fin, ssl, "GET /%s %s\r\nHost: ", path,
 #ifndef SMALL
-			resume ? "HTTP/1.1" :
+		if (resume) {
+			struct stat stbuf;
+
+			if (stat(savefile, &stbuf) == 0)
+				restart_point = stbuf.st_size;
+			else
+				restart_point = 0;
+		}
+#endif /* !SMALL */
+		ftp_printf(fin, ssl, "GET /%s %s\r\nHost: ", epath,
+#ifndef SMALL
+			restart_point ? "HTTP/1.1" :
 #endif /* !SMALL */
 			"HTTP/1.0");
 		if (strchr(host, ':')) {
@@ -521,21 +620,9 @@ again:
 #ifndef SMALL
 		if (port && strcmp(port, (ishttpsurl ? "443" : "80")) != 0)
 			ftp_printf(fin, ssl, ":%s", port);
-		if (resume) {
-			int ret;
-			struct stat stbuf;
-
-			ret = stat(savefile, &stbuf);
-			if (ret < 0) {
-				if (verbose)
-					fprintf(ttyout, "\n");
-				warn("Can't open %s", savefile);
-				goto cleanup_url_get;
-			}
-			restart_point = stbuf.st_size;
+		if (restart_point)
 			ftp_printf(fin, ssl, "\r\nRange: bytes=%lld-",
 				(long long)restart_point);
-		}
 #else /* !SMALL */
 		if (port && strcmp(port, "80") != 0)
 			ftp_printf(fin, ssl, ":%s", port);
@@ -545,7 +632,7 @@ again:
 		if (verbose)
 			fprintf(ttyout, "\n");
 	}
-
+	free(epath);
 
 #ifndef SMALL
 	free(buf);
@@ -585,8 +672,8 @@ again:
 	case 200:	/* OK */
 #ifndef SMALL
 	case 206:	/* Partial Content */
-		break;
 #endif /* !SMALL */
+		break;
 	case 301:	/* Moved Permanently */
 	case 302:	/* Found */
 	case 303:	/* See Other */
@@ -637,7 +724,7 @@ again:
 			if (errstr != NULL)
 				goto improper;
 #ifndef SMALL
-			if (resume)
+			if (restart_point)
 				filesize += restart_point;
 #endif /* !SMALL */
 #define LOCATION "Location: "
@@ -653,7 +740,7 @@ again:
 			free(proxyurl);
 			free(newline);
 			free(cookie);
-			rval = url_get(cp, proxyenv, outfile);
+			rval = url_get(cp, proxyenv, savefile);
 			free(buf);
 			return (rval);
 		}
@@ -678,9 +765,12 @@ again:
 
 	/* Trap signals */
 	oldintr = NULL;
+	oldinti = NULL;
 	if (setjmp(httpabort)) {
 		if (oldintr)
 			(void)signal(SIGINT, oldintr);
+		if (oldinti)
+			(void)signal(SIGINFO, oldinti);
 		goto cleanup_url_get;
 	}
 	oldintr = signal(SIGINT, aborthttp);
@@ -696,12 +786,14 @@ again:
 		errx(1, "Can't allocate memory for transfer buffer");
 	i = 0;
 	len = 1;
+	oldinti = signal(SIGINFO, psummary);
 	while (len > 0) {
 		len = ftp_read(fin, ssl, buf, 4096);
 		bytes += len;
 		for (cp = buf, wlen = len; wlen > 0; wlen -= i, cp += i) {
 			if ((i = write(out, cp, wlen)) == -1) {
 				warn("Writing %s", savefile);
+				signal(SIGINFO, oldinti);
 				goto cleanup_url_get;
 			}
 			else if (i == 0)
@@ -715,6 +807,7 @@ again:
 			(void)fflush(ttyout);
 		}
 	}
+	signal(SIGINFO, oldinti);
 	if (hash && !progress && bytes > 0) {
 		if (bytes < mark)
 			(void)putc('#', ttyout);
@@ -737,7 +830,7 @@ again:
 	}
 
 	if (verbose)
-		fputs("Successfully retrieved file.\n", ttyout);
+		ptransfer(0);
 	(void)signal(SIGINT, oldintr);
 
 	rval = 0;
@@ -1231,7 +1324,7 @@ ftp_printf(FILE *fp, SSL *ssl, const char *fmt, ...)
 		ret = SSL_vprintf((SSL*)ssl, fmt, ap);
 #endif /* !SMALL */
 	else
-		ret = NULL;
+		ret = 0;
 
 	va_end(ap);
 	return (ret);

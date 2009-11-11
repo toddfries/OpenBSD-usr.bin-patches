@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff.c,v 1.53 2009/06/07 08:39:13 ray Exp $	*/
+/*	$OpenBSD: diff.c,v 1.55 2009/11/09 13:34:59 sobrado Exp $	*/
 
 /*
  * Copyright (c) 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -19,10 +19,6 @@
  * Agency (DARPA) and Air Force Research Laboratory, Air Force
  * Materiel Command, USAF, under agreement number F39502-99-1-0512.
  */
-
-#ifndef lint
-static const char rcsid[] = "$OpenBSD: diff.c,v 1.53 2009/06/07 08:39:13 ray Exp $";
-#endif /* not lint */
 
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -405,13 +401,13 @@ __dead void
 usage(void)
 {
 	(void)fprintf(stderr,
-	    "usage: diff [-abdilpqTtw] [-I pattern] [-c | -e | -f | -n | -u]\n"
-	    "            [-L label] file1 file2\n"
+	    "usage: diff [-abdilpqTtw] [-c | -e | -f | -n | -u] [-I pattern] [-L label] file1\n"
+	    "            file2\n"
 	    "       diff [-abdilpqTtw] [-I pattern] [-L label] -C number file1 file2\n"
 	    "       diff [-abdilqtw] [-I pattern] -D string file1 file2\n"
 	    "       diff [-abdilpqTtw] [-I pattern] [-L label] -U number file1 file2\n"
-	    "       diff [-abdilNPpqrsTtw] [-I pattern] [-c | -e | -f | -n | -u]\n"
-	    "            [-L label] [-S name] [-X file] [-x pattern] dir1 dir2\n");
+	    "       diff [-abdilNPpqrsTtw] [-c | -e | -f | -n | -u] [-I pattern] [-L label]\n"
+	    "            [-S name] [-X file] [-x pattern] dir1 dir2\n");
 
 	exit(2);
 }

@@ -1,21 +1,21 @@
-/* $Id: mdoc.c,v 1.2 2009/04/15 20:10:20 miod Exp $ */
+/*	$Id: mdoc.c,v 1.31 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#include <sys/types.h>
+
 #include <assert.h>
 #include <ctype.h>
 #include <stdarg.h>
@@ -25,18 +25,64 @@
 
 #include "libmdoc.h"
 
-enum	merr {
-	ENOCALL,
-	EBODYPROL,
-	EPROLBODY,
-	ESPACE,
-	ETEXTPROL,
-	ENOBLANK,
-	EMALLOC
+const	char *const __mdoc_merrnames[MERRMAX] = {		 
+	"trailing whitespace", /* ETAILWS */
+	"unexpected quoted parameter", /* EQUOTPARM */
+	"unterminated quoted parameter", /* EQUOTTERM */
+	"system: malloc error", /* EMALLOC */
+	"argument parameter suggested", /* EARGVAL */
+	"macro disallowed in prologue", /* EBODYPROL */
+	"macro disallowed in body", /* EPROLBODY */
+	"text disallowed in prologue", /* ETEXTPROL */
+	"blank line disallowed", /* ENOBLANK */
+	"text parameter too long", /* ETOOLONG */
+	"invalid escape sequence", /* EESCAPE */
+	"invalid character", /* EPRINT */
+	"document has no body", /* ENODAT */
+	"document has no prologue", /* ENOPROLOGUE */
+	"expected line arguments", /* ELINE */
+	"invalid AT&T argument", /* EATT */
+	"default name not yet set", /* ENAME */
+	"missing list type", /* ELISTTYPE */
+	"missing display type", /* EDISPTYPE */
+	"too many display types", /* EMULTIDISP */
+	"too many list types", /* EMULTILIST */
+	"NAME section must be first", /* ESECNAME */
+	"badly-formed NAME section", /* ENAMESECINC */
+	"argument repeated", /* EARGREP */
+	"expected boolean parameter", /* EBOOL */
+	"inconsistent column syntax", /* ECOLMIS */
+	"nested display invalid", /* ENESTDISP */
+	"width argument missing", /* EMISSWIDTH */
+	"invalid section for this manual section", /* EWRONGMSEC */
+	"section out of conventional order", /* ESECOOO */
+	"section repeated", /* ESECREP */
+	"invalid standard argument", /* EBADSTAND */
+	"multi-line arguments discouraged", /* ENOMULTILINE */
+	"multi-line arguments suggested", /* EMULTILINE */
+	"line arguments discouraged", /* ENOLINE */
+	"prologue macro out of conventional order", /* EPROLOOO */
+	"prologue macro repeated", /* EPROLREP */
+	"invalid manual section", /* EBADMSEC */
+	"invalid section", /* EBADSEC */
+	"invalid font mode", /* EFONT */
+	"invalid date syntax", /* EBADDATE */
+	"invalid number format", /* ENUMFMT */
+	"superfluous width argument", /* ENOWIDTH */
+	"system: utsname error", /* EUTSNAME */
+	"obsolete macro", /* EOBS */
+	"end-of-line scope violation", /* EIMPBRK */
+	"empty macro ignored", /* EIGNE */
+	"unclosed explicit scope", /* EOPEN */
+	"unterminated quoted phrase", /* EQUOTPHR */
+	"closure macro without prior context", /* ENOCTX */
+	"no description found for library", /* ELIB */
+	"bad child for parent context", /* EBADCHILD */
+	"list arguments preceding type", /* ENOTYPE */
 };
 
 const	char *const __mdoc_macronames[MDOC_MAX] = {		 
-	"\\\"",		"Dd",		"Dt",		"Os",
+	"Ap",		"Dd",		"Dt",		"Os",
 	"Sh",		"Ss",		"Pp",		"D1",
 	"Dl",		"Bd",		"Ed",		"Bl",
 	"El",		"It",		"Ad",		"An",
@@ -65,12 +111,14 @@ const	char *const __mdoc_macronames[MDOC_MAX] = {
 	"Tn",		"Ux",		"Xc",		"Xo",
 	"Fo",		"Fc",		"Oo",		"Oc",
 	"Bk",		"Ek",		"Bt",		"Hf",
-	"Fr",		"Ud",		"Lb",		"Ap",
-	"Lp",		"Lk",		"Mt",		"Brq",
+	"Fr",		"Ud",		"Lb",		"Lp",
+	"Lk",		"Mt",		"Brq",		"Bro",
 	/* LINTED */
-	"Bro",		"Brc",		"\%C",		"Es",
+	"Brc",		"\%C",		"Es",		"En",
 	/* LINTED */
-	"En",		"Dx",		"\%Q"
+	"Dx",		"\%Q",		"br",		"sp",
+	/* LINTED */
+	"\%U"
 	};
 
 const	char *const __mdoc_argnames[MDOC_ARG_MAX] = {		 
@@ -82,7 +130,7 @@ const	char *const __mdoc_argnames[MDOC_ARG_MAX] = {
 	"ohang",		"inset",		"column",	 
 	"width",		"compact",		"std",	 
 	"filled",		"words",		"emphasis",
-	"symbolic",		"nested"
+	"symbolic",		"nested",		"centered"
 	};
 
 const	char * const *mdoc_macronames = __mdoc_macronames;
@@ -97,13 +145,10 @@ static	int		  node_append(struct mdoc *,
 static	int		  parsetext(struct mdoc *, int, char *);
 static	int		  parsemacro(struct mdoc *, int, char *);
 static	int		  macrowarn(struct mdoc *, int, const char *);
-static	int		  perr(struct mdoc *, int, int, enum merr);
+static	int		  pstring(struct mdoc *, int, int, 
+				const char *, size_t);
 
-#define verr(m, t) perr((m), (m)->last->line, (m)->last->pos, (t))
 
-/*
- * Get the first (root) node of the parse tree.
- */
 const struct mdoc_node *
 mdoc_node(const struct mdoc *m)
 {
@@ -120,6 +165,9 @@ mdoc_meta(const struct mdoc *m)
 }
 
 
+/*
+ * Frees volatile resources (parse tree, meta-data, fields).
+ */
 static void
 mdoc_free1(struct mdoc *mdoc)
 {
@@ -139,13 +187,16 @@ mdoc_free1(struct mdoc *mdoc)
 }
 
 
+/*
+ * Allocate all volatile resources (parse tree, meta-data, fields).
+ */
 static int
 mdoc_alloc1(struct mdoc *mdoc)
 {
 
 	bzero(&mdoc->meta, sizeof(struct mdoc_meta));
 	mdoc->flags = 0;
-	mdoc->lastnamed = mdoc->lastsec = 0;
+	mdoc->lastnamed = mdoc->lastsec = SEC_NONE;
 	mdoc->last = calloc(1, sizeof(struct mdoc_node));
 	if (NULL == mdoc->last)
 		return(0);
@@ -158,9 +209,10 @@ mdoc_alloc1(struct mdoc *mdoc)
 
 
 /*
- * Free up all resources contributed by a parse:  the node tree,
- * meta-data and so on.  Then reallocate the root node for another
- * parse.
+ * Free up volatile resources (see mdoc_free1()) then re-initialises the
+ * data with mdoc_alloc1().  After invocation, parse data has been reset
+ * and the parser is ready for re-invocation on a new tree; however,
+ * cross-parse non-volatile data is kept intact.
  */
 int
 mdoc_reset(struct mdoc *mdoc)
@@ -172,19 +224,21 @@ mdoc_reset(struct mdoc *mdoc)
 
 
 /*
- * Completely free up all resources.
+ * Completely free up all volatile and non-volatile parse resources.
+ * After invocation, the pointer is no longer usable.
  */
 void
 mdoc_free(struct mdoc *mdoc)
 {
 
 	mdoc_free1(mdoc);
-	if (mdoc->htab)
-		mdoc_hash_free(mdoc->htab);
 	free(mdoc);
 }
 
 
+/*
+ * Allocate volatile and non-volatile parse resources.  
+ */
 struct mdoc *
 mdoc_alloc(void *data, int pflags, const struct mdoc_cb *cb)
 {
@@ -195,13 +249,12 @@ mdoc_alloc(void *data, int pflags, const struct mdoc_cb *cb)
 	if (cb)
 		(void)memcpy(&p->cb, cb, sizeof(struct mdoc_cb));
 
+	mdoc_hash_init();
+
 	p->data = data;
 	p->pflags = pflags;
 
-	if (NULL == (p->htab = mdoc_hash_alloc())) {
-		free(p);
-		return(NULL);
-	} else if (mdoc_alloc1(p))
+	if (mdoc_alloc1(p))
 		return(p);
 
 	free(p);
@@ -211,7 +264,7 @@ mdoc_alloc(void *data, int pflags, const struct mdoc_cb *cb)
 
 /*
  * Climb back up the parse tree, validating open scopes.  Mostly calls
- * through to macro_end in macro.c.
+ * through to macro_end() in macro.c.
  */
 int
 mdoc_endparse(struct mdoc *m)
@@ -228,13 +281,11 @@ mdoc_endparse(struct mdoc *m)
 
 /*
  * Main parse routine.  Parses a single line -- really just hands off to
- * the macro or text parser.
+ * the macro (parsemacro()) or text parser (parsetext()).
  */
 int
 mdoc_parseln(struct mdoc *m, int ln, char *buf)
 {
-
-	/* If in error-mode, then we parse no more. */
 
 	if (MDOC_HALT & m->flags)
 		return(0);
@@ -244,24 +295,9 @@ mdoc_parseln(struct mdoc *m, int ln, char *buf)
 }
 
 
-void
-mdoc_vmsg(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
-{
-	char		  buf[256];
-	va_list		  ap;
-
-	if (NULL == mdoc->cb.mdoc_msg)
-		return;
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	(*mdoc->cb.mdoc_msg)(mdoc->data, ln, pos, buf);
-}
-
-
 int
-mdoc_verr(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
+mdoc_verr(struct mdoc *mdoc, int ln, int pos, 
+		const char *fmt, ...)
 {
 	char		 buf[256];
 	va_list		 ap;
@@ -272,13 +308,13 @@ mdoc_verr(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
 	va_start(ap, fmt);
 	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
 	va_end(ap);
+
 	return((*mdoc->cb.mdoc_err)(mdoc->data, ln, pos, buf));
 }
 
 
 int
-mdoc_vwarn(struct mdoc *mdoc, int ln, int pos, 
-		enum mdoc_warn type, const char *fmt, ...)
+mdoc_vwarn(struct mdoc *mdoc, int ln, int pos, const char *fmt, ...)
 {
 	char		 buf[256];
 	va_list		 ap;
@@ -289,139 +325,23 @@ mdoc_vwarn(struct mdoc *mdoc, int ln, int pos,
 	va_start(ap, fmt);
 	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
 	va_end(ap);
-	return((*mdoc->cb.mdoc_warn)(mdoc->data, ln, pos, type, buf));
+
+	return((*mdoc->cb.mdoc_warn)(mdoc->data, ln, pos, buf));
 }
 
 
 int
-mdoc_nwarn(struct mdoc *mdoc, const struct mdoc_node *node, enum mdoc_warn type,
-		const char *fmt, ...)
+mdoc_err(struct mdoc *m, int line, int pos, int iserr, enum merr type)
 {
-	char		 buf[256];
-	va_list		 ap;
+	const char	*p;
 
-	if (NULL == mdoc->cb.mdoc_warn)
-		return(0);
+	p = __mdoc_merrnames[(int)type];
+	assert(p);
 
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_warn)(mdoc->data, node->line, node->pos, type,
-	    buf));
-}
+	if (iserr)
+		return(mdoc_verr(m, line, pos, p));
 
-int
-mdoc_nerr(struct mdoc *mdoc, const struct mdoc_node *node, const char *fmt, ...)
-{
-	char		 buf[256];
-	va_list		 ap;
-
-	if (NULL == mdoc->cb.mdoc_err)
-		return(0);
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_err)(mdoc->data, node->line, node->pos, buf));
-}
-
-
-int
-mdoc_warn(struct mdoc *mdoc, enum mdoc_warn type, const char *fmt, ...)
-{
-	char		 buf[256];
-	va_list		 ap;
-
-	if (NULL == mdoc->cb.mdoc_warn)
-		return(0);
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_warn)(mdoc->data, mdoc->last->line,
-	    mdoc->last->pos, type, buf));
-}
-
-
-int
-mdoc_err(struct mdoc *mdoc, const char *fmt, ...)
-{
-	char		 buf[256];
-	va_list		 ap;
-
-	if (NULL == mdoc->cb.mdoc_err)
-		return(0);
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_err)(mdoc->data, mdoc->last->line,
-	    mdoc->last->pos, buf));
-}
-
-
-void
-mdoc_msg(struct mdoc *mdoc, const char *fmt, ...)
-{
-	char		  buf[256];
-	va_list		  ap;
-
-	if (NULL == mdoc->cb.mdoc_msg)
-		return;
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	(*mdoc->cb.mdoc_msg)(mdoc->data, mdoc->last->line, mdoc->last->pos,
-	    buf);
-}
-
-
-void
-mdoc_pmsg(struct mdoc *mdoc, int line, int pos, const char *fmt, ...)
-{
-	char		  buf[256];
-	va_list		  ap;
-
-	if (NULL == mdoc->cb.mdoc_msg)
-		return;
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	(*mdoc->cb.mdoc_msg)(mdoc->data, line, pos, buf);
-}
-
-
-int
-mdoc_pwarn(struct mdoc *mdoc, int line, int pos, enum mdoc_warn type,
-		const char *fmt, ...)
-{
-	char		 buf[256];
-	va_list		 ap;
-
-	if (NULL == mdoc->cb.mdoc_warn)
-		return(0);
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_warn)(mdoc->data, line, pos, type, buf));
-}
-
-int
-mdoc_perr(struct mdoc *mdoc, int line, int pos, const char *fmt, ...)
-{
-	char		 buf[256];
-	va_list		 ap;
-
-	if (NULL == mdoc->cb.mdoc_err)
-		return(0);
-
-	va_start(ap, fmt);
-	(void)vsnprintf(buf, sizeof(buf) - 1, fmt, ap);
-	va_end(ap);
-	return((*mdoc->cb.mdoc_err)(mdoc->data, line, pos, buf));
+	return(mdoc_vwarn(m, line, pos, p));
 }
 
 
@@ -429,55 +349,18 @@ int
 mdoc_macro(struct mdoc *m, int tok, 
 		int ln, int pp, int *pos, char *buf)
 {
-
-	/* FIXME - these should happen during validation. */
-
+	/*
+	 * If we're in the prologue, deny "body" macros.  Similarly, if
+	 * we're in the body, deny prologue calls.
+	 */
 	if (MDOC_PROLOGUE & mdoc_macros[tok].flags && 
-			SEC_PROLOGUE != m->lastnamed)
-		return(perr(m, ln, pp, EPROLBODY));
-
+			MDOC_PBODY & m->flags)
+		return(mdoc_perr(m, ln, pp, EPROLBODY));
 	if ( ! (MDOC_PROLOGUE & mdoc_macros[tok].flags) && 
-			SEC_PROLOGUE == m->lastnamed)
-		return(perr(m, ln, pp, EBODYPROL));
-
-	if (1 != pp && ! (MDOC_CALLABLE & mdoc_macros[tok].flags))
-		return(perr(m, ln, pp, ENOCALL));
+			! (MDOC_PBODY & m->flags))
+		return(mdoc_perr(m, ln, pp, EBODYPROL));
 
 	return((*mdoc_macros[tok].fp)(m, tok, ln, pp, pos, buf));
-}
-
-
-static int
-perr(struct mdoc *m, int line, int pos, enum merr type)
-{
-	char		*p;
-
-	p = NULL;
-	switch (type) {
-	case (ENOCALL):
-		p = "not callable";
-		break;
-	case (EPROLBODY):
-		p = "macro disallowed in document body";
-		break;
-	case (EBODYPROL):
-		p = "macro disallowed in document prologue";
-		break;
-	case (EMALLOC):
-		p = "memory exhausted";
-		break;
-	case (ETEXTPROL):
-		p = "text disallowed in document prologue";
-		break;
-	case (ENOBLANK):
-		p = "blank lines disallowed in non-literal contexts";
-		break;
-	case (ESPACE):
-		p = "whitespace disallowed after delimiter";
-		break;
-	}
-	assert(p);
-	return(mdoc_perr(m, line, pos, p));
 }
 
 
@@ -503,6 +386,8 @@ node_append(struct mdoc *mdoc, struct mdoc_node *p)
 		abort();
 		/* NOTREACHED */
 	}
+
+	p->parent->nchild++;
 
 	if ( ! mdoc_valid_pre(mdoc, p))
 		return(0);
@@ -544,17 +429,17 @@ node_append(struct mdoc *mdoc, struct mdoc_node *p)
 
 
 static struct mdoc_node *
-node_alloc(struct mdoc *mdoc, int line, 
+node_alloc(struct mdoc *m, int line, 
 		int pos, int tok, enum mdoc_type type)
 {
 	struct mdoc_node *p;
 
 	if (NULL == (p = calloc(1, sizeof(struct mdoc_node)))) {
-		(void)verr(mdoc, EMALLOC);
+		(void)mdoc_nerr(m, m->last, EMALLOC);
 		return(NULL);
 	}
 
-	p->sec = mdoc->lastsec;
+	p->sec = m->lastsec;
 	p->line = line;
 	p->pos = pos;
 	p->tok = tok;
@@ -566,88 +451,124 @@ node_alloc(struct mdoc *mdoc, int line,
 
 
 int
-mdoc_tail_alloc(struct mdoc *mdoc, int line, int pos, int tok)
+mdoc_tail_alloc(struct mdoc *m, int line, int pos, int tok)
 {
 	struct mdoc_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, MDOC_TAIL);
+	p = node_alloc(m, line, pos, tok, MDOC_TAIL);
 	if (NULL == p)
 		return(0);
-	return(node_append(mdoc, p));
+	if ( ! node_append(m, p))
+		return(0);
+	m->next = MDOC_NEXT_CHILD;
+	return(1);
 }
 
 
 int
-mdoc_head_alloc(struct mdoc *mdoc, int line, int pos, int tok)
+mdoc_head_alloc(struct mdoc *m, int line, int pos, int tok)
 {
 	struct mdoc_node *p;
 
-	assert(mdoc->first);
-	assert(mdoc->last);
+	assert(m->first);
+	assert(m->last);
 
-	p = node_alloc(mdoc, line, pos, tok, MDOC_HEAD);
+	p = node_alloc(m, line, pos, tok, MDOC_HEAD);
 	if (NULL == p)
 		return(0);
-	return(node_append(mdoc, p));
+	if ( ! node_append(m, p))
+		return(0);
+	m->next = MDOC_NEXT_CHILD;
+	return(1);
 }
 
 
 int
-mdoc_body_alloc(struct mdoc *mdoc, int line, int pos, int tok)
+mdoc_body_alloc(struct mdoc *m, int line, int pos, int tok)
 {
 	struct mdoc_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, MDOC_BODY);
+	p = node_alloc(m, line, pos, tok, MDOC_BODY);
 	if (NULL == p)
 		return(0);
-	return(node_append(mdoc, p));
+	if ( ! node_append(m, p))
+		return(0);
+	m->next = MDOC_NEXT_CHILD;
+	return(1);
 }
 
 
 int
-mdoc_block_alloc(struct mdoc *mdoc, int line, int pos, 
+mdoc_block_alloc(struct mdoc *m, int line, int pos, 
 		int tok, struct mdoc_arg *args)
 {
 	struct mdoc_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, MDOC_BLOCK);
+	p = node_alloc(m, line, pos, tok, MDOC_BLOCK);
 	if (NULL == p)
 		return(0);
-	if ((p->args = args))
+	p->args = args;
+	if (p->args)
 		(args->refcnt)++;
-	return(node_append(mdoc, p));
+	if ( ! node_append(m, p))
+		return(0);
+	m->next = MDOC_NEXT_CHILD;
+	return(1);
 }
 
 
 int
-mdoc_elem_alloc(struct mdoc *mdoc, int line, int pos, 
+mdoc_elem_alloc(struct mdoc *m, int line, int pos, 
 		int tok, struct mdoc_arg *args)
 {
 	struct mdoc_node *p;
 
-	p = node_alloc(mdoc, line, pos, tok, MDOC_ELEM);
+	p = node_alloc(m, line, pos, tok, MDOC_ELEM);
 	if (NULL == p)
 		return(0);
-	if ((p->args = args))
+	p->args = args;
+	if (p->args)
 		(args->refcnt)++;
-	return(node_append(mdoc, p));
+	if ( ! node_append(m, p))
+		return(0);
+	m->next = MDOC_NEXT_CHILD;
+	return(1);
 }
 
 
-int
-mdoc_word_alloc(struct mdoc *mdoc, 
-		int line, int pos, const char *word)
+static int
+pstring(struct mdoc *m, int line, int pos, const char *p, size_t len)
 {
-	struct mdoc_node *p;
+	struct mdoc_node *n;
+	size_t		  sv;
 
-	p = node_alloc(mdoc, line, pos, -1, MDOC_TEXT);
-	if (NULL == p)
-		return(0);
-	if (NULL == (p->string = strdup(word))) {
-		(void)verr(mdoc, EMALLOC);
-		return(0);
+	n = node_alloc(m, line, pos, -1, MDOC_TEXT);
+	if (NULL == n)
+		return(mdoc_nerr(m, m->last, EMALLOC));
+
+	n->string = malloc(len + 1);
+	if (NULL == n->string) {
+		free(n);
+		return(mdoc_nerr(m, m->last, EMALLOC));
 	}
-	return(node_append(mdoc, p));
+
+	sv = strlcpy(n->string, p, len + 1);
+
+	/* Prohibit truncation. */
+	assert(sv < len + 1);
+
+	if ( ! node_append(m, n))
+		return(0);
+	m->next = MDOC_NEXT_SIBLING;
+	return(1);
+}
+
+
+int
+mdoc_word_alloc(struct mdoc *m, int line, int pos, const char *p)
+{
+
+	return(pstring(m, line, pos, p, strlen(p)));
 }
 
 
@@ -655,6 +576,8 @@ void
 mdoc_node_free(struct mdoc_node *p)
 {
 
+	if (p->parent)
+		p->parent->nchild--;
 	if (p->string)
 		free(p->string);
 	if (p->args)
@@ -672,6 +595,7 @@ mdoc_node_freelist(struct mdoc_node *p)
 	if (p->next)
 		mdoc_node_freelist(p->next);
 
+	assert(0 == p->nchild);
 	mdoc_node_free(p);
 }
 
@@ -683,14 +607,52 @@ mdoc_node_freelist(struct mdoc_node *p)
 static int
 parsetext(struct mdoc *m, int line, char *buf)
 {
+	int		 i, j;
 
-	if (SEC_PROLOGUE == m->lastnamed)
-		return(perr(m, line, 0, ETEXTPROL));
+	if (SEC_NONE == m->lastnamed)
+		return(mdoc_perr(m, line, 0, ETEXTPROL));
+	
+	/*
+	 * If in literal mode, then pass the buffer directly to the
+	 * back-end, as it should be preserved as a single term.
+	 */
 
-	if (0 == buf[0] && ! (MDOC_LITERAL & m->flags))
-		return(perr(m, line, 0, ENOBLANK));
+	if (MDOC_LITERAL & m->flags)
+		return(mdoc_word_alloc(m, line, 0, buf));
 
-	if ( ! mdoc_word_alloc(m, line, 0, buf))
+	/* Disallow blank/white-space lines in non-literal mode. */
+
+	for (i = 0; ' ' == buf[i]; i++)
+		/* Skip leading whitespace. */ ;
+	if (0 == buf[i])
+		return(mdoc_perr(m, line, 0, ENOBLANK));
+
+	/*
+	 * Break apart a free-form line into tokens.  Spaces are
+	 * stripped out of the input.
+	 */
+
+	for (j = i; buf[i]; i++) {
+		if (' ' != buf[i])
+			continue;
+
+		/* Escaped whitespace. */
+		if (i && ' ' == buf[i] && '\\' == buf[i - 1])
+			continue;
+
+		buf[i++] = 0;
+		if ( ! pstring(m, line, j, &buf[j], (size_t)(i - j)))
+			return(0);
+
+		for ( ; ' ' == buf[i]; i++)
+			/* Skip trailing whitespace. */ ;
+
+		j = i;
+		if (0 == buf[i])
+			break;
+	}
+
+	if (j != i && ! pstring(m, line, j, &buf[j], (size_t)(i - j)))
 		return(0);
 
 	m->next = MDOC_NEXT_SIBLING;
@@ -698,18 +660,17 @@ parsetext(struct mdoc *m, int line, char *buf)
 }
 
 
+
 static int
 macrowarn(struct mdoc *m, int ln, const char *buf)
 {
 	if ( ! (MDOC_IGN_MACRO & m->pflags))
-		return(mdoc_perr(m, ln, 1, 
+		return(mdoc_verr(m, ln, 0, 
 				"unknown macro: %s%s", 
 				buf, strlen(buf) > 3 ? "..." : ""));
-	return(mdoc_pwarn(m, ln, 1, WARN_SYNTAX,
-				"unknown macro: %s%s",
+	return(mdoc_vwarn(m, ln, 0, "unknown macro: %s%s",
 				buf, strlen(buf) > 3 ? "..." : ""));
 }
-
 
 
 /*
@@ -719,45 +680,50 @@ macrowarn(struct mdoc *m, int ln, const char *buf)
 int
 parsemacro(struct mdoc *m, int ln, char *buf)
 {
-	int		  i, c;
+	int		  i, j, c;
 	char		  mac[5];
 
-	/* Comments and empties are quickly ignored. */
+	/* Empty lines are ignored. */
 
 	if (0 == buf[1])
 		return(1);
 
-	if (' ' == buf[1]) {
-		i = 2;
+	i = 1;
+
+	/* Accept whitespace after the initial control char. */
+
+	if (' ' == buf[i]) {
+		i++;
 		while (buf[i] && ' ' == buf[i])
 			i++;
 		if (0 == buf[i])
 			return(1);
-		return(perr(m, ln, 1, ESPACE));
 	}
-
-	if (buf[1] && '\\' == buf[1])
-		if (buf[2] && '\"' == buf[2])
-			return(1);
 
 	/* Copy the first word into a nil-terminated buffer. */
 
-	for (i = 1; i < 5; i++) {
-		if (0 == (mac[i - 1] = buf[i]))
+	for (j = 0; j < 4; j++, i++) {
+		if (0 == (mac[j] = buf[i]))
 			break;
 		else if (' ' == buf[i])
 			break;
+
+		/* Check for invalid characters. */
+
+		if (isgraph((u_char)buf[i]))
+			continue;
+		return(mdoc_perr(m, ln, i, EPRINT));
 	}
 
-	mac[i - 1] = 0;
+	mac[j] = 0;
 
-	if (i == 5 || i <= 2) {
+	if (j == 4 || j < 2) {
 		if ( ! macrowarn(m, ln, mac))
 			goto err;
 		return(1);
 	} 
 	
-	if (MDOC_MAX == (c = mdoc_hash_find(m->htab, mac))) {
+	if (MDOC_MAX == (c = mdoc_hash_find(mac))) {
 		if ( ! macrowarn(m, ln, mac))
 			goto err;
 		return(1);
@@ -768,8 +734,10 @@ parsemacro(struct mdoc *m, int ln, char *buf)
 	while (buf[i] && ' ' == buf[i])
 		i++;
 
-	/* Begin recursive parse sequence. */
-
+	/* 
+	 * Begin recursive parse sequence.  Since we're at the start of
+	 * the line, we don't need to do callable/parseable checks.
+	 */
 	if ( ! mdoc_macro(m, c, ln, 1, &i, buf)) 
 		goto err;
 
@@ -780,3 +748,5 @@ err:	/* Error out. */
 	m->flags |= MDOC_HALT;
 	return(0);
 }
+
+

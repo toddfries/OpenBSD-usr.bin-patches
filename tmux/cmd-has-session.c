@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-has-session.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-has-session.c,v 1.3 2009/07/26 12:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,12 +29,10 @@ int	cmd_has_session_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_has_session_entry = {
 	"has-session", "has",
 	CMD_TARGET_SESSION_USAGE,
-	0,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_has_session_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };

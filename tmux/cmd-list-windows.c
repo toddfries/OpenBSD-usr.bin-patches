@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-windows.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-list-windows.c,v 1.7 2009/10/10 17:19:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -31,12 +31,10 @@ int	cmd_list_windows_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_list_windows_entry = {
 	"list-windows", "lsw",
 	CMD_TARGET_SESSION_USAGE,
-	0,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_list_windows_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -47,41 +45,13 @@ cmd_list_windows_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_target_data	*data = self->data;
 	struct session		*s;
 	struct winlink		*wl;
-	struct window		*w;
-	struct window_pane	*wp;
-	struct grid		*gd;
-	u_int			 i;
-	unsigned long long	 size;
-	const char		*name;
 
 	if ((s = cmd_find_session(ctx, data->target)) == NULL)
 		return (-1);
 
 	RB_FOREACH(wl, winlinks, &s->windows) {
-		w = wl->window;
-		ctx->print(ctx,
-		    "%3d: %s [%ux%u]", wl->idx, w->name, w->sx, w->sy);
-
-		TAILQ_FOREACH(wp, &w->panes, entry) {
-			gd = wp->base.grid;
-
-			size = 0;
-			for (i = 0; i < gd->hsize; i++) {
-				size += gd->size[i] * sizeof **gd->data;
-				size += gd->usize[i] * sizeof **gd->udata;
-			}
-			size += gd->hsize * (sizeof *gd->data);
-			size += gd->hsize * (sizeof *gd->size);
-
-			if (wp->fd != -1)
-				name = ttyname(wp->fd);
-			else
-				name = "unknown";
-			ctx->print(ctx,
-			    "     %s [%ux%u %s] [history %u/%u, %llu bytes]",
-			    name, wp->sx, wp->sy, layout_name(w), gd->hsize,
-			    gd->hlimit, size);
-		}
+		ctx->print(ctx, "%d: %s [%ux%u]",
+		    wl->idx, wl->window->name, wl->window->sx, wl->window->sy);
 	}
 
 	return (0);

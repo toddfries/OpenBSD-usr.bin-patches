@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-swap-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-swap-window.c,v 1.4 2009/10/10 10:02:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -31,12 +31,10 @@ int	cmd_swap_window_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_swap_window_entry = {
 	"swap-window", "swapw",
 	"[-d] " CMD_SRCDST_WINDOW_USAGE,
-	CMD_DFLAG,
+	0, CMD_CHFLAG('d'),
 	cmd_srcdst_init,
 	cmd_srcdst_parse,
 	cmd_swap_window_exec,
-	cmd_srcdst_send,
-	cmd_srcdst_recv,
 	cmd_srcdst_free,
 	cmd_srcdst_print
 };
@@ -46,6 +44,7 @@ cmd_swap_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_srcdst_data	*data = self->data;
 	struct session		*src, *dst;
+	struct session_group	*sg_src, *sg_dst;
 	struct winlink		*wl_src, *wl_dst;
 	struct window		*w;
 
@@ -54,6 +53,14 @@ cmd_swap_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if ((wl_dst = cmd_find_window(ctx, data->dst, &dst)) == NULL)
 		return (-1);
 
+	sg_src = session_group_find(src);
+	sg_dst = session_group_find(dst);
+	if (src != dst &&
+	    sg_src != NULL && sg_dst != NULL && sg_src == sg_dst) {
+		ctx->error(ctx, "can't move window, sessions are grouped");
+		return (-1);
+	}
+
 	if (wl_dst->window == wl_src->window)
 		return (0);
 
@@ -61,14 +68,17 @@ cmd_swap_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	wl_dst->window = wl_src->window;
 	wl_src->window = w;
 
-	if (!(data->flags & CMD_DFLAG)) {
+	if (!(data->chflags & CMD_CHFLAG('d'))) {
 		session_select(dst, wl_dst->idx);
 		if (src != dst)
 			session_select(src, wl_src->idx);
 	}
-	server_redraw_session(src);
-	if (src != dst)
-		server_redraw_session(dst);
+	session_group_synchronize_from(src);
+	server_redraw_session_group(src);
+	if (src != dst) {
+		session_group_synchronize_from(dst);
+		server_redraw_session_group(dst);
+	}
 	recalculate_sizes();
 
 	return (0);

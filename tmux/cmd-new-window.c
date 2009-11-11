@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-new-window.c,v 1.8 2009/10/10 10:02:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,8 +28,6 @@
 
 int	cmd_new_window_parse(struct cmd *, int, char **, char **);
 int	cmd_new_window_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_new_window_send(struct cmd *, struct buffer *);
-void	cmd_new_window_recv(struct cmd *, struct buffer *);
 void	cmd_new_window_free(struct cmd *);
 void	cmd_new_window_init(struct cmd *, int);
 size_t	cmd_new_window_print(struct cmd *, char *, size_t);
@@ -45,12 +43,10 @@ struct cmd_new_window_data {
 const struct cmd_entry cmd_new_window_entry = {
 	"new-window", "neww",
 	"[-dk] [-n window-name] [-t target-window] [command]",
-	0,
+	0, 0,
 	cmd_new_window_init,
 	cmd_new_window_parse,
 	cmd_new_window_exec,
-	cmd_new_window_send,
-	cmd_new_window_recv,
 	cmd_new_window_free,
 	cmd_new_window_print
 };
@@ -74,7 +70,7 @@ cmd_new_window_parse(struct cmd *self, int argc, char **argv, char **cause)
 	struct cmd_new_window_data	*data;
 	int				 opt;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
 	while ((opt = getopt(argc, argv, "dkt:n:")) != -1) {
@@ -126,18 +122,8 @@ cmd_new_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (data == NULL)
 		return (0);
 
-	if (arg_parse_window(data->target, &s, &idx) != 0) {
-		ctx->error(ctx, "bad window: %s", data->target);
+	if ((idx = cmd_find_index(ctx, data->target, &s)) == -2)
 		return (-1);
-	}
-	if (s == NULL)
-		s = ctx->cursession;
-	if (s == NULL)
-		s = cmd_current_session(ctx);
-	if (s == NULL) {
-		ctx->error(ctx, "session not found: %s", data->target);
-		return (-1);
-	}
 
 	wl = NULL;
 	if (idx != -1)
@@ -164,10 +150,12 @@ cmd_new_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (cmd == NULL)
 		cmd = options_get_string(&s->options, "default-command");
 	if (ctx->cmdclient == NULL || ctx->cmdclient->cwd == NULL)
-		cwd = options_get_string(&global_options, "default-path");
+		cwd = options_get_string(&s->options, "default-path");
 	else
 		cwd = ctx->cmdclient->cwd;
 
+	if (idx == -1)
+		idx = -1 - options_get_number(&s->options, "base-index");
 	wl = session_new(s, data->name, cmd, cwd, idx, &cause);
 	if (wl == NULL) {
 		ctx->error(ctx, "create window failed: %s", cause);
@@ -176,34 +164,11 @@ cmd_new_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 	if (!data->flag_detached) {
 		session_select(s, wl->idx);
-		server_redraw_session(s);
-	} else
-		server_status_session(s);
+		server_redraw_session_group(s);
+	} else	
+		server_status_session_group(s);
 
 	return (0);
-}
-
-void
-cmd_new_window_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_window_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->target);
-	cmd_send_string(b, data->name);
-	cmd_send_string(b, data->cmd);
-}
-
-void
-cmd_new_window_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_new_window_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->target = cmd_recv_string(b);
-	data->name = cmd_recv_string(b);
-	data->cmd = cmd_recv_string(b);
 }
 
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: util.c,v 1.2 2009/06/03 19:37:27 nicm Exp $ */
+/* $OpenBSD: cmd-lock-client.c,v 1.1 2009/09/24 14:17:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -20,33 +20,34 @@
 
 #include "tmux.h"
 
-/* Return a section of a string around a point. */
-char *
-section_string(char *buf, size_t len, size_t sectoff, size_t sectlen)
+/*
+ * Lock a single client.
+ */
+
+int	cmd_lock_client_exec(struct cmd *, struct cmd_ctx *);
+
+const struct cmd_entry cmd_lock_client_entry = {
+	"lock-client", "lockc",
+	CMD_TARGET_CLIENT_USAGE,
+	0, 0,
+	cmd_target_init,
+	cmd_target_parse,
+	cmd_lock_client_exec,
+	cmd_target_free,
+	cmd_target_print
+};
+
+int
+cmd_lock_client_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	char	*s;
-	size_t	 first, last;
+	struct cmd_target_data	*data = self->data;
+	struct client		*c;
 
-	if (len <= sectlen) {
-		first = 0;
-		last = len;
-	} else if (sectoff < sectlen / 2) {
-		first = 0;
-		last = sectlen;
-	} else if (sectoff + sectlen / 2 > len) {
-		last = len;
-		first = last - sectlen;
-	} else {
-		first = sectoff - sectlen / 2;
-		last = first + sectlen;
-	}
+	if ((c = cmd_find_client(ctx, data->target)) == NULL)
+		return (-1);
 
-	if (last - first > 3 && first != 0)
-		first += 3;
-	if (last - first > 3 && last != len)
-		last -= 3;
+	server_lock_client(c);
+	recalculate_sizes();
 
-	xasprintf(&s, "%s%.*s%s", first == 0 ? "" : "...",
-	    (int) (last - first), buf + first, last == len ? "" : "...");
-	return (s);
+	return (0);
 }

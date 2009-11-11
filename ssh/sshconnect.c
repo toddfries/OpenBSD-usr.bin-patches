@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.214 2009/05/28 16:50:16 andreas Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.216 2009/11/10 04:30:45 dtucker Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -23,6 +23,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <netdb.h>
 #include <paths.h>
 #include <signal.h>
@@ -181,9 +182,13 @@ ssh_create_socket(int privileged, struct addrinfo *ai)
 			debug("Allocated local port %d.", p);
 		return sock;
 	}
-	sock = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-	if (sock < 0)
+	sock = socket_rdomain(ai->ai_family, ai->ai_socktype, ai->ai_protocol,
+	    options.rdomain);
+	if (sock < 0) {
 		error("socket: %.100s", strerror(errno));
+		return -1;
+	}
+	fcntl(sock, F_SETFD, FD_CLOEXEC);
 
 	/* Bind the socket to an alternative local IP address */
 	if (options.bind_address == NULL)

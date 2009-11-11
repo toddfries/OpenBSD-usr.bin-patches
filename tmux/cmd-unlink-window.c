@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-unlink-window.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-unlink-window.c,v 1.7 2009/10/10 10:02:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,13 +28,11 @@ int	cmd_unlink_window_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_unlink_window_entry = {
 	"unlink-window", "unlinkw",
-	CMD_TARGET_WINDOW_USAGE,
-	0,
+	"[-k] " CMD_TARGET_WINDOW_USAGE,
+	0, CMD_CHFLAG('k'),
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_unlink_window_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -44,30 +42,29 @@ cmd_unlink_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
-	struct session		*s;
-	struct client		*c;
-	u_int			 i;
-	int			 destroyed;
+	struct window		*w;
+	struct session		*s, *s2;
+	struct session_group	*sg;
+	u_int			 references;
 
 	if ((wl = cmd_find_window(ctx, data->target, &s)) == NULL)
 		return (-1);
+	w = wl->window;
 
-	if (wl->window->references == 1) {
+	sg = session_group_find(s);
+	if (sg != NULL) {
+		references = 0;
+		TAILQ_FOREACH(s2, &sg->sessions, gentry)
+			references++;
+	} else
+		references = 1;
+
+	if (!(data->chflags & CMD_CHFLAG('k')) && w->references == references) {
 		ctx->error(ctx, "window is only linked to one session");
 		return (-1);
 	}
-
- 	destroyed = session_detach(s, wl);
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL || c->session != s)
-			continue;
-		if (destroyed) {
-			c->session = NULL;
-			server_write_client(c, MSG_EXIT, NULL, 0);
-		} else
-			server_redraw_client(c);
-	}
+	
+	server_unlink_window(s, wl);
 	recalculate_sizes();
 
 	return (0);

@@ -1,25 +1,21 @@
-/* $Id: mdoc.h,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc.h,v 1.15 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #ifndef MDOC_H
 #define MDOC_H
-
-#include <time.h>
 
 /*
  * This library implements a validating scanner/parser for ``mdoc'' roff
@@ -31,7 +27,7 @@
 
 /* What follows is a list of ALL possible macros. */
 
-#define	MDOC___	 	 0
+#define	MDOC_Ap		 0
 #define	MDOC_Dd		 1
 #define	MDOC_Dt		 2
 #define	MDOC_Os		 3
@@ -138,19 +134,21 @@
 #define	MDOC_Fr		 104
 #define	MDOC_Ud		 105
 #define	MDOC_Lb		 106
-#define	MDOC_Ap		 107
-#define	MDOC_Lp		 108
-#define	MDOC_Lk		 109
-#define	MDOC_Mt		 110
-#define	MDOC_Brq	 111
-#define	MDOC_Bro	 112
-#define	MDOC_Brc	 113
-#define	MDOC__C	 	 114
-#define	MDOC_Es	 	 115
-#define	MDOC_En	 	 116
-#define	MDOC_Dx	 	 117
-#define	MDOC__Q	 	 118
-#define	MDOC_MAX	 119
+#define	MDOC_Lp		 107
+#define	MDOC_Lk		 108
+#define	MDOC_Mt		 109
+#define	MDOC_Brq	 110
+#define	MDOC_Bro	 111
+#define	MDOC_Brc	 112
+#define	MDOC__C	 	 113
+#define	MDOC_Es	 	 114
+#define	MDOC_En	 	 115
+#define	MDOC_Dx	 	 116
+#define	MDOC__Q	 	 117
+#define MDOC_br		 118
+#define MDOC_sp		 119
+#define MDOC__U		 120
+#define	MDOC_MAX	 121
 
 /* What follows is a list of ALL possible macro arguments. */
 
@@ -180,13 +178,8 @@
 #define	MDOC_Emphasis	 23
 #define	MDOC_Symbolic	 24
 #define	MDOC_Nested	 25
-#define	MDOC_ARG_MAX	 26
-
-/* Warnings are either syntax or groff-compatibility. */
-enum	mdoc_warn {
-	WARN_SYNTAX,
-	WARN_COMPAT
-};
+#define	MDOC_Centred	 26
+#define	MDOC_ARG_MAX	 27
 
 /* Type of a syntax node. */
 enum	mdoc_type {
@@ -201,27 +194,28 @@ enum	mdoc_type {
 
 /* Section (named/unnamed) of `Sh'. */
 enum	mdoc_sec {
-	SEC_PROLOGUE 		= 0,
-	SEC_BODY		= 1,
-	SEC_NAME		= 2,
-	SEC_LIBRARY		= 3,
-	SEC_SYNOPSIS		= 4,
-	SEC_DESCRIPTION		= 5,
-	SEC_IMPLEMENTATION	= 6,
-	SEC_RETURN_VALUES	= 7,
-	SEC_ENVIRONMENT		= 8,
-	SEC_FILES		= 9,
-	SEC_EXAMPLES		= 10,
-	SEC_DIAGNOSTICS		= 11,
-	SEC_COMPATIBILITY	= 12,
-	SEC_ERRORS		= 13,
-	SEC_SEE_ALSO		= 14,
-	SEC_STANDARDS		= 15,
-	SEC_HISTORY		= 16,
-	SEC_AUTHORS		= 17,
-	SEC_CAVEATS		= 18,
-	SEC_BUGS		= 19,
-	SEC_CUSTOM
+	SEC_NONE,		/* No section, yet. */
+	SEC_NAME,
+	SEC_LIBRARY,
+	SEC_SYNOPSIS,
+	SEC_DESCRIPTION,
+	SEC_IMPLEMENTATION,
+	SEC_EXIT_STATUS,
+	SEC_RETURN_VALUES,
+	SEC_ENVIRONMENT, 
+	SEC_FILES,
+	SEC_EXAMPLES,
+	SEC_DIAGNOSTICS,
+	SEC_COMPATIBILITY,
+	SEC_ERRORS,
+	SEC_SEE_ALSO,
+	SEC_STANDARDS,
+	SEC_HISTORY,
+	SEC_AUTHORS,
+	SEC_CAVEATS,
+	SEC_BUGS,
+	SEC_SECURITY,
+	SEC_CUSTOM		/* User-defined. */
 };
 
 /* Information from prologue. */
@@ -256,6 +250,7 @@ struct	mdoc_node {
 	struct mdoc_node *child;
 	struct mdoc_node *next;
 	struct mdoc_node *prev;
+	int		  nchild;
 	int		  line;
 	int		  pos;
 	int		  tok;
@@ -265,7 +260,6 @@ struct	mdoc_node {
 	enum mdoc_type	  type;
 	enum mdoc_sec	  sec;
 
-	/* FIXME: union/struct this with #defines. */
 	struct mdoc_arg	 *args; 	/* BLOCK/ELEM */
 	struct mdoc_node *head;		/* BLOCK */
 	struct mdoc_node *body;		/* BLOCK */
@@ -279,49 +273,30 @@ struct	mdoc_node {
 #define	MDOC_IGN_CHARS	 (1 << 3) /* Ignore disallowed chars. */
 
 /* Call-backs for parse messages. */
+
 struct	mdoc_cb {
-	void	(*mdoc_msg)(void *, int, int, const char *);
 	int	(*mdoc_err)(void *, int, int, const char *);
-	int	(*mdoc_warn)(void *, int, int, 
-			enum mdoc_warn, const char *);
+	int	(*mdoc_warn)(void *, int, int, const char *);
 };
 
-/* Global table of macro names (`Bd', `Ed', etc.). */
-extern	const char *const *mdoc_macronames;
+/* See mdoc.3 for documentation. */
 
-/* Global table of argument names (`column', `tag', etc.). */
+extern	const char *const *mdoc_macronames;
 extern	const char *const *mdoc_argnames;
 
 __BEGIN_DECLS
 
 struct	mdoc;
 
-/* Free memory allocated with mdoc_alloc. */
+/* See mdoc.3 for documentation. */
+
 void	 	  mdoc_free(struct mdoc *);
-
-/* Allocate a new parser instance. */
 struct	mdoc	 *mdoc_alloc(void *, int, const struct mdoc_cb *);
-
-/* Gets system ready for another parse. */
 int		  mdoc_reset(struct mdoc *);
-
-/* Parse a single line in a stream (boolean retval). */
 int	 	  mdoc_parseln(struct mdoc *, int, char *buf);
-
-/* Get result first node (after mdoc_endparse!). */
 const struct mdoc_node *mdoc_node(const struct mdoc *);
-
-/* Get result meta-information (after mdoc_endparse!). */
 const struct mdoc_meta *mdoc_meta(const struct mdoc *);
-
-/* Signal end of parse sequence (boolean retval). */
 int		  mdoc_endparse(struct mdoc *);
-
-/* The following are utility functions. */
-
-const char	 *mdoc_a2att(const char *);
-const char	 *mdoc_a2lib(const char *);
-const char	 *mdoc_a2st(const char *);
 
 __END_DECLS
 

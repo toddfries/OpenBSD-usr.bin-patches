@@ -1,139 +1,60 @@
-/* $Id: mdoc_strings.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: mdoc_strings.c,v 1.10 2009/10/27 21:40:07 schwarze Exp $ */
 /*
  * Copyright (c) 2008 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/types.h>
 
 #include <assert.h>
-#include <ctype.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "libmdoc.h"
 
-/*
- * Various string-literal operations:  converting scalars to and from
- * strings, etc.
- */
+/* FIXME: this file is poorly named. */
 
 struct mdoc_secname {
-	const char	*name;
-	int		 flag;
-#define	MSECNAME_META	(1 << 0)
+	const char	*name;	/* Name of section. */
+	enum mdoc_sec	 sec;	/* Corresponding section. */
 };
 
-/* Section names corresponding to mdoc_sec. */
+#define	SECNAME_MAX	(20)
 
-static	const struct mdoc_secname secnames[] = {
-	{ "PROLOGUE", MSECNAME_META },
-	{ "BODY", MSECNAME_META },
-	{ "NAME", 0 },
-	{ "LIBRARY", 0 },
-	{ "SYNOPSIS", 0 },
-	{ "DESCRIPTION", 0 },
-	{ "IMPLEMENTATION NOTES", 0 },
-	{ "RETURN VALUES", 0 },
-	{ "ENVIRONMENT", 0 },
-	{ "FILES", 0 },
-	{ "EXAMPLES", 0 },
-	{ "DIAGNOSTICS", 0 },
-	{ "COMPATIBILITY", 0 },
-	{ "ERRORS", 0 },
-	{ "SEE ALSO", 0 },
-	{ "STANDARDS", 0 },
-	{ "HISTORY", 0 },
-	{ "AUTHORS", 0 },
-	{ "CAVEATS", 0 },
-	{ "BUGS", 0 },
-	{ NULL, 0 }
+static	const struct mdoc_secname secnames[SECNAME_MAX] = {
+	{ "NAME", SEC_NAME },
+	{ "LIBRARY", SEC_LIBRARY },
+	{ "SYNOPSIS", SEC_SYNOPSIS },
+	{ "DESCRIPTION", SEC_DESCRIPTION },
+	{ "IMPLEMENTATION NOTES", SEC_IMPLEMENTATION },
+	{ "EXIT STATUS", SEC_EXIT_STATUS },
+	{ "RETURN VALUES", SEC_RETURN_VALUES },
+	{ "ENVIRONMENT", SEC_ENVIRONMENT },
+	{ "FILES", SEC_FILES },
+	{ "EXAMPLES", SEC_EXAMPLES },
+	{ "DIAGNOSTICS", SEC_DIAGNOSTICS },
+	{ "COMPATIBILITY", SEC_COMPATIBILITY },
+	{ "ERRORS", SEC_ERRORS },
+	{ "SEE ALSO", SEC_SEE_ALSO },
+	{ "STANDARDS", SEC_STANDARDS },
+	{ "HISTORY", SEC_HISTORY },
+	{ "AUTHORS", SEC_AUTHORS },
+	{ "CAVEATS", SEC_CAVEATS },
+	{ "BUGS", SEC_BUGS },
+	{ "SECURITY CONSIDERATIONS", SEC_SECURITY }
 };
-
-
-size_t
-mdoc_isescape(const char *p)
-{
-	size_t		 c;
-	
-	if ('\\' != *p++)
-		return(0);
-
-	switch (*p) {
-	case ('\\'):
-		/* FALLTHROUGH */
-	case ('\''):
-		/* FALLTHROUGH */
-	case ('`'):
-		/* FALLTHROUGH */
-	case ('q'):
-		/* FALLTHROUGH */
-	case ('-'):
-		/* FALLTHROUGH */
-	case ('%'):
-		/* FALLTHROUGH */
-	case ('0'):
-		/* FALLTHROUGH */
-	case (' '):
-		/* FALLTHROUGH */
-	case ('|'):
-		/* FALLTHROUGH */
-	case ('&'):
-		/* FALLTHROUGH */
-	case ('.'):
-		/* FALLTHROUGH */
-	case (':'):
-		/* FALLTHROUGH */
-	case ('e'):
-		return(2);
-	case ('*'):
-		if (0 == *++p || ! isgraph((u_char)*p))
-			return(0);
-		switch (*p) {
-		case ('('):
-			if (0 == *++p || ! isgraph((u_char)*p))
-				return(0);
-			return(4);
-		case ('['):
-			for (c = 3, p++; *p && ']' != *p; p++, c++)
-				if ( ! isgraph((u_char)*p))
-					break;
-			return(*p == ']' ? c : 0);
-		default:
-			break;
-		}
-		return(3);
-	case ('('):
-		if (0 == *++p || ! isgraph((u_char)*p))
-			return(0);
-		if (0 == *++p || ! isgraph((u_char)*p))
-			return(0);
-		return(4);
-	case ('['):
-		break;
-	default:
-		return(0);
-	}
-
-	for (c = 3, p++; *p && ']' != *p; p++, c++)
-		if ( ! isgraph((u_char)*p))
-			break;
-
-	return(*p == ']' ? c : 0);
-}
 
 
 int
@@ -141,6 +62,8 @@ mdoc_iscdelim(char p)
 {
 
 	switch (p) {
+	case('|'):
+		/* FALLTHROUGH */
 	case('.'):
 		/* FALLTHROUGH */
 	case(','):
@@ -188,13 +111,11 @@ mdoc_isdelim(const char *p)
 enum mdoc_sec 
 mdoc_atosec(const char *p)
 {
-	const struct mdoc_secname *n;
-	int			   i;
+	int		 i;
 
-	for (i = 0, n = secnames; n->name; n++, i++)
-		if ( ! (n->flag & MSECNAME_META))
-			if (0 == strcmp(p, n->name))
-				return((enum mdoc_sec)i);
+	for (i = 0; i < SECNAME_MAX; i++) 
+		if (0 == strcmp(p, secnames[i].name))
+			return(secnames[i].sec);
 
 	return(SEC_CUSTOM);
 }
@@ -206,11 +127,11 @@ mdoc_atotime(const char *p)
 	struct tm	 tm;
 	char		*pp;
 
-	(void)memset(&tm, 0, sizeof(struct tm));
+	bzero(&tm, sizeof(struct tm));
 
-	if (0 == strcmp(p, "$Mdocdate: April 6 2009 $"))
+	if (0 == strcmp(p, "$" "Mdocdate$"))
 		return(time(NULL));
-	if ((pp = strptime(p, "$Mdocdate: April 6 2009 $", &tm)) && 0 == *pp)
+	if ((pp = strptime(p, "$" "Mdocdate: %b %d %Y $", &tm)) && 0 == *pp)
 		return(mktime(&tm));
 	/* XXX - this matches "June 1999", which is wrong. */
 	if ((pp = strptime(p, "%b %d %Y", &tm)) && 0 == *pp)
@@ -222,6 +143,7 @@ mdoc_atotime(const char *p)
 }
 
 
+/* FIXME: move this into an editable .in file. */
 size_t
 mdoc_macro2len(int macro)
 {

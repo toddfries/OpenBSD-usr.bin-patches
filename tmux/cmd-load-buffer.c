@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-load-buffer.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-load-buffer.c,v 1.7 2009/10/26 21:25:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -35,12 +35,10 @@ int	cmd_load_buffer_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_load_buffer_entry = {
 	"load-buffer", "loadb",
 	CMD_BUFFER_SESSION_USAGE " path",
-	CMD_ARG1,
+	CMD_ARG1, 0,
 	cmd_buffer_init,
 	cmd_buffer_parse,
 	cmd_load_buffer_exec,
-	cmd_buffer_send,
-	cmd_buffer_recv,
 	cmd_buffer_free,
 	cmd_buffer_print
 };
@@ -50,25 +48,22 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_buffer_data	*data = self->data;
 	struct session		*s;
-	struct stat		statbuf;
+	struct stat		 sb;
 	FILE			*f;
-	char			*buf;
-	u_int			limit;
+	u_char		      	*buf;
+	u_int			 limit;
 
 	if ((s = cmd_find_session(ctx, data->target)) == NULL)
 		return (-1);
 
-	if (stat(data->arg, &statbuf) < 0) {
+	if ((f = fopen(data->arg, "rb")) == NULL) {
 		ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
-		return (-1);
-	}
-	if (!S_ISREG(statbuf.st_mode)) {
-		ctx->error(ctx, "%s: not a regular file", data->arg);
 		return (-1);
 	}
 
-	if ((f = fopen(data->arg, "rb")) == NULL) {
+	if (fstat(fileno(f), &sb) < 0) {
 		ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
+		fclose(f);
 		return (-1);
 	}
 
@@ -76,27 +71,27 @@ cmd_load_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 	 * We don't want to die due to memory exhaustion, hence xmalloc can't
 	 * be used here.
 	 */
-	if ((buf = malloc(statbuf.st_size + 1)) == NULL) {
+	if ((buf = malloc(sb.st_size + 1)) == NULL) {
 		ctx->error(ctx, "malloc error: %s", strerror(errno));
+		fclose(f);
 		return (-1);
 	}
 
-	if (fread(buf, 1, statbuf.st_size, f) != (size_t) statbuf.st_size) {
+	if (fread(buf, 1, sb.st_size, f) != (size_t) sb.st_size) {
 		ctx->error(ctx, "%s: fread error", data->arg);
 		xfree(buf);
 		fclose(f);
 		return (-1);
 	}
 
-	buf[statbuf.st_size] = '\0';
 	fclose(f);
 
 	limit = options_get_number(&s->options, "buffer-limit");
 	if (data->buffer == -1) {
-		paste_add(&s->buffers, buf, limit);
+		paste_add(&s->buffers, buf, sb.st_size, limit);
 		return (0);
 	}
-	if (paste_replace(&s->buffers, data->buffer, buf) != 0) {
+	if (paste_replace(&s->buffers, data->buffer, buf, sb.st_size) != 0) {
 		ctx->error(ctx, "no buffer %d", data->buffer);
 		xfree(buf);
 		return (-1);

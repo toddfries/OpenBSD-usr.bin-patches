@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-confirm-before.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-confirm-before.c,v 1.8 2009/08/23 16:45:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -29,23 +29,22 @@ int	cmd_confirm_before_exec(struct cmd *, struct cmd_ctx *);
 void	cmd_confirm_before_init(struct cmd *, int);
 
 int	cmd_confirm_before_callback(void *, const char *);
-
-struct cmd_confirm_before_data {
-	struct client	*c;
-	char		*cmd;
-};
+void	cmd_confirm_before_free(void *);
 
 const struct cmd_entry cmd_confirm_before_entry = {
 	"confirm-before", "confirm",
 	CMD_TARGET_CLIENT_USAGE " command",
-	CMD_ARG1,
+	CMD_ARG1, 0,
 	cmd_confirm_before_init,
 	cmd_target_parse,
 	cmd_confirm_before_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
+};
+
+struct cmd_confirm_before_data {
+	struct client	*c;
+	char		*cmd;
 };
 
 void
@@ -67,7 +66,7 @@ cmd_confirm_before_init(struct cmd *self, int key)
 }
 
 int
-cmd_confirm_before_exec(unused struct cmd *self, struct cmd_ctx *ctx)
+cmd_confirm_before_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data		*data = self->data;
 	struct cmd_confirm_before_data	*cdata;
@@ -91,8 +90,9 @@ cmd_confirm_before_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	cdata = xmalloc(sizeof *cdata);
 	cdata->cmd = xstrdup(data->arg);
 	cdata->c = c;
-	status_prompt_set(
-	    cdata->c, buf, cmd_confirm_before_callback, cdata, PROMPT_SINGLE);
+	status_prompt_set(cdata->c, buf,
+	    cmd_confirm_before_callback, cmd_confirm_before_free, cdata,
+	    PROMPT_SINGLE);
 
 	xfree(buf);
 	return (1);
@@ -107,20 +107,21 @@ cmd_confirm_before_callback(void *data, const char *s)
 	struct cmd_ctx	 	 	 ctx;
 	char				*cause;
 
-	if (s == NULL || tolower((u_char) s[0]) != 'y' || s[1] != '\0')
-		goto out;
+	if (s == NULL || *s == '\0')
+		return (0);
+	if (tolower((u_char) s[0]) != 'y' || s[1] != '\0')
+		return (0);
 
 	if (cmd_string_parse(cdata->cmd, &cmdlist, &cause) != 0) {
 		if (cause != NULL) {
 			*cause = toupper((u_char) *cause);
-			status_message_set(c, cause);
+			status_message_set(c, "%s", cause);
 			xfree(cause);
 		}
-		goto out;
+		return (0);
 	}
 
 	ctx.msgdata = NULL;
-	ctx.cursession = c->session;
 	ctx.curclient = c;
 
 	ctx.error = key_bindings_error;
@@ -132,10 +133,15 @@ cmd_confirm_before_callback(void *data, const char *s)
 	cmd_list_exec(cmdlist, &ctx);
 	cmd_list_free(cmdlist);
 
-out:
+	return (0);
+}
+
+void
+cmd_confirm_before_free(void *data)
+{
+	struct cmd_confirm_before_data	*cdata = data;
+
 	if (cdata->cmd != NULL)
 		xfree(cdata->cmd);
 	xfree(cdata);
-
-	return (0);
 }

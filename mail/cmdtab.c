@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmdtab.c,v 1.11 2008/08/03 14:30:48 martynas Exp $	*/
+/*	$OpenBSD: cmdtab.c,v 1.13 2009/10/27 23:59:40 deraadt Exp $	*/
 /*	$NetBSD: cmdtab.c,v 1.7 1996/12/28 07:10:59 tls Exp $	*/
 
 /*
@@ -29,14 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-#if 0
-static const char sccsid[] = "@(#)cmdtab.c	8.2 (Berkeley) 4/20/95";
-#else
-static const char rcsid[] = "$OpenBSD: cmdtab.c,v 1.11 2008/08/03 14:30:48 martynas Exp $";
-#endif
-#endif /* not lint */
 
 #include "def.h"
 #include "extern.h"
@@ -121,7 +113,6 @@ const struct cmd cmdtab[] = {
 #if 0
 	{ "Header",	{ Header },	STRLIST,	0,	1000 },
 #endif
-	{ "core",	{ core },	M|NOLIST,	0,	0 },
 	{ "#",		{ null },	M|NOLIST,	0,	0 },
 	{ "inc",	{ inc },	T|NOLIST,	0,	0 },
 	{ "new",	{ marknew },	MSGLIST,	0,	MMNDEL },

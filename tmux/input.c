@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.8 2009/06/04 21:02:21 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.22 2009/11/04 22:43:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,7 @@
 #define INPUT_SPECIAL(ch)	(ch == 0xff)
 
 int	 input_get_argument(struct input_ctx *, u_int, uint16_t *, uint16_t);
-int	 input_new_argument(struct input_ctx *);
+void	 input_new_argument(struct input_ctx *);
 int	 input_add_argument(struct input_ctx *, u_char);
 
 void	 input_start_string(struct input_ctx *, int);
@@ -68,6 +68,7 @@ void	 input_handle_sequence_cuf(struct input_ctx *);
 void	 input_handle_sequence_cub(struct input_ctx *);
 void	 input_handle_sequence_dch(struct input_ctx *);
 void	 input_handle_sequence_cbt(struct input_ctx *);
+void	 input_handle_sequence_da(struct input_ctx *);
 void	 input_handle_sequence_dl(struct input_ctx *);
 void	 input_handle_sequence_ich(struct input_ctx *);
 void	 input_handle_sequence_il(struct input_ctx *);
@@ -104,6 +105,7 @@ const struct input_sequence_entry input_sequence_table[] = {
 	{ 'M', input_handle_sequence_dl },
 	{ 'P', input_handle_sequence_dch },
 	{ 'Z', input_handle_sequence_cbt },
+	{ 'c', input_handle_sequence_da },
 	{ 'd', input_handle_sequence_vpa },
 	{ 'f', input_handle_sequence_cup },
 	{ 'g', input_handle_sequence_tbc },
@@ -123,23 +125,21 @@ input_sequence_cmp(const void *a, const void *b)
 	return (ai - bi);
 }
 
-int
+void
 input_new_argument(struct input_ctx *ictx)
 {
-	struct input_arg       *arg;
+	struct input_arg	*arg;
 
 	ARRAY_EXPAND(&ictx->args, 1);
 
 	arg = &ARRAY_LAST(&ictx->args);
 	arg->used = 0;
-
-	return (0);
 }
 
 int
 input_add_argument(struct input_ctx *ictx, u_char ch)
 {
-	struct input_arg       *arg;
+	struct input_arg	*arg;
 
 	if (ARRAY_LENGTH(&ictx->args) == 0)
 		return (0);
@@ -237,6 +237,8 @@ input_init(struct window_pane *wp)
 	ictx->saved_cy = 0;
 
 	input_state(ictx, input_state_first);
+
+	ictx->was = 0;
 }
 
 void
@@ -254,24 +256,21 @@ input_parse(struct window_pane *wp)
 	struct input_ctx	*ictx = &wp->ictx;
 	u_char			 ch;
 
-	if (BUFFER_USED(wp->in) == 0)
+	if (EVBUFFER_LENGTH(wp->event->input) == ictx->was)
 		return;
+	wp->window->flags |= WINDOW_ACTIVITY;
 
-	ictx->buf = BUFFER_OUT(wp->in);
-	ictx->len = BUFFER_USED(wp->in);
+	ictx->buf = EVBUFFER_DATA(wp->event->input);
+	ictx->len = EVBUFFER_LENGTH(wp->event->input);
 	ictx->off = 0;
 
 	ictx->wp = wp;
-
-	log_debug2("entry; buffer=%zu", ictx->len);
 
 	if (wp->mode == NULL)
 		screen_write_start(&ictx->ctx, wp, &wp->base);
 	else
 		screen_write_start(&ictx->ctx, NULL, &wp->base);
 
-	if (ictx->off != ictx->len)
-		wp->window->flags |= WINDOW_ACTIVITY;
 	while (ictx->off < ictx->len) {
 		ch = ictx->buf[ictx->off++];
 		ictx->state(ch, ictx);
@@ -279,7 +278,8 @@ input_parse(struct window_pane *wp)
 
 	screen_write_stop(&ictx->ctx);
 
-	buffer_remove(wp->in, ictx->len);
+	evbuffer_drain(wp->event->input, ictx->len);
+	ictx->was = EVBUFFER_LENGTH(wp->event->input);
 }
 
 void
@@ -572,15 +572,14 @@ input_state_string_escape(u_char ch, struct input_ctx *ictx)
 void
 input_state_utf8(u_char ch, struct input_ctx *ictx)
 {
-	log_debug2("-- un %zu: %hhu (%c)", ictx->off, ch, ch);
+	log_debug2("-- utf8 next: %zu: %hhu (%c)", ictx->off, ch, ch);
 
-	ictx->utf8_buf[ictx->utf8_off++] = ch;
-	if (--ictx->utf8_len != 0)
-		return;
+	if (utf8_append(&ictx->utf8data, ch))
+		return;		/* more to come */
 	input_state(ictx, input_state_first);
 
 	ictx->cell.flags |= GRID_FLAG_UTF8;
-	screen_write_cell(&ictx->ctx, &ictx->cell, ictx->utf8_buf);
+	screen_write_cell(&ictx->ctx, &ictx->cell, &ictx->utf8data);
 	ictx->cell.flags &= ~GRID_FLAG_UTF8;
 }
 
@@ -590,40 +589,17 @@ input_handle_character(u_char ch, struct input_ctx *ictx)
 	struct window_pane	*wp = ictx->wp;
 
 	if (ch > 0x7f && options_get_number(&wp->window->options, "utf8")) {
-		/*
-		 * UTF-8 sequence.
-		 *
-		 * 11000010-11011111 C2-DF start of 2-byte sequence
-		 * 11100000-11101111 E0-EF start of 3-byte sequence
-		 * 11110000-11110100 F0-F4 start of 4-byte sequence
-		 */
-		memset(ictx->utf8_buf, 0xff, sizeof ictx->utf8_buf);
-		ictx->utf8_buf[0] = ch;
-		ictx->utf8_off = 1;
-
-		if (ch >= 0xc2 && ch <= 0xdf) {
-			log_debug2("-- u2 %zu: %hhu (%c)", ictx->off, ch, ch);
+		if (utf8_open(&ictx->utf8data, ch)) {
+			log_debug2("-- utf8 size %zu: %zu: %hhu (%c)", 
+			    ictx->utf8data.size, ictx->off, ch, ch);
 			input_state(ictx, input_state_utf8);
-			ictx->utf8_len = 1;
-			return;
-		}
-		if (ch >= 0xe0 && ch <= 0xef) {
-			log_debug2("-- u3 %zu: %hhu (%c)", ictx->off, ch, ch);
-			input_state(ictx, input_state_utf8);
-			ictx->utf8_len = 2;
-			return;
-		}
-		if (ch >= 0xf0 && ch <= 0xf4) {
-			log_debug2("-- u4 %zu: %hhu (%c)", ictx->off, ch, ch);
-			input_state(ictx, input_state_utf8);
-			ictx->utf8_len = 3;
 			return;
 		}
 	}
 	log_debug2("-- ch %zu: %hhu (%c)", ictx->off, ch, ch);
 
 	ictx->cell.data = ch;
-	screen_write_cell(&ictx->ctx, &ictx->cell, ictx->utf8_buf);
+	screen_write_cell(&ictx->ctx, &ictx->cell, NULL);
 }
 
 void
@@ -637,7 +613,7 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 	case '\0':	/* NUL */
 		break;
 	case '\n':	/* LF */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case '\r':	/* CR */
 		screen_write_carriagereturn(&ictx->ctx);
@@ -646,7 +622,7 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 		ictx->wp->window->flags |= WINDOW_BELL;
 		break;
 	case '\010': 	/* BS */
-		screen_write_cursorleft(&ictx->ctx, 1);
+		screen_write_backspace(&ictx->ctx);
 		break;
 	case '\011': 	/* TAB */
 		/* Don't tab beyond the end of the line. */
@@ -661,7 +637,7 @@ input_handle_c0_control(u_char ch, struct input_ctx *ictx)
 		} while (s->cx < screen_size_x(s) - 1);
 		break;
 	case '\013':	/* VT */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case '\016':	/* SO */
 		ictx->cell.attr |= GRID_ATTR_CHARSET;
@@ -684,11 +660,11 @@ input_handle_c1_control(u_char ch, struct input_ctx *ictx)
 
 	switch (ch) {
 	case 'D':	/* IND */
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case 'E': 	/* NEL */
 		screen_write_carriagereturn(&ictx->ctx);
-		screen_write_linefeed(&ictx->ctx);
+		screen_write_linefeed(&ictx->ctx, 0);
 		break;
 	case 'H':	/* HTS */
 		if (s->cx < screen_size_x(s))
@@ -816,7 +792,7 @@ input_handle_sequence(u_char ch, struct input_ctx *ictx)
 {
 	struct input_sequence_entry	*entry, find;
 	struct screen	 		*s = ictx->ctx.s;
-	u_int			         i;
+	u_int				 i;
 	struct input_arg 		*iarg;
 
 	log_debug2("-- sq %zu: %hhu (%c): %u [sx=%u, sy=%u, cx=%u, cy=%u, "
@@ -951,6 +927,25 @@ input_handle_sequence_cbt(struct input_ctx *ictx)
 			s->cx--;
 		while (s->cx > 0 && !bit_test(s->tabs, s->cx));
 	}
+}
+
+void
+input_handle_sequence_da(struct input_ctx *ictx)
+{
+	struct window_pane	*wp = ictx->wp;
+	uint16_t		 n;
+
+	if (ictx->private != '\0')
+		return;
+
+	if (ARRAY_LENGTH(&ictx->args) > 1)
+		return;
+	if (input_get_argument(ictx, 0, &n, 0) != 0)
+		return;
+	if (n != 0)
+		return;
+	
+	bufferevent_write(wp->event, "\033[?1;2c", (sizeof "\033[?1;2c") - 1);
 }
 
 void
@@ -1151,7 +1146,10 @@ input_handle_sequence_el(struct input_ctx *ictx)
 void
 input_handle_sequence_sm(struct input_ctx *ictx)
 {
-	uint16_t	n;
+	struct window_pane	*wp = ictx->wp;
+	struct screen		*s = &wp->base;
+	u_int			 sx, sy;
+	uint16_t		 n;
 
 	if (ARRAY_LENGTH(&ictx->args) > 1)
 		return;
@@ -1164,6 +1162,10 @@ input_handle_sequence_sm(struct input_ctx *ictx)
 			screen_write_kcursormode(&ictx->ctx, 1);
 			log_debug("kcursor on");
 			break;
+		case 3:		/* DECCOLM */
+			screen_write_cursormove(&ictx->ctx, 0, 0);			
+			screen_write_clearscreen(&ictx->ctx);
+			break;
 		case 25:	/* TCEM */
 			screen_write_cursormode(&ictx->ctx, 1);
 			log_debug("cursor on");
@@ -1171,6 +1173,31 @@ input_handle_sequence_sm(struct input_ctx *ictx)
 		case 1000:
 			screen_write_mousemode(&ictx->ctx, 1);
 			log_debug("mouse on");
+			break;
+		case 1049:
+			if (wp->saved_grid != NULL)
+				break;
+			sx = screen_size_x(s);
+			sy = screen_size_y(s);
+
+			/*
+			 * Enter alternative screen mode. A copy of the visible
+			 * screen is saved and the history is not updated
+			 */
+
+			wp->saved_grid = grid_create(sx, sy, 0);
+			grid_duplicate_lines(
+			    wp->saved_grid, 0, s->grid, screen_hsize(s), sy);
+			wp->saved_cx = s->cx;
+			wp->saved_cy = s->cy;
+			memcpy(&wp->saved_cell,
+			    &ictx->cell, sizeof wp->saved_cell);
+
+			grid_view_clear(s->grid, 0, 0, sx, sy);
+
+			wp->base.grid->flags &= ~GRID_HISTORY;
+
+			wp->flags |= PANE_REDRAW;
 			break;
 		default:
 			log_debug("unknown SM [%hhu]: %u", ictx->private, n);
@@ -1195,7 +1222,10 @@ input_handle_sequence_sm(struct input_ctx *ictx)
 void
 input_handle_sequence_rm(struct input_ctx *ictx)
 {
-	uint16_t	 n;
+	struct window_pane	*wp = ictx->wp;
+	struct screen		*s = &wp->base;
+	u_int			 sx, sy;
+	uint16_t		 n;
 
 	if (ARRAY_LENGTH(&ictx->args) > 1)
 		return;
@@ -1208,6 +1238,10 @@ input_handle_sequence_rm(struct input_ctx *ictx)
 			screen_write_kcursormode(&ictx->ctx, 0);
 			log_debug("kcursor off");
 			break;
+		case 3:		/* DECCOLM */
+			screen_write_cursormove(&ictx->ctx, 0, 0);			
+			screen_write_clearscreen(&ictx->ctx);
+			break;
 		case 25:	/* TCEM */
 			screen_write_cursormode(&ictx->ctx, 0);
 			log_debug("cursor off");
@@ -1215,6 +1249,48 @@ input_handle_sequence_rm(struct input_ctx *ictx)
 		case 1000:
 			screen_write_mousemode(&ictx->ctx, 0);
 			log_debug("mouse off");
+			break;
+		case 1049:
+			if (wp->saved_grid == NULL)
+				break;
+			sx = screen_size_x(s);
+			sy = screen_size_y(s);
+
+			/* 
+			 * Exit alternative screen mode and restore the copied
+			 * grid.
+			 */
+
+			/*
+			 * If the current size is bigger, temporarily resize
+			 * to the old size before copying back.
+			 */
+			if (sy > wp->saved_grid->sy)
+				screen_resize(s, sx, wp->saved_grid->sy);
+
+			/* Restore the grid, cursor position and cell. */
+			grid_duplicate_lines(
+			    s->grid, screen_hsize(s), wp->saved_grid, 0, sy);
+			s->cx = wp->saved_cx;
+			if (s->cx > screen_size_x(s) - 1)
+				s->cx = screen_size_x(s) - 1;
+			s->cy = wp->saved_cy;
+			if (s->cy > screen_size_y(s) - 1)
+				s->cy = screen_size_y(s) - 1;
+			memcpy(&ictx->cell, &wp->saved_cell, sizeof ictx->cell);
+
+			/*
+			 * Turn history back on (so resize can use it) and then
+			 * resize back to the current size.
+			 */
+  			wp->base.grid->flags |= GRID_HISTORY;
+			if (sy > wp->saved_grid->sy)
+				screen_resize(s, sx, sy);
+
+			grid_destroy(wp->saved_grid);
+			wp->saved_grid = NULL;
+
+			wp->flags |= PANE_REDRAW;
 			break;
 		default:
 			log_debug("unknown RM [%hhu]: %u", ictx->private, n);
@@ -1239,9 +1315,10 @@ input_handle_sequence_rm(struct input_ctx *ictx)
 void
 input_handle_sequence_dsr(struct input_ctx *ictx)
 {
-	struct screen  *s = ictx->ctx.s;
-	uint16_t	n;
-	char		reply[32];
+	struct window_pane	*wp = ictx->wp;
+	struct screen		*s = ictx->ctx.s;
+	uint16_t		 n;
+	char			reply[32];
 
 	if (ARRAY_LENGTH(&ictx->args) > 1)
 		return;
@@ -1254,11 +1331,10 @@ input_handle_sequence_dsr(struct input_ctx *ictx)
 			xsnprintf(reply, sizeof reply,
 			    "\033[%u;%uR", s->cy + 1, s->cx + 1);
 			log_debug("cursor request, reply: %s", reply);
-			buffer_write(ictx->wp->out, reply, strlen(reply));
+			bufferevent_write(wp->event, reply, strlen(reply));
 			break;
 		}
 	}
-
 }
 
 void
@@ -1395,6 +1471,28 @@ input_handle_sequence_sgr(struct input_ctx *ictx)
 		case 49:
 			gc->flags &= ~GRID_FLAG_BG256;
 			gc->bg = 8;
+			break;
+		case 90:
+		case 91:
+		case 92:
+		case 93:
+		case 94:
+		case 95:
+		case 96:
+		case 97:
+			gc->flags |= GRID_FLAG_FG256;
+			gc->fg = m - 82;
+			break;
+		case 100:
+		case 101:
+		case 102:
+		case 103:
+		case 104:
+		case 105:
+		case 106:
+		case 107:
+			gc->flags |= GRID_FLAG_BG256;
+			gc->bg = m - 92;
 			break;
 		}
 	}

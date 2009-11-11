@@ -1,4 +1,4 @@
-/*	$OpenBSD: aparams.h,v 1.5 2008/11/20 10:10:01 ratchov Exp $	*/
+/*	$OpenBSD: aparams.h,v 1.8 2009/09/27 11:51:20 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -26,8 +26,8 @@
 #define BITS_MAX	32		/* max bits per sample */
 
 /*
- * maximum size of the encording string (the longest possible
- * encoding is ``s24le3msb'')
+ * Maximum size of the encording string (the longest possible
+ * encoding is ``s24le3msb'').
  */
 #define ENCMAX	10
 
@@ -40,12 +40,12 @@
 #endif
 
 /*
- * default bytes per sample for the given bits per sample
+ * Default bytes per sample for the given bits per sample.
  */
 #define APARAMS_BPS(bits) (((bits) <= 8) ? 1 : (((bits) <= 16) ? 2 : 4))
 
 /*
- * encoding specification
+ * Encoding specification.
  */
 struct aparams {
 	unsigned bps;		/* bytes per sample */
@@ -73,10 +73,10 @@ struct aparams {
 #define MIDI_TO_ADATA(m)	(aparams_ctltovol[m])
 
 extern int aparams_ctltovol[128];
+extern struct aparams aparams_none;
 
 void aparams_init(struct aparams *, unsigned, unsigned, unsigned);
-void aparams_print(struct aparams *);
-void aparams_print2(struct aparams *, struct aparams *);
+void aparams_dbg(struct aparams *);
 int aparams_eqrate(struct aparams *, struct aparams *);
 int aparams_eqenc(struct aparams *, struct aparams *);
 int aparams_eq(struct aparams *, struct aparams *);

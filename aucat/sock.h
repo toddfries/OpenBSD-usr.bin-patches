@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.h,v 1.6 2009/05/16 12:20:31 ratchov Exp $	*/
+/*	$OpenBSD: sock.h,v 1.11 2009/09/27 11:51:20 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -17,14 +17,16 @@
 #ifndef SOCK_H
 #define SOCK_H
 
-#include "pipe.h"
-#include "aparams.h"
 #include "amsg.h"
+#include "aparams.h"
+#include "pipe.h"
+
+struct opt;
 
 struct sock {
 	struct pipe pipe;
 	/*
-	 * socket and protocol specific stuff, mainly used
+	 * Socket and protocol specific stuff, mainly used
 	 * to decode/encode messages in the stream.
 	 */
 	struct amsg rmsg, wmsg;		/* messages being sent/received */
@@ -42,6 +44,7 @@ struct sock {
 #define SOCK_INIT	1		/* parameter negotiation */
 #define SOCK_START	2		/* filling play buffers */
 #define SOCK_RUN	3		/* attached to the mix / sub */
+#define SOCK_MIDI	4		/* raw byte stream (midi) */
 	unsigned pstate;		/* one of the above */
 	unsigned mode;			/* a set of AMSG_PLAY, AMSG_REC */
 	struct aparams rpar;		/* read (ie play) parameters */
@@ -52,13 +55,13 @@ struct sock {
 	unsigned round;			/* block size */
 	unsigned xrun;			/* one of AMSG_IGNORE, ... */
 	int vol;			/* requested volume */
-	int maxweight;			/* max dynamic range */
-	struct aparams templ_rpar;	/* template for rpar */
-	struct aparams templ_wpar;	/* template for wpar */
+	int lastvol;			/* last volume */
+	int slot;			/* mixer ctl slot number */
+	struct opt *opt;		/* "subdevice" definition */
+	char who[12];			/* label, mostly for debugging */
 };
 
-struct sock *sock_new(struct fileops *, int fd, char *,
-    struct aparams *, struct aparams *, int);
+struct sock *sock_new(struct fileops *, int fd);
 extern struct fileops sock_ops;
 
 #endif /* !defined(SOCK_H) */

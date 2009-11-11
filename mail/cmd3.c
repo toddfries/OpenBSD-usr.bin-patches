@@ -1,4 +1,4 @@
-/*	$OpenBSD: cmd3.c,v 1.21 2008/07/16 14:53:41 martynas Exp $	*/
+/*	$OpenBSD: cmd3.c,v 1.24 2009/10/27 23:59:40 deraadt Exp $	*/
 /*	$NetBSD: cmd3.c,v 1.8 1997/07/09 05:29:49 mikel Exp $	*/
 
 /*
@@ -29,14 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-#if 0
-static const char sccsid[] = "@(#)cmd3.c	8.2 (Berkeley) 4/20/95";
-#else
-static const char rcsid[] = "$OpenBSD: cmd3.c,v 1.21 2008/07/16 14:53:41 martynas Exp $";
-#endif
-#endif /* not lint */
 
 #include "rcv.h"
 #include "extern.h"
@@ -218,7 +210,6 @@ _respond(msgvec)
 		np = extract(cp, GTO);
 	else
 		np = NULL;
-	np = elide(np);
 	/*
 	 * Delete my name from the reply list,
 	 * and with it, all my alternate names.
@@ -234,6 +225,7 @@ _respond(msgvec)
 			puts("Empty reply-to field -- replying to author");
 		np = extract(rcv, GTO);
 	}
+	np = elide(np);
 	head.h_to = np;
 	if ((head.h_subject = hfield("subject", mp)) == NULL)
 		head.h_subject = hfield("subj", mp);
@@ -510,7 +502,7 @@ group(void *v)
 }
 
 /*
- * Sort the passed string vecotor into ascending dictionary
+ * Sort the passed string vector into ascending dictionary
  * order.
  */
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.8 2009/06/05 07:22:23 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.56 2009/11/04 20:59:22 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 
 #include <errno.h>
+#include <event.h>
 #include <paths.h>
 #include <pwd.h>
 #include <signal.h>
@@ -31,38 +32,41 @@
 #include "tmux.h"
 
 #ifdef DEBUG
-const char	*malloc_options = "AFGJPX";
+extern char	*malloc_options;
 #endif
 
-volatile sig_atomic_t sigwinch;
-volatile sig_atomic_t sigterm;
-volatile sig_atomic_t sigcont;
-volatile sig_atomic_t sigchld;
-volatile sig_atomic_t sigusr1;
-volatile sig_atomic_t sigusr2;
-
 char		*cfg_file;
-struct options	 global_options;
-struct options	 global_window_options;
-
-int		 server_locked;
-char		*server_password;
-time_t		 server_activity;
+struct options	 global_s_options;	/* session options */
+struct options	 global_w_options;	/* window options */
+struct environ	 global_environ;
 
 int		 debug_level;
 int		 be_quiet;
 time_t		 start_time;
 char		*socket_path;
+int		 login_shell;
 
 __dead void	 usage(void);
+void	 	 fill_session(struct msg_command_data *);
 char 		*makesockpath(const char *);
+__dead void	 shell_exec(const char *, const char *);
+
+struct imsgbuf	*main_ibuf;
+struct event	 main_ev_sigterm;
+int	         main_exitval;
+
+void		 main_set_signals(void);
+void		 main_clear_signals(void);
+void		 main_signal(int, short, unused void *);
+void		 main_callback(int, short, void *);
+void		 main_dispatch(const char *);
 
 __dead void
 usage(void)
 {
 	fprintf(stderr,
-	    "usage: %s [-28dqUuv] [-f file] [-L socket-name] [-S socket-path]\n"
-	    "            [command [flags]]\n",
+	    "usage: %s [-28lquv] [-c shell-command] [-f file] [-L socket-name]\n"
+	    "            [-S socket-path] [command [flags]]\n",
 	    __progname);
 	exit(1);
 }
@@ -74,101 +78,92 @@ logfile(const char *name)
 
 	log_close();
 	if (debug_level > 0) {
-		xasprintf(
-		    &path, "%s-%s-%ld.log", __progname, name, (long) getpid());
+		xasprintf(&path, "tmux-%s-%ld.log", name, (long) getpid());
 		log_open_file(debug_level, path);
 		xfree(path);
 	}
 }
 
-void
-sighandler(int sig)
+const char *
+getshell(void)
 {
-	int	saved_errno;
+	struct passwd	*pw;
+	const char	*shell;
 
-	saved_errno = errno;
-	switch (sig) {
-	case SIGWINCH:
-		sigwinch = 1;
-		break;
-	case SIGTERM:
-		sigterm = 1;
-		break;
-	case SIGCHLD:
-		sigchld = 1;
-		break;
-	case SIGCONT:
-		sigcont = 1;
-		break;
-	case SIGUSR1:
-		sigusr1 = 1;
-		break;
-	case SIGUSR2:
-		sigusr2 = 1;
-		break;
-	}
-	errno = saved_errno;
+	shell = getenv("SHELL");
+	if (checkshell(shell))
+		return (shell);
+
+	pw = getpwuid(getuid());
+	if (pw != NULL && checkshell(pw->pw_shell))
+		return (pw->pw_shell);
+
+	return (_PATH_BSHELL);
+}
+
+int
+checkshell(const char *shell)
+{
+	if (shell == NULL || *shell == '\0' || areshell(shell))
+		return (0);
+	if (access(shell, X_OK) != 0)
+		return (0);
+	return (1);
+}
+
+int
+areshell(const char *shell)
+{
+	const char	*progname, *ptr;
+
+	if ((ptr = strrchr(shell, '/')) != NULL)
+		ptr++;
+	else
+		ptr = shell;
+	progname = __progname;
+	if (*progname == '-')
+		progname++;
+	if (strcmp(ptr, progname) == 0)
+		return (1);
+	return (0);
 }
 
 void
-siginit(void)
+fill_session(struct msg_command_data *data)
 {
-	struct sigaction	 act;
+	char		*env, *ptr1, *ptr2, buf[256];
+	size_t		 len;
+	const char	*errstr;
+	long long	 ll;
 
-	memset(&act, 0, sizeof act);
-	sigemptyset(&act.sa_mask);
-	act.sa_flags = SA_RESTART;
+	data->pid = -1;
+	if ((env = getenv("TMUX")) == NULL)
+		return;
 
-	act.sa_handler = SIG_IGN;
-	if (sigaction(SIGPIPE, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGINT, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGQUIT, &act, NULL) != 0)
-		fatal("sigaction failed");
+	if ((ptr2 = strrchr(env, ',')) == NULL || ptr2 == env)
+		return;
+	for (ptr1 = ptr2 - 1; ptr1 > env && *ptr1 != ','; ptr1--)
+		;
+	if (*ptr1 != ',')
+		return;
+	ptr1++;
+	ptr2++;
 
-	act.sa_handler = sighandler;
-	if (sigaction(SIGWINCH, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTERM, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGCHLD, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &act, NULL) != 0)
-		fatal("sigaction failed");
-}
+	len = ptr2 - ptr1 - 1;
+	if (len > (sizeof buf) - 1)
+		return;
+	memcpy(buf, ptr1, len);
+	buf[len] = '\0';
 
-void
-sigreset(void)
-{
-	struct sigaction act;
+	ll = strtonum(buf, 0, LONG_MAX, &errstr);
+	if (errstr != NULL)
+		return;
+	data->pid = ll;
 
-	memset(&act, 0, sizeof act);
-	sigemptyset(&act.sa_mask);
-
-	act.sa_handler = SIG_DFL;
-	if (sigaction(SIGPIPE, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGINT, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGQUIT, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGWINCH, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTERM, &act, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGCHLD, &act, NULL) != 0)
-		fatal("sigaction failed");
+	ll = strtonum(ptr2, 0, UINT_MAX, &errstr);
+	if (errstr != NULL)
+		return;
+	data->idx = ll;
 }
 
 char *
@@ -179,7 +174,7 @@ makesockpath(const char *label)
 	u_int		uid;
 
 	uid = getuid();
-	xsnprintf(base, MAXPATHLEN, "%s/%s-%d", _PATH_TMP, __progname, uid);
+	xsnprintf(base, MAXPATHLEN, "%s/tmux-%d", _PATH_TMP, uid);
 
 	if (mkdir(base, S_IRWXU) != 0 && errno != EEXIST)
 		return (NULL);
@@ -199,26 +194,53 @@ makesockpath(const char *label)
 	return (path);
 }
 
+__dead void
+shell_exec(const char *shell, const char *shellcmd)
+{
+	const char	*shellname, *ptr;
+	char		*argv0;
+
+	ptr = strrchr(shell, '/');
+	if (ptr != NULL && *(ptr + 1) != '\0')
+		shellname = ptr + 1;
+	else
+		shellname = shell;
+	if (login_shell)
+		xasprintf(&argv0, "-%s", shellname);
+	else
+		xasprintf(&argv0, "%s", shellname);
+	setenv("SHELL", shell, 1);
+
+	execl(shell, argv0, "-c", shellcmd, (char *) NULL);
+	fatal("execl failed");
+}
+
 int
 main(int argc, char **argv)
 {
-	struct client_ctx	 cctx;
-	struct msg_command_data	 cmddata;
-	struct buffer		*b;
 	struct cmd_list		*cmdlist;
  	struct cmd		*cmd;
-	struct pollfd	 	 pfd;
-	struct hdr	 	 hdr;
-	const char		*shell;
+	enum msgtype		 msg;
 	struct passwd		*pw;
-	char			*s, *path, *label, *cause, *home, *pass = NULL;
-	char			 cwd[MAXPATHLEN];
-	int	 		 retcode, opt, flags, unlock, start_server;
+	struct options		*so, *wo;
+	struct keylist		*keylist;
+	struct msg_command_data	 cmddata;
+	char			*s, *shellcmd, *path, *label, *home, *cause;
+	char			 cwd[MAXPATHLEN], **var;
+	void			*buf;
+	size_t			 len;
+	int	 		 opt, flags, cmdflags = 0;
+	short		 	 events;
 
-	unlock = flags = 0;
-	label = path = NULL;
-        while ((opt = getopt(argc, argv, "28df:L:qS:uUv")) != -1) {
-                switch (opt) {
+#ifdef DEBUG
+	malloc_options = (char *) "AFGJPX";
+#endif
+
+	flags = 0;
+	shellcmd = label = path = NULL;
+	login_shell = (**argv == '-');
+	while ((opt = getopt(argc, argv, "28c:df:lL:qS:uUv")) != -1) {
+		switch (opt) {
 		case '2':
 			flags |= IDENTIFY_256COLOURS;
 			flags &= ~IDENTIFY_88COLOURS;
@@ -227,102 +249,49 @@ main(int argc, char **argv)
 			flags |= IDENTIFY_88COLOURS;
 			flags &= ~IDENTIFY_256COLOURS;
 			break;
+		case 'c':
+			if (shellcmd != NULL)
+				xfree(shellcmd);
+			shellcmd = xstrdup(optarg);
+			break;
 		case 'f':
-			if (cfg_file)
+			if (cfg_file != NULL)
 				xfree(cfg_file);
 			cfg_file = xstrdup(optarg);
 			break;
+		case 'l':
+			login_shell = 1;
+			break;
 		case 'L':
-			if (path != NULL) {
-				log_warnx("-L and -S cannot be used together");
-				exit(1);
-			}
 			if (label != NULL)
 				xfree(label);
 			label = xstrdup(optarg);
 			break;
+		case 'q':
+			be_quiet = 1;
+			break;
 		case 'S':
-			if (label != NULL) {
-				log_warnx("-L and -S cannot be used together");
-				exit(1);
-			}
 			if (path != NULL)
 				xfree(path);
 			path = xstrdup(optarg);
 			break;
-		case 'q':
-			be_quiet = 1;
-			break;
 		case 'u':
 			flags |= IDENTIFY_UTF8;
-			break;
-		case 'U':
-			unlock = 1;
-			break;
-		case 'd':
-			flags |= IDENTIFY_HASDEFAULTS;
 			break;
 		case 'v':
 			debug_level++;
 			break;
-                default:
+		default:
 			usage();
-                }
-        }
+		}
+	}
 	argc -= optind;
 	argv += optind;
 
+	if (shellcmd != NULL && argc != 0)
+		usage();
+
 	log_open_tty(debug_level);
-	siginit();
-
-	options_init(&global_options, NULL);
-	options_set_number(&global_options, "bell-action", BELL_ANY);
-	options_set_number(&global_options, "buffer-limit", 9);
-	options_set_number(&global_options, "display-time", 750);
-	options_set_number(&global_options, "history-limit", 2000);
-	options_set_number(&global_options, "lock-after-time", 0);
-	options_set_number(&global_options, "message-attr", GRID_ATTR_REVERSE);
-	options_set_number(&global_options, "message-bg", 3);
-	options_set_number(&global_options, "message-fg", 0);
-	options_set_number(&global_options, "prefix", '\002');
-	options_set_number(&global_options, "repeat-time", 500);
-	options_set_number(&global_options, "set-remain-on-exit", 0);
-	options_set_number(&global_options, "set-titles", 0);
-	options_set_number(&global_options, "status", 1);
-	options_set_number(&global_options, "status-attr", GRID_ATTR_REVERSE);
-	options_set_number(&global_options, "status-bg", 2);
-	options_set_number(&global_options, "status-fg", 0);
-	options_set_number(&global_options, "status-interval", 15);
-	options_set_number(&global_options, "status-keys", MODEKEY_EMACS);
-	options_set_number(&global_options, "status-left-length", 10);
-	options_set_number(&global_options, "status-right-length", 40);
-	options_set_string(&global_options, "status-left", "[#S]");
-	options_set_string(
-	    &global_options, "status-right", "\"#24T\" %%H:%%M %%d-%%b-%%y");
-	options_set_number(&global_options, "status-utf8", 0);
-
-	options_init(&global_window_options, NULL);
-	options_set_number(&global_window_options, "aggressive-resize", 0);
-	options_set_number(&global_window_options, "automatic-rename", 1);
-	options_set_number(&global_window_options, "clock-mode-colour", 4);
-	options_set_number(&global_window_options, "clock-mode-style", 1);
-	options_set_number(&global_window_options, "force-height", 0);
-	options_set_number(&global_window_options, "force-width", 0);
-	options_set_number(
-	    &global_window_options, "mode-attr", GRID_ATTR_REVERSE);
-	options_set_number(&global_window_options, "main-pane-width", 81);
-	options_set_number(&global_window_options, "main-pane-height", 24);
-	options_set_number(&global_window_options, "mode-bg", 3);
-	options_set_number(&global_window_options, "mode-fg", 0);
-	options_set_number(&global_window_options, "mode-keys", MODEKEY_EMACS);
-	options_set_number(&global_window_options, "monitor-activity", 0);
-	options_set_string(&global_window_options, "monitor-content", "%s", "");
-	options_set_number(&global_window_options, "utf8", 0);
-	options_set_number(&global_window_options, "window-status-attr", 0);
-	options_set_number(&global_window_options, "window-status-bg", 8);
-	options_set_number(&global_window_options, "window-status-fg", 8);
-	options_set_number(&global_window_options, "xterm-keys", 0);
- 	options_set_number(&global_window_options, "remain-on-exit", 0);
 
 	if (!(flags & IDENTIFY_UTF8)) {
 		/*
@@ -332,13 +301,115 @@ main(int argc, char **argv)
 		 * if not they know that output from UTF-8-capable programs may
 		 * be wrong.
 		 */
-		if ((s = getenv("LC_CTYPE")) == NULL) {
-			if ((s = getenv("LC_ALL")) == NULL)
+		if ((s = getenv("LC_ALL")) == NULL) {
+			if ((s = getenv("LC_CTYPE")) == NULL)
 				s = getenv("LANG");
 		}
-		if (s != NULL && strcasestr(s, "UTF-8") != NULL)
+		if (s != NULL && (strcasestr(s, "UTF-8") != NULL ||
+		    strcasestr(s, "UTF8") != NULL))
 			flags |= IDENTIFY_UTF8;
 	}
+
+	environ_init(&global_environ);
+ 	for (var = environ; *var != NULL; var++)
+		environ_put(&global_environ, *var);
+
+	options_init(&global_s_options, NULL);
+	so = &global_s_options;
+	options_set_number(so, "base-index", 0);
+	options_set_number(so, "bell-action", BELL_ANY);
+	options_set_number(so, "buffer-limit", 9);
+	options_set_string(so, "default-command", "%s", "");
+	options_set_string(so, "default-shell", "%s", getshell());
+	options_set_string(so, "default-terminal", "screen");
+	options_set_number(so, "display-panes-colour", 4);
+	options_set_number(so, "display-panes-time", 1000);
+	options_set_number(so, "display-time", 750);
+	options_set_number(so, "history-limit", 2000);
+	options_set_number(so, "lock-after-time", 0);
+	options_set_string(so, "lock-command", "lock -np");
+	options_set_number(so, "lock-server", 1);
+	options_set_number(so, "message-attr", 0);
+	options_set_number(so, "message-bg", 3);
+	options_set_number(so, "message-fg", 0);
+	options_set_number(so, "mouse-select-pane", 0);
+	options_set_number(so, "repeat-time", 500);
+	options_set_number(so, "set-remain-on-exit", 0);
+	options_set_number(so, "set-titles", 0);
+	options_set_string(so, "set-titles-string", "#S:#I:#W - \"#T\"");
+	options_set_number(so, "status", 1);
+	options_set_number(so, "status-attr", 0);
+	options_set_number(so, "status-bg", 2);
+	options_set_number(so, "status-fg", 0);
+	options_set_number(so, "status-interval", 15);
+	options_set_number(so, "status-justify", 0);
+	options_set_number(so, "status-keys", MODEKEY_EMACS);
+	options_set_string(so, "status-left", "[#S]");
+	options_set_number(so, "status-left-attr", 0);
+	options_set_number(so, "status-left-bg", 8);
+	options_set_number(so, "status-left-fg", 8);
+	options_set_number(so, "status-left-length", 10);
+	options_set_string(so, "status-right", "\"#22T\" %%H:%%M %%d-%%b-%%y");
+	options_set_number(so, "status-right-attr", 0);
+	options_set_number(so, "status-right-bg", 8);
+	options_set_number(so, "status-right-fg", 8);
+	options_set_number(so, "status-right-length", 40);
+	options_set_string(so, "terminal-overrides",
+	    "*88col*:colors=88,*256col*:colors=256");
+	options_set_string(so, "update-environment", "DISPLAY "
+	    "WINDOWID SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION");
+	options_set_number(so, "visual-activity", 0);
+	options_set_number(so, "visual-bell", 0);
+	options_set_number(so, "visual-content", 0);
+
+	keylist = xmalloc(sizeof *keylist);
+	ARRAY_INIT(keylist);
+	ARRAY_ADD(keylist, '\002');
+	options_set_data(so, "prefix", keylist, xfree);
+
+	options_init(&global_w_options, NULL);
+	wo = &global_w_options;
+	options_set_number(wo, "aggressive-resize", 0);
+	options_set_number(wo, "automatic-rename", 1);
+	options_set_number(wo, "clock-mode-colour", 4);
+	options_set_number(wo, "clock-mode-style", 1);
+	options_set_number(wo, "force-height", 0);
+	options_set_number(wo, "force-width", 0);
+	options_set_number(wo, "main-pane-height", 24);
+	options_set_number(wo, "main-pane-width", 81);
+	options_set_number(wo, "mode-attr", 0);
+	options_set_number(wo, "mode-bg", 3);
+	options_set_number(wo, "mode-fg", 0);
+	options_set_number(wo, "mode-keys", MODEKEY_EMACS);
+	options_set_number(wo, "mode-mouse", 0);
+	options_set_number(wo, "monitor-activity", 0);
+	options_set_string(wo, "monitor-content", "%s", "");
+	options_set_number(wo, "window-status-attr", 0);
+	options_set_number(wo, "window-status-bg", 8);
+	options_set_number(wo, "window-status-current-attr", 0);
+	options_set_number(wo, "window-status-current-bg", 8);
+	options_set_number(wo, "window-status-current-fg", 8);
+	options_set_number(wo, "window-status-fg", 8);
+	options_set_number(wo, "xterm-keys", 0);
+ 	options_set_number(wo, "remain-on-exit", 0);
+	options_set_number(wo, "synchronize-panes", 0);
+
+ 	if (flags & IDENTIFY_UTF8) {
+		options_set_number(so, "status-utf8", 1);
+		options_set_number(wo, "utf8", 1);
+	} else {
+		options_set_number(so, "status-utf8", 0);
+		options_set_number(wo, "utf8", 0);
+	}
+
+	if (getcwd(cwd, sizeof cwd) == NULL) {
+		pw = getpwuid(getuid());
+		if (pw->pw_dir != NULL && *pw->pw_dir != '\0')
+			strlcpy(cwd, pw->pw_dir, sizeof cwd);
+		else
+			strlcpy(cwd, "/", sizeof cwd);
+	}
+	options_set_string(so, "default-path", "%s", cwd);
 
 	if (cfg_file == NULL) {
 		home = getenv("HOME");
@@ -358,7 +429,7 @@ main(int argc, char **argv)
 			exit(1);
 		}
 	}
-
+	
 	if (label == NULL)
 		label = xstrdup("default");
 	if (path == NULL && (path = makesockpath(label)) == NULL) {
@@ -367,131 +438,209 @@ main(int argc, char **argv)
 	}
 	xfree(label);
 
-	shell = getenv("SHELL");
-	if (shell == NULL || *shell == '\0') {
-		pw = getpwuid(getuid());
-		if (pw != NULL)
-			shell = pw->pw_shell;
-		if (shell == NULL || *shell == '\0')
-			shell = _PATH_BSHELL;
-	}
-	options_set_string(
-	    &global_options, "default-command", "exec %s -l", shell);
-
-	if (getcwd(cwd, sizeof cwd) == NULL) {
-		log_warn("getcwd");
-		exit(1);
-	}
-	options_set_string(&global_options, "default-path", "%s", cwd);
-
-	if (unlock) {
-		if (argc != 0) {
-			log_warnx("can't specify a command when unlocking");
-			exit(1);
-		}
-		cmdlist = NULL;
-		if ((pass = getpass("Password: ")) == NULL)
-			exit(1);
-		start_server = 0;
+	if (shellcmd != NULL) {
+		msg = MSG_SHELL;
+		buf = NULL;
+		len = 0;
 	} else {
-		if (argc == 0) {
-			cmd = xmalloc(sizeof *cmd);
-			cmd->entry = &cmd_new_session_entry;
-			cmd->entry->init(cmd, 0);
-
-			cmdlist = xmalloc(sizeof *cmdlist);
-			TAILQ_INIT(cmdlist);
-			TAILQ_INSERT_HEAD(cmdlist, cmd, qentry);
-		} else {
-			cmdlist = cmd_list_parse(argc, argv, &cause);
-			if (cmdlist == NULL) {
-				log_warnx("%s", cause);
-				exit(1);
-			}
+		fill_session(&cmddata);
+	
+		cmddata.argc = argc;
+		if (cmd_pack_argv(
+		    argc, argv, cmddata.argv, sizeof cmddata.argv) != 0) {
+			log_warnx("command too long");
+			exit(1);
 		}
-		start_server = 0;
-		TAILQ_FOREACH(cmd, cmdlist, qentry) {
-			if (cmd->entry->flags & CMD_STARTSERVER) {
-				start_server = 1;
-				break;
-			}
-		}
+		
+		msg = MSG_COMMAND;
+		buf = &cmddata;
+		len = sizeof cmddata;
 	}
 
- 	memset(&cctx, 0, sizeof cctx);
-	if (client_init(path, &cctx, start_server, flags) != 0)
+	if (shellcmd != NULL)
+		cmdflags |= CMD_STARTSERVER;
+	else if (argc == 0)	/* new-session is the default */
+		cmdflags |= CMD_STARTSERVER|CMD_SENDENVIRON;
+	else {
+		/*
+		 * It sucks parsing the command string twice (in client and
+		 * later in server) but it is necessary to get the start server
+		 * flag.
+		 */
+		if ((cmdlist = cmd_list_parse(argc, argv, &cause)) == NULL) {
+			log_warnx("%s", cause);
+			exit(1);
+		}
+		cmdflags &= ~CMD_STARTSERVER;
+		TAILQ_FOREACH(cmd, cmdlist, qentry) {
+			if (cmd->entry->flags & CMD_STARTSERVER)
+				cmdflags |= CMD_STARTSERVER;
+			if (cmd->entry->flags & CMD_SENDENVIRON)
+				cmdflags |= CMD_SENDENVIRON;
+		}
+		cmd_list_free(cmdlist);
+	}
+
+	if ((main_ibuf = client_init(path, cmdflags, flags)) == NULL)
 		exit(1);
 	xfree(path);
 
-	b = buffer_create(BUFSIZ);
-	if (unlock) {
-		cmd_send_string(b, pass);
-		memset(pass, 0, strlen(pass));
-		client_write_server(
-		    &cctx, MSG_UNLOCK, BUFFER_OUT(b), BUFFER_USED(b));
-	} else {
-		cmd_list_send(cmdlist, b);
-		cmd_list_free(cmdlist);
-		client_fill_session(&cmddata);
-		client_write_server2(&cctx, MSG_COMMAND,
-		    &cmddata, sizeof cmddata, BUFFER_OUT(b), BUFFER_USED(b));
+	event_init();
+
+ 	imsg_compose(main_ibuf, msg, PROTOCOL_VERSION, -1, -1, buf, len);
+
+	main_set_signals();
+
+	events = EV_READ;
+	if (main_ibuf->w.queued > 0)
+		events |= EV_WRITE;
+	event_once(main_ibuf->fd, events, main_callback, shellcmd, NULL);
+
+	main_exitval = 0;
+	event_dispatch();
+
+	main_clear_signals();
+
+	client_main();	/* doesn't return */
+}
+
+void
+main_set_signals(void)
+{
+	struct sigaction	sigact;
+
+	memset(&sigact, 0, sizeof sigact);
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = SA_RESTART;
+	sigact.sa_handler = SIG_IGN;
+	if (sigaction(SIGINT, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	
+	signal_set(&main_ev_sigterm, SIGTERM, main_signal, NULL);
+	signal_add(&main_ev_sigterm, NULL);
+}
+
+void
+main_clear_signals(void)
+{
+	struct sigaction	sigact;
+
+	memset(&sigact, 0, sizeof sigact);
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = SA_RESTART;
+	sigact.sa_handler = SIG_DFL;
+	if (sigaction(SIGINT, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
+		fatal("sigaction failed");
+	
+	event_del(&main_ev_sigterm);
+}
+
+void
+main_signal(int sig, unused short events, unused void *data)
+{
+	switch (sig) {
+	case SIGTERM:
+		exit(1);
 	}
-	buffer_destroy(b);
+}
 
-	retcode = 0;
+void
+main_callback(unused int fd, short events, void *data)
+{
+	char	*shellcmd = data;
+
+	if (events & EV_READ)
+		main_dispatch(shellcmd);
+	
+	if (events & EV_WRITE) {
+		if (msgbuf_write(&main_ibuf->w) < 0)
+			fatalx("msgbuf_write failed");
+	}
+
+	events = EV_READ;
+	if (main_ibuf->w.queued > 0)
+		events |= EV_WRITE;
+	event_once(main_ibuf->fd, events, main_callback, shellcmd, NULL);
+}
+
+void
+main_dispatch(const char *shellcmd)
+{
+	struct imsg		imsg;
+	ssize_t			n, datalen;
+	struct msg_print_data	printdata;
+	struct msg_shell_data	shelldata;
+
+	if ((n = imsg_read(main_ibuf)) == -1 || n == 0)
+		fatalx("imsg_read failed");
+
 	for (;;) {
-		pfd.fd = cctx.srv_fd;
-		pfd.events = POLLIN;
-		if (BUFFER_USED(cctx.srv_out) > 0)
-			pfd.events |= POLLOUT;
+		if ((n = imsg_get(main_ibuf, &imsg)) == -1)
+			fatalx("imsg_get failed");
+		if (n == 0)
+			return;
+		datalen = imsg.hdr.len - IMSG_HEADER_SIZE;
 
-		if (poll(&pfd, 1, INFTIM) == -1) {
-			if (errno == EAGAIN || errno == EINTR)
-				continue;
-			fatal("poll failed");
-		}
-
-		if (buffer_poll(&pfd, cctx.srv_in, cctx.srv_out) != 0)
-			goto out;
-
-	restart:
-		if (BUFFER_USED(cctx.srv_in) < sizeof hdr)
-			continue;
-		memcpy(&hdr, BUFFER_OUT(cctx.srv_in), sizeof hdr);
-		if (BUFFER_USED(cctx.srv_in) < (sizeof hdr) + hdr.size)
-			continue;
-		buffer_remove(cctx.srv_in, sizeof hdr);
-
-		switch (hdr.type) {
+		switch (imsg.hdr.type) {
 		case MSG_EXIT:
 		case MSG_SHUTDOWN:
-			goto out;
+			if (datalen != 0)
+				fatalx("bad MSG_EXIT size");
+
+			exit(main_exitval);
 		case MSG_ERROR:
-			retcode = 1;
-			/* FALLTHROUGH */
 		case MSG_PRINT:
-			if (hdr.size > INT_MAX - 1)
+			if (datalen != sizeof printdata)
 				fatalx("bad MSG_PRINT size");
-			log_info("%.*s",
-			    (int) hdr.size, BUFFER_OUT(cctx.srv_in));
-			if (hdr.size != 0)
-				buffer_remove(cctx.srv_in, hdr.size);
-			goto restart;
+			memcpy(&printdata, imsg.data, sizeof printdata);
+			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
+
+			log_info("%s", printdata.msg);
+			if (imsg.hdr.type == MSG_ERROR)
+				main_exitval = 1;
+			break;
 		case MSG_READY:
-			retcode = client_main(&cctx);
-			goto out;
+			if (datalen != 0)
+				fatalx("bad MSG_READY size");
+
+			event_loopexit(NULL);	/* move to client_main() */
+			break;
+		case MSG_VERSION:
+			if (datalen != 0)
+				fatalx("bad MSG_VERSION size");
+
+			log_warnx("protocol version mismatch (client %u, "
+			    "server %u)", PROTOCOL_VERSION, imsg.hdr.peerid);
+			exit(1);
+		case MSG_SHELL:
+			if (datalen != sizeof shelldata)
+				fatalx("bad MSG_SHELL size");
+			memcpy(&shelldata, imsg.data, sizeof shelldata);
+			shelldata.shell[(sizeof shelldata.shell) - 1] = '\0';
+
+			main_clear_signals();
+
+			shell_exec(shelldata.shell, shellcmd);
 		default:
-			fatalx("unexpected command");
+			fatalx("unexpected message");
 		}
+
+		imsg_free(&imsg);
 	}
-
-out:
-	options_free(&global_options);
-	options_free(&global_window_options);
-
-	close(cctx.srv_fd);
-	buffer_destroy(cctx.srv_in);
-	buffer_destroy(cctx.srv_out);
-
-	return (retcode);
 }

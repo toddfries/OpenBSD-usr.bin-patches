@@ -1,4 +1,4 @@
-/* $OpenBSD: window-more.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: window-more.c,v 1.9 2009/09/10 17:16:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -75,21 +75,12 @@ window_more_vadd(struct window_pane *wp, const char *fmt, va_list ap)
 	screen_write_stop(&ctx);
 }
 
-void printflike2
-window_more_add(struct window_pane *wp, const char *fmt, ...)
-{
-	va_list	ap;
-
-	va_start(ap, fmt);
-	window_more_vadd(wp, fmt, ap);
-	va_end(ap);
-}
-
 struct screen *
 window_more_init(struct window_pane *wp)
 {
 	struct window_more_mode_data	*data;
 	struct screen			*s;
+	int				 keys;
 
 	wp->modedata = data = xmalloc(sizeof *data);
 	ARRAY_INIT(&data->list);
@@ -99,8 +90,11 @@ window_more_init(struct window_pane *wp)
 	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
 	s->mode &= ~MODE_CURSOR;
 
-	mode_key_init(&data->mdata,
-	    options_get_number(&wp->window->options, "mode-keys"), 0);
+	keys = options_get_number(&wp->window->options, "mode-keys");
+	if (keys == MODEKEY_EMACS)
+		mode_key_init(&data->mdata, &mode_key_tree_emacs_choice);
+	else
+		mode_key_init(&data->mdata, &mode_key_tree_vi_choice);
 
 	return (s);
 }
@@ -110,8 +104,6 @@ window_more_free(struct window_pane *wp)
 {
 	struct window_more_mode_data	*data = wp->modedata;
 	u_int				 i;
-
-	mode_key_free(&data->mdata);
 
 	for (i = 0; i < ARRAY_LENGTH(&data->list); i++)
 		xfree(ARRAY_ITEM(&data->list, i));
@@ -138,23 +130,23 @@ window_more_key(struct window_pane *wp, unused struct client *c, int key)
 	struct screen			*s = &data->screen;
 
 	switch (mode_key_lookup(&data->mdata, key)) {
-	case MODEKEYCMD_QUIT:
+	case MODEKEYCHOICE_CANCEL:
 		window_pane_reset_mode(wp);
 		break;
-	case MODEKEYCMD_UP:
+	case MODEKEYCHOICE_UP:
 		window_more_scroll_up(wp);
 		break;
-	case MODEKEYCMD_DOWN:
+	case MODEKEYCHOICE_DOWN:
 		window_more_scroll_down(wp);
 		break;
-	case MODEKEYCMD_PREVIOUSPAGE:
+	case MODEKEYCHOICE_PAGEUP:
 		if (data->top < screen_size_y(s))
 			data->top = 0;
 		else
 			data->top -= screen_size_y(s);
 		window_more_redraw_screen(wp);
 		break;
-	case MODEKEYCMD_NEXTPAGE:
+	case MODEKEYCHOICE_PAGEDOWN:
 		if (data->top + screen_size_y(s) > ARRAY_LENGTH(&data->list))
 			data->top = ARRAY_LENGTH(&data->list);
 		else
@@ -172,19 +164,22 @@ window_more_write_line(
 {
 	struct window_more_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
+	struct options			*oo = &wp->window->options;	
 	struct grid_cell		 gc;
 	char   				*msg, hdr[32];
 	size_t	 			 size;
+ 	int				 utf8flag;
 
+	utf8flag = options_get_number(&wp->window->options, "utf8");
 	memcpy(&gc, &grid_default_cell, sizeof gc);
 
 	if (py == 0) {
 		size = xsnprintf(hdr, sizeof hdr,
 		    "[%u/%u]", data->top, ARRAY_LENGTH(&data->list));
 		screen_write_cursormove(ctx, screen_size_x(s) - size, 0);
-		gc.bg = options_get_number(&wp->window->options, "mode-fg");
-		gc.fg = options_get_number(&wp->window->options, "mode-bg");
-		gc.attr |= options_get_number(&wp->window->options, "mode-attr");
+		colour_set_fg(&gc, options_get_number(oo, "mode-fg"));
+		colour_set_bg(&gc, options_get_number(oo, "mode-bg"));
+		gc.attr |= options_get_number(oo, "mode-attr");
 		screen_write_puts(ctx, &gc, "%s", hdr);
 		memcpy(&gc, &grid_default_cell, sizeof gc);
 	} else
@@ -193,8 +188,8 @@ window_more_write_line(
 	screen_write_cursormove(ctx, 0, py);
 	if (data->top + py  < ARRAY_LENGTH(&data->list)) {
 		msg = ARRAY_ITEM(&data->list, data->top + py);
-		screen_write_puts(
-		    ctx, &gc, "%.*s", (int) (screen_size_x(s) - size), msg);
+		screen_write_nputs(
+		    ctx, screen_size_x(s) - size, &gc, utf8flag, "%s", msg);
 	}
 	while (s->cx < screen_size_x(s) - size)
 		screen_write_putc(ctx, &gc, ' ');

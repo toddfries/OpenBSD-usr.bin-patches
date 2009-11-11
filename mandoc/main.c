@@ -1,20 +1,18 @@
-/* $Id: main.c,v 1.1 2009/04/06 20:30:40 kristaps Exp $ */
+/*	$Id: main.c,v 1.18 2009/10/27 21:40:07 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@openbsd.org>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
  * Permission to use, copy, modify, and distribute this software for any
- * purpose with or without fee is hereby granted, provided that the
- * above copyright notice and this permission notice appear in all
- * copies.
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
- * WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
- * AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL
- * DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR
- * PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
- * TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
- * PERFORMANCE OF THIS SOFTWARE.
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include <sys/stat.h>
 
@@ -22,15 +20,19 @@
 #include <err.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
 #include "mdoc.h"
 #include "man.h"
+#include "main.h"
 
-typedef	int		(*out_mdoc)(void *, const struct mdoc *);
-typedef	int		(*out_man)(void *, const struct man *);
+#define	UNCONST(a)	((void *)(uintptr_t)(const void *)(a))
+
+typedef	void		(*out_mdoc)(void *, const struct mdoc *);
+typedef	void		(*out_man)(void *, const struct man *);
 typedef	void		(*out_free)(void *);
 
 struct	buf {
@@ -47,6 +49,7 @@ enum	intt {
 enum	outt {
 	OUTT_ASCII = 0,
 	OUTT_TREE,
+	OUTT_HTML,
 	OUTT_LINT
 };
 
@@ -54,44 +57,33 @@ struct	curparse {
 	const char	 *file;		/* Current parse. */
 	int		  fd;		/* Current parse. */
 	int		  wflags;
-#define	WARN_WALL	  0x03		/* All-warnings mask. */
-#define	WARN_WCOMPAT	 (1 << 0)	/* Compatibility warnings. */
-#define	WARN_WSYNTAX	 (1 << 1)	/* Syntax warnings. */
+#define	WARN_WALL	 (1 << 0)	/* All-warnings mask. */
 #define	WARN_WERR	 (1 << 2)	/* Warnings->errors. */
 	int		  fflags;
 #define	IGN_SCOPE	 (1 << 0) 	/* Ignore scope errors. */
 #define	NO_IGN_ESCAPE	 (1 << 1) 	/* Don't ignore bad escapes. */
 #define	NO_IGN_MACRO	 (1 << 2) 	/* Don't ignore bad macros. */
 #define	NO_IGN_CHARS	 (1 << 3)	/* Don't ignore bad chars. */
-	enum intt	  inttype;	/* Input parsers. */
+#define	IGN_ERRORS	 (1 << 4)	/* Ignore failed parse. */
+	enum intt	  inttype;	/* Input parsers... */
 	struct man	 *man;
 	struct man	 *lastman;
 	struct mdoc	 *mdoc;
 	struct mdoc	 *lastmdoc;
-	enum outt	  outtype;	/* Output devices. */
+	enum outt	  outtype;	/* Output devices... */
 	out_mdoc	  outmdoc;
 	out_man	  	  outman;
 	out_free	  outfree;
 	void		 *outdata;
+	char		  outopts[BUFSIZ];
 };
-
-extern	void		 *ascii_alloc(void);
-extern	int		  tree_mdoc(void *, const struct mdoc *);
-extern	int		  tree_man(void *, const struct man *);
-extern	int		  terminal_mdoc(void *, const struct mdoc *);
-extern	int		  terminal_man(void *, const struct man *);
-extern	void		  terminal_free(void *);
 
 static	int		  foptions(int *, char *);
 static	int		  toptions(enum outt *, char *);
 static	int		  moptions(enum intt *, char *);
 static	int		  woptions(int *, char *);
 static	int		  merr(void *, int, int, const char *);
-static	int		  manwarn(void *, int, int, const char *);
-static	int		  mdocwarn(void *, int, int, 
-				enum mdoc_warn, const char *);
-static	int		  fstdin(struct buf *, struct buf *, 
-				struct curparse *);
+static	int		  mwarn(void *, int, int, const char *);
 static	int		  ffile(struct buf *, struct buf *, 
 				const char *, struct curparse *);
 static	int		  fdesc(struct buf *, struct buf *,
@@ -100,6 +92,7 @@ static	int		  pset(const char *, int, struct curparse *,
 				struct man **, struct mdoc **);
 static	struct man	 *man_init(struct curparse *);
 static	struct mdoc	 *mdoc_init(struct curparse *);
+__dead	static void	  version(void);
 __dead	static void	  usage(void);
 
 extern	char		 *__progname;
@@ -118,24 +111,31 @@ main(int argc, char *argv[])
 	curp.outtype = OUTT_ASCII;
 
 	/* LINTED */
-	while (-1 != (c = getopt(argc, argv, "f:m:W:T:")))
+	while (-1 != (c = getopt(argc, argv, "f:m:O:T:VW:")))
 		switch (c) {
 		case ('f'):
 			if ( ! foptions(&curp.fflags, optarg))
-				return(0);
+				return(EXIT_FAILURE);
 			break;
 		case ('m'):
 			if ( ! moptions(&curp.inttype, optarg))
-				return(0);
+				return(EXIT_FAILURE);
+			break;
+		case ('O'):
+			(void)strlcat(curp.outopts, optarg, BUFSIZ);
+			(void)strlcat(curp.outopts, ",", BUFSIZ);
 			break;
 		case ('T'):
 			if ( ! toptions(&curp.outtype, optarg))
-				return(0);
+				return(EXIT_FAILURE);
 			break;
 		case ('W'):
 			if ( ! woptions(&curp.wflags, optarg))
-				return(0);
+				return(EXIT_FAILURE);
 			break;
+		case ('V'):
+			version();
+			/* NOTREACHED */
 		default:
 			usage();
 			/* NOTREACHED */
@@ -144,20 +144,29 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	/* Configure buffers. */
-
 	bzero(&ln, sizeof(struct buf));
 	bzero(&blk, sizeof(struct buf));
 
 	rc = 1;
 
-	if (NULL == *argv)
-		if ( ! fstdin(&blk, &ln, &curp))
-			rc = 0;
+	if (NULL == *argv) {
+		curp.file = "<stdin>";
+		curp.fd = STDIN_FILENO;
+
+		c = fdesc(&blk, &ln, &curp);
+		if ( ! (IGN_ERRORS & curp.fflags)) 
+			rc = 1 == c ? 1 : 0;
+		else
+			rc = -1 == c ? 0 : 1;
+	}
 
 	while (rc && *argv) {
-		if ( ! ffile(&blk, &ln, *argv, &curp))
-			rc = 0;
+		c = ffile(&blk, &ln, *argv, &curp);
+		if ( ! (IGN_ERRORS & curp.fflags)) 
+			rc = 1 == c ? 1 : 0;
+		else
+			rc = -1 == c ? 0 : 1;
+
 		argv++;
 		if (*argv && rc) {
 			if (curp.lastman)
@@ -187,12 +196,21 @@ main(int argc, char *argv[])
 
 
 __dead static void
+version(void)
+{
+
+	(void)printf("%s %s\n", __progname, VERSION);
+	exit(EXIT_SUCCESS);
+}
+
+
+__dead static void
 usage(void)
 {
 
-	(void)fprintf(stderr, "usage: %s [-foption...] "
-			"[-mformat] [-Toutput] [-Werr...]\n", 
-			__progname);
+	(void)fprintf(stderr, "usage: %s [-V] [-foption...] "
+			"[-mformat] [-Ooption] [-Toutput] "
+			"[-Werr...]\n", __progname);
 	exit(EXIT_FAILURE);
 }
 
@@ -205,12 +223,18 @@ man_init(struct curparse *curp)
 	struct man_cb	 mancb;
 
 	mancb.man_err = merr;
-	mancb.man_warn = manwarn;
+	mancb.man_warn = mwarn;
 
-	pflags = MAN_IGN_MACRO; 
+	/* Defaults from mandoc.1. */
+
+	pflags = MAN_IGN_MACRO | MAN_IGN_ESCAPE | MAN_IGN_CHARS;
 
 	if (curp->fflags & NO_IGN_MACRO)
 		pflags &= ~MAN_IGN_MACRO;
+	if (curp->fflags & NO_IGN_CHARS)
+		pflags &= ~MAN_IGN_CHARS;
+	if (curp->fflags & NO_IGN_ESCAPE)
+		pflags &= ~MAN_IGN_ESCAPE;
 
 	if (NULL == (man = man_alloc(curp, pflags, &mancb)))
 		warnx("memory exhausted");
@@ -226,9 +250,10 @@ mdoc_init(struct curparse *curp)
 	struct mdoc	*mdoc;
 	struct mdoc_cb	 mdoccb;
 
-	mdoccb.mdoc_msg = NULL;
 	mdoccb.mdoc_err = merr;
-	mdoccb.mdoc_warn = mdocwarn;
+	mdoccb.mdoc_warn = mwarn;
+
+	/* Defaults from mandoc.1. */
 
 	pflags = MDOC_IGN_MACRO | MDOC_IGN_ESCAPE | MDOC_IGN_CHARS;
 
@@ -249,16 +274,6 @@ mdoc_init(struct curparse *curp)
 
 
 static int
-fstdin(struct buf *blk, struct buf *ln, struct curparse *curp)
-{
-
-	curp->file = "<stdin>";
-	curp->fd = STDIN_FILENO;
-	return(fdesc(blk, ln, curp));
-}
-
-
-static int
 ffile(struct buf *blk, struct buf *ln, 
 		const char *file, struct curparse *curp)
 {
@@ -267,7 +282,7 @@ ffile(struct buf *blk, struct buf *ln,
 	curp->file = file;
 	if (-1 == (curp->fd = open(curp->file, O_RDONLY, 0))) {
 		warn("%s", curp->file);
-		return(0);
+		return(-1);
 	}
 
 	c = fdesc(blk, ln, curp);
@@ -285,7 +300,7 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 	size_t		 sz;
 	ssize_t		 ssz;
 	struct stat	 st;
-	int		 j, i, pos, lnn;
+	int		 j, i, pos, lnn, comment;
 	struct man	*man;
 	struct mdoc	*mdoc;
 
@@ -300,7 +315,7 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 	 */
 
 	if (-1 == fstat(curp->fd, &st))
-		warnx("%s", curp->file);
+		warn("%s", curp->file);
 	else if ((size_t)st.st_blksize > sz)
 		sz = st.st_blksize;
 
@@ -308,17 +323,17 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 		blk->buf = realloc(blk->buf, sz);
 		if (NULL == blk->buf) {
 			warn("realloc");
-			return(0);
+			return(-1);
 		}
 		blk->sz = sz;
 	}
 
 	/* Fill buf with file blocksize. */
 
-	for (lnn = 0, pos = 0; ; ) {
+	for (lnn = pos = comment = 0; ; ) {
 		if (-1 == (ssz = read(curp->fd, blk->buf, sz))) {
 			warn("%s", curp->file);
-			return(0);
+			return(-1);
 		} else if (0 == ssz) 
 			break;
 
@@ -330,22 +345,39 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 				ln->buf = realloc(ln->buf, ln->sz);
 				if (NULL == ln->buf) {
 					warn("realloc");
-					return(0);
+					return(-1);
 				}
 			}
 
 			if ('\n' != blk->buf[i]) {
+				if (comment)
+					continue;
 				ln->buf[pos++] = blk->buf[i];
-				continue;
-			}
 
-			/* Check for CPP-escaped newline.  */
+				/* Handle in-line `\"' comments. */
 
-			if (pos > 0 && '\\' == ln->buf[pos - 1]) {
-				for (j = pos - 1; j >= 0; j--)
+				if (1 == pos || '\"' != ln->buf[pos - 1])
+					continue;
+
+				for (j = pos - 2; j >= 0; j--)
 					if ('\\' != ln->buf[j])
 						break;
 
+				if ( ! ((pos - 2 - j) % 2))
+					continue;
+
+				comment = 1;
+				pos -= 2;
+				continue;
+			} 
+
+			/* Handle escaped `\\n' newlines. */
+
+			if (pos > 0 && 0 == comment && 
+					'\\' == ln->buf[pos - 1]) {
+				for (j = pos - 1; j >= 0; j--)
+					if ('\\' != ln->buf[j])
+						break;
 				if ( ! ((pos - j) % 2)) {
 					pos--;
 					lnn++;
@@ -355,19 +387,16 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 
 			ln->buf[pos] = 0;
 			lnn++;
-			
-			/*
-			 * If no manual parser has been assigned, then
-			 * try to assign one in pset(), which may do
-			 * nothing at all.  After this, parse the manual
-			 * line accordingly.
-			 */
+
+			/* If unset, assign parser in pset(). */
 
 			if ( ! (man || mdoc) && ! pset(ln->buf, 
 						pos, curp, &man, &mdoc))
-				return(0);
+				return(-1);
 
-			pos = 0;
+			pos = comment = 0;
+
+			/* Pass down into parsers. */
 
 			if (man && ! man_parseln(man, lnn, ln->buf))
 				return(0);
@@ -376,10 +405,11 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 		}
 	}
 
-	/* Note that a parser may not have been assigned, yet. */
+	/* NOTE a parser may not have been assigned, yet. */
 
 	if ( ! (man || mdoc)) {
-		warnx("%s: not a manual", curp->file);
+		(void)fprintf(stderr, "%s: not a manual\n", 
+				curp->file);
 		return(0);
 	}
 
@@ -388,15 +418,16 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 	if (man && ! man_endparse(man))
 		return(0);
 
-	/*
-	 * If an output device hasn't been allocated, see if we should
-	 * do so now.  Note that not all outtypes have functions, so
-	 * this switch statement may be superfluous, but it's
-	 * low-overhead enough not to matter very much.
-	 */
+	/* If unset, allocate output dev now (if applicable). */
 
 	if ( ! (curp->outman && curp->outmdoc)) {
 		switch (curp->outtype) {
+		case (OUTT_HTML):
+			curp->outdata = html_alloc(curp->outopts);
+			curp->outman = html_man;
+			curp->outmdoc = html_mdoc;
+			curp->outfree = html_free;
+			break;
 		case (OUTT_TREE):
 			curp->outman = tree_man;
 			curp->outmdoc = tree_mdoc;
@@ -415,11 +446,9 @@ fdesc(struct buf *blk, struct buf *ln, struct curparse *curp)
 	/* Execute the out device, if it exists. */
 
 	if (man && curp->outman)
-		if ( ! (*curp->outman)(curp->outdata, man))
-			return(0);
+		(*curp->outman)(curp->outdata, man);
 	if (mdoc && curp->outmdoc)
-		if ( ! (*curp->outmdoc)(curp->outdata, mdoc))
-			return(0);
+		(*curp->outmdoc)(curp->outdata, mdoc);
 
 	return(1);
 }
@@ -429,17 +458,23 @@ static int
 pset(const char *buf, int pos, struct curparse *curp,
 		struct man **man, struct mdoc **mdoc)
 {
+	int		 i;
 
 	/*
 	 * Try to intuit which kind of manual parser should be used.  If
 	 * passed in by command-line (-man, -mdoc), then use that
 	 * explicitly.  If passed as -mandoc, then try to guess from the
-	 * line: either skip comments, use -mdoc when finding `.Dt', or
+	 * line: either skip dot-lines, use -mdoc when finding `.Dt', or
 	 * default to -man, which is more lenient.
 	 */
 
-	if (pos >= 3 && 0 == memcmp(buf, ".\\\"", 3))
-		return(1);
+	if (buf[0] == '.') {
+		for (i = 1; buf[i]; i++)
+			if (' ' != buf[i] && '\t' != buf[i])
+				break;
+		if (0 == buf[i])
+			return(1);
+	}
 
 	switch (curp->inttype) {
 	case (INTT_MDOC):
@@ -507,6 +542,8 @@ toptions(enum outt *tflags, char *arg)
 		*tflags = OUTT_LINT;
 	else if (0 == strcmp(arg, "tree"))
 		*tflags = OUTT_TREE;
+	else if (0 == strcmp(arg, "html"))
+		*tflags = OUTT_HTML;
 	else {
 		warnx("bad argument: -T%s", arg);
 		return(0);
@@ -516,25 +553,23 @@ toptions(enum outt *tflags, char *arg)
 }
 
 
-/*
- * Parse out the options for [-fopt...] setting compiler options.  These
- * can be comma-delimited or called again.
- */
 static int
 foptions(int *fflags, char *arg)
 {
-	char		*v;
-	char		*toks[6];
+	char		*v, *o;
+	const char	*toks[7];
 
 	toks[0] = "ign-scope";
 	toks[1] = "no-ign-escape";
 	toks[2] = "no-ign-macro";
 	toks[3] = "no-ign-chars";
-	toks[4] = "strict";
-	toks[5] = NULL;
+	toks[4] = "ign-errors";
+	toks[5] = "strict";
+	toks[6] = NULL;
 
-	while (*arg) 
-		switch (getsubopt(&arg, toks, &v)) {
+	while (*arg) {
+		o = arg;
+		switch (getsubopt(&arg, UNCONST(toks), &v)) {
 		case (0):
 			*fflags |= IGN_SCOPE;
 			break;
@@ -548,52 +583,46 @@ foptions(int *fflags, char *arg)
 			*fflags |= NO_IGN_CHARS;
 			break;
 		case (4):
+			*fflags |= IGN_ERRORS;
+			break;
+		case (5):
 			*fflags |= NO_IGN_ESCAPE | 
 			 	   NO_IGN_MACRO | NO_IGN_CHARS;
 			break;
 		default:
-			warnx("bad argument: -f%s", arg);
+			warnx("bad argument: -f%s", o);
 			return(0);
 		}
+	}
 
 	return(1);
 }
 
 
-/* 
- * Parse out the options for [-Werr...], which sets warning modes.
- * These can be comma-delimited or called again.  
- */
 static int
 woptions(int *wflags, char *arg)
 {
-	char		*v;
-	char		*toks[5]; 
+	char		*v, *o;
+	const char	*toks[3]; 
 
 	toks[0] = "all";
-	toks[1] = "compat";
-	toks[2] = "syntax";
-	toks[3] = "error";
-	toks[4] = NULL;
+	toks[1] = "error";
+	toks[2] = NULL;
 
-	while (*arg) 
-		switch (getsubopt(&arg, toks, &v)) {
+	while (*arg) {
+		o = arg;
+		switch (getsubopt(&arg, UNCONST(toks), &v)) {
 		case (0):
 			*wflags |= WARN_WALL;
 			break;
 		case (1):
-			*wflags |= WARN_WCOMPAT;
-			break;
-		case (2):
-			*wflags |= WARN_WSYNTAX;
-			break;
-		case (3):
 			*wflags |= WARN_WERR;
 			break;
 		default:
-			warnx("bad argument: -W%s", arg);
+			warnx("bad argument: -W%s", o);
 			return(0);
 		}
+	}
 
 	return(1);
 }
@@ -607,65 +636,29 @@ merr(void *arg, int line, int col, const char *msg)
 
 	curp = (struct curparse *)arg;
 
-	warnx("%s:%d: error: %s (column %d)", 
-			curp->file, line, msg, col);
+	(void)fprintf(stderr, "%s:%d:%d: error: %s\n", 
+			curp->file, line, col + 1, msg);
+
 	return(0);
 }
 
 
 static int
-mdocwarn(void *arg, int line, int col, 
-		enum mdoc_warn type, const char *msg)
-{
-	struct curparse *curp;
-	char		*wtype;
-
-	curp = (struct curparse *)arg;
-	wtype = NULL;
-
-	switch (type) {
-	case (WARN_COMPAT):
-		wtype = "compat";
-		if (curp->wflags & WARN_WCOMPAT)
-			break;
-		return(1);
-	case (WARN_SYNTAX):
-		wtype = "syntax";
-		if (curp->wflags & WARN_WSYNTAX)
-			break;
-		return(1);
-	}
-
-	assert(wtype);
-	warnx("%s:%d: %s warning: %s (column %d)", 
-			curp->file, line, wtype, msg, col);
-
-	if ( ! (curp->wflags & WARN_WERR))
-		return(1);
-
-	warnx("%s: considering warnings as errors", 
-			__progname);
-	return(0);
-}
-
-
-static int
-manwarn(void *arg, int line, int col, const char *msg)
+mwarn(void *arg, int line, int col, const char *msg)
 {
 	struct curparse *curp;
 
 	curp = (struct curparse *)arg;
 
-	if ( ! (curp->wflags & WARN_WSYNTAX))
+	if ( ! (curp->wflags & WARN_WALL))
 		return(1);
 
-	warnx("%s:%d: syntax warning: %s (column %d)", 
-			curp->file, line, msg, col);
+	(void)fprintf(stderr, "%s:%d:%d: warning: %s\n", 
+			curp->file, line, col + 1, msg);
 
 	if ( ! (curp->wflags & WARN_WERR))
 		return(1);
-
-	warnx("%s: considering warnings as errors", 
-			__progname);
+	
 	return(0);
 }
+

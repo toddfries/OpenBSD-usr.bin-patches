@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.13 2009/04/03 20:29:21 deraadt Exp $ */
+/*	$OpenBSD: if.c,v 1.16 2009/08/13 23:45:35 deraadt Exp $ */
 /*
  * Copyright (c) 2004 Markus Friedl <markus@openbsd.org>
  *
@@ -14,6 +14,7 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -22,25 +23,15 @@
 #include <net/if_dl.h>
 #include <net/route.h>
 #include <sys/sockio.h>
+#include <sys/ioctl.h>
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "systat.h"
 
 static  enum state { BOOT, TIME, RUN } state = TIME;
-
-struct ifcount {
-	u_int64_t	ifc_ib;			/* input bytes */
-	u_int64_t	ifc_ip;			/* input packets */
-	u_int64_t	ifc_ie;			/* input errors */
-	u_int64_t	ifc_ob;			/* output bytes */
-	u_int64_t	ifc_op;			/* output packets */
-	u_int64_t	ifc_oe;			/* output errors */
-	u_int64_t	ifc_co;			/* collisions */
-	int		ifc_flags;		/* up / down */
-	int		ifc_state;		/* link state */
-} sum;
 
 struct ifstat {
 	char		ifs_name[IFNAMSIZ];	/* interface name */
@@ -58,7 +49,7 @@ int read_if(void);
 int select_if(void);
 int if_keyboard_callback(int);
 
-static void fetchifstat(void);
+void fetchifstat(void);
 static void showifstat(struct ifstat *);
 static void showtotal(void);
 
@@ -187,7 +178,7 @@ print_if(void)
 }
 
 
-static void
+void
 fetchifstat(void)
 {
 	struct ifstat *newstats, *ifs;
@@ -221,8 +212,9 @@ fetchifstat(void)
 	lim = buf + need;
 	for (next = buf; next < lim; next += ifm.ifm_msglen) {
 		bcopy(next, &ifm, sizeof ifm);
-		if (ifm.ifm_type != RTM_IFINFO ||
-		   !(ifm.ifm_addrs & RTA_IFP))
+		if (ifm.ifm_version != RTM_VERSION ||
+		    ifm.ifm_type != RTM_IFINFO ||
+		    !(ifm.ifm_addrs & RTA_IFP))
 			continue;
 		if (ifm.ifm_index >= nifs) {
 			if ((newstats = realloc(ifstats, (ifm.ifm_index + 4)

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-send-prefix.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-send-prefix.c,v 1.5 2009/09/22 12:38:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,13 +28,11 @@ int	cmd_send_prefix_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_send_prefix_entry = {
 	"send-prefix", NULL,
-	CMD_TARGET_WINDOW_USAGE,
-	0,
+	CMD_TARGET_PANE_USAGE,
+	0, 0,
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_send_prefix_exec,
-	cmd_target_send,
-	cmd_target_recv,
 	cmd_target_free,
 	cmd_target_print
 };
@@ -44,14 +42,14 @@ cmd_send_prefix_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data	*data = self->data;
 	struct session		*s;
-	struct winlink		*wl;
-	int			 key;
+	struct window_pane	*wp;
+	struct keylist		*keylist;
 
-	if ((wl = cmd_find_window(ctx, data->target, &s)) == NULL)
+	if (cmd_find_pane(ctx, data->target, &s, &wp) == NULL)
 		return (-1);
 
-	key = options_get_number(&s->options, "prefix");
-	window_pane_key(wl->window->active, ctx->curclient, key);
+	keylist = options_get_data(&s->options, "prefix");
+	window_pane_key(wp, ctx->curclient, ARRAY_FIRST(keylist));
 
 	return (0);
 }

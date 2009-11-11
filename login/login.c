@@ -1,4 +1,4 @@
-/*	$OpenBSD: login.c,v 1.57 2007/04/02 07:01:33 jmc Exp $	*/
+/*	$OpenBSD: login.c,v 1.61 2009/10/27 23:59:40 deraadt Exp $	*/
 /*	$NetBSD: login.c,v 1.13 1996/05/15 23:50:16 jtc Exp $	*/
 
 /*-
@@ -62,19 +62,6 @@
  *
  *	BSDI $From: login.c,v 2.28 1999/09/08 22:35:36 prb Exp $
  */
-
-#ifndef lint
-static const char copyright[] =
-"@(#) Copyright (c) 1980, 1987, 1988, 1991, 1993, 1994\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static const char sccsid[] = "@(#)login.c	8.4 (Berkeley) 4/2/94";
-#endif
-static const char rcsid[] = "$OpenBSD: login.c,v 1.57 2007/04/02 07:01:33 jmc Exp $";
-#endif /* not lint */
 
 /*
  * login [ name ]
@@ -153,6 +140,7 @@ main(int argc, char *argv[])
 	char *lipaddr, *script, *ripaddr, *style, *type, *fqdn;
 	char tbuf[MAXPATHLEN + 2], tname[sizeof(_PATH_TTY) + 10];
 	char localhost[MAXHOSTNAMELEN], *copyright;
+	char mail[sizeof(_PATH_MAILDIR) + 1 + NAME_MAX];
 	int ask, ch, cnt, fflag, pflag, quietlog, rootlogin, lastchance;
 	int error, homeless, needto, authok, tries, backoff;
 	struct addrinfo *ai, hints;
@@ -204,6 +192,7 @@ main(int argc, char *argv[])
 				warnx("-h option: %s", strerror(EPERM));
 				quickexit(1);
 			}
+			free(fqdn);
 			if ((fqdn = strdup(optarg)) == NULL) {
 				warn(NULL);
 				quickexit(1);
@@ -471,7 +460,7 @@ main(int argc, char *argv[])
 		backoff = (int)login_getcapnum(lc, "login-backoff", 3, 3);
 
 		/*
-		 * Turn off the fflag if we have an an invalid user
+		 * Turn off the fflag if we have an invalid user
 		 * or we are not root and we are trying to change uids.
 		 */
 		if (!pwd || (uid && uid != pwd->pw_uid))
@@ -600,15 +589,18 @@ failed:
 	}
 	/* Note: setusercontext(3) will set PATH */
 	if (setenv("HOME", pwd->pw_dir, 1) == -1 ||
-	    setenv("SHELL", shell, 1) == -1) {
+	    setenv("SHELL", pwd->pw_shell, 1) == -1) {
 		warn("unable to setenv()");
 		quickexit(1);
 	}
 	if (term[0] == '\0')
 		(void)strlcpy(term, stypeof(tty), sizeof(term));
+	(void)snprintf(mail, sizeof(mail), "%s/%s", _PATH_MAILDIR,
+		pwd->pw_name);
 	if (setenv("TERM", term, 0) == -1 ||
 	    setenv("LOGNAME", pwd->pw_name, 1) == -1 ||
-	    setenv("USER", pwd->pw_name, 1) == -1) {
+	    setenv("USER", pwd->pw_name, 1) == -1 ||
+	    setenv("MAIL", mail, 1) == -1) {
 		warn("unable to setenv()");
 		quickexit(1);
 	}
@@ -704,9 +696,7 @@ failed:
 		    login_getcapstr(lc, "copyright", NULL, NULL)) != NULL)
 			auth_cat(copyright);
 		motd();
-		(void)snprintf(tbuf,
-		    sizeof(tbuf), "%s/%s", _PATH_MAILDIR, pwd->pw_name);
-		if (stat(tbuf, &st) == 0 && st.st_size != 0)
+		if (stat(mail, &st) == 0 && st.st_size != 0)
 			(void)printf("You have %smail.\n",
 			    (st.st_mtime > st.st_atime) ? "new " : "");
 	}
@@ -768,7 +758,7 @@ failed:
 
 /*
  * Allow for a '.' and 16 characters for any instance as well as
- * space for a ':' and 16 charcters defining the authentication type.
+ * space for a ':' and 16 characters defining the authentication type.
  */
 #define NBUFSIZ		(UT_NAMESIZE + 1 + 16 + 1 + 16)
 

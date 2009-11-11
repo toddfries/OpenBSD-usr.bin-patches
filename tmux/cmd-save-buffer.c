@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-save-buffer.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-save-buffer.c,v 1.5 2009/10/26 21:13:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -33,12 +33,10 @@ int	cmd_save_buffer_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_save_buffer_entry = {
 	"save-buffer", "saveb",
 	"[-a] " CMD_BUFFER_SESSION_USAGE " path",
-	CMD_AFLAG|CMD_ARG1,
+	CMD_ARG1, CMD_CHFLAG('a'),
 	cmd_buffer_init,
 	cmd_buffer_parse,
 	cmd_save_buffer_exec,
-	cmd_buffer_send,
-	cmd_buffer_recv,
 	cmd_buffer_free,
 	cmd_buffer_print
 };
@@ -68,23 +66,23 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 	}
 
 	mask = umask(S_IRWXG | S_IRWXO);
-	if (data->flags & CMD_AFLAG)
+	if (data->chflags & CMD_CHFLAG('a'))
 		f = fopen(data->arg, "ab");
 	else
 		f = fopen(data->arg, "wb");
+	umask(mask);
 	if (f == NULL) {
 		ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
 		return (-1);
 	}
 
-	if (fwrite(pb->data, 1, strlen(pb->data), f) != strlen(pb->data)) {
+	if (fwrite(pb->data, 1, pb->size, f) != pb->size) {
 	    	ctx->error(ctx, "%s: fwrite error", data->arg);
 	    	fclose(f);
 	    	return (-1);
 	}
 
 	fclose(f);
-	umask(mask);
 
 	return (0);
 }

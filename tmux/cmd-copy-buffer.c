@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-copy-buffer.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cmd-copy-buffer.c,v 1.5 2009/09/21 15:32:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -16,7 +16,10 @@
  * OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/types.h>
+
 #include <stdlib.h>
+#include <string.h>
 
 #include "tmux.h"
 
@@ -26,8 +29,6 @@
 
 int	cmd_copy_buffer_parse(struct cmd *, int, char **, char **);
 int	cmd_copy_buffer_exec(struct cmd *, struct cmd_ctx *);
-void	cmd_copy_buffer_send(struct cmd *, struct buffer *);
-void	cmd_copy_buffer_recv(struct cmd *, struct buffer *);
 void	cmd_copy_buffer_free(struct cmd *);
 void	cmd_copy_buffer_init(struct cmd *, int);
 size_t	cmd_copy_buffer_print(struct cmd *, char *, size_t);
@@ -42,12 +43,10 @@ struct cmd_copy_buffer_data {
 const struct cmd_entry cmd_copy_buffer_entry = {
 	"copy-buffer", "copyb",
 	"[-a src-index] [-b dst-index] [-s src-session] [-t dst-session]",
-	0,
+	0, 0,
 	cmd_copy_buffer_init,
 	cmd_copy_buffer_parse,
 	cmd_copy_buffer_exec,
-	cmd_copy_buffer_send,
-	cmd_copy_buffer_recv,
 	cmd_copy_buffer_free,
 	cmd_copy_buffer_print
 };
@@ -71,7 +70,7 @@ cmd_copy_buffer_parse(struct cmd *self, int argc, char **argv, char **cause)
 	const char			*errstr;
 	int				 n, opt;
 
-	self->entry->init(self, 0);
+	self->entry->init(self, KEYC_NONE);
 	data = self->data;
 
 	while ((opt = getopt(argc, argv, "a:b:s:t:")) != -1) {
@@ -126,59 +125,42 @@ cmd_copy_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_copy_buffer_data	*data = self->data;
 	struct paste_buffer		*pb;
+	struct paste_stack		*dst_ps, *src_ps;
+	u_char				*pdata;
 	struct session			*dst_session, *src_session;
 	u_int				 limit;
 
 	if ((dst_session = cmd_find_session(ctx, data->dst_session)) == NULL ||
 	    (src_session = cmd_find_session(ctx, data->src_session)) == NULL)
 	    	return (-1);
+	dst_ps = &dst_session->buffers;
+	src_ps = &src_session->buffers;
 
 	if (data->src_idx == -1) {
-		if ((pb = paste_get_top(&src_session->buffers)) == NULL) {
+		if ((pb = paste_get_top(src_ps)) == NULL) {
 			ctx->error(ctx, "no buffers");
 			return (-1);
 		}
 	} else {
-		if ((pb = paste_get_index(&src_session->buffers,
-		    data->src_idx)) == NULL) {
+		if ((pb = paste_get_index(src_ps, data->src_idx)) == NULL) {
 		    	ctx->error(ctx, "no buffer %d", data->src_idx);
 		    	return (-1);
 		}
 	}
-
 	limit = options_get_number(&dst_session->options, "buffer-limit");
-	if (data->dst_idx == -1) {
-		paste_add(&dst_session->buffers, xstrdup(pb->data), limit);
-		return (0);
-	}
-	if (paste_replace(&dst_session->buffers, data->dst_idx,
-	    xstrdup(pb->data)) != 0) {
+
+	pdata = xmalloc(pb->size);
+	memcpy(pdata, pb->data, pb->size);
+
+	if (data->dst_idx == -1)
+		paste_add(dst_ps, pdata, pb->size, limit);
+	else if (paste_replace(dst_ps, data->dst_idx, pdata, pb->size) != 0) {
 		ctx->error(ctx, "no buffer %d", data->dst_idx);
+		xfree(pdata);
 		return (-1);
 	}
 
 	return (0);
-}
-
-void
-cmd_copy_buffer_send(struct cmd *self, struct buffer *b)
-{
-	struct cmd_copy_buffer_data	*data = self->data;
-
-	buffer_write(b, data, sizeof *data);
-	cmd_send_string(b, data->dst_session);
-	cmd_send_string(b, data->src_session);
-}
-
-void
-cmd_copy_buffer_recv(struct cmd *self, struct buffer *b)
-{
-	struct cmd_copy_buffer_data	*data;
-
-	self->data = data = xmalloc(sizeof *data);
-	buffer_read(b, data, sizeof *data);
-	data->dst_session = cmd_recv_string(b);
-	data->src_session = cmd_recv_string(b);
 }
 
 void

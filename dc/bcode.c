@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcode.c,v 1.38 2008/11/24 08:48:48 otto Exp $	*/
+/*	$OpenBSD: bcode.c,v 1.40 2009/10/27 23:59:37 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -15,10 +15,6 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-
-#ifndef lint
-static const char rcsid[] = "$OpenBSD: bcode.c,v 1.38 2008/11/24 08:48:48 otto Exp $";
-#endif /* not lint */
 
 #include <ssl/ssl.h>
 #include <err.h>
@@ -876,7 +872,7 @@ load_array(void)
 		else {
 			stack = &bmachine.reg[reg];
 			v = frame_retrieve(stack, idx);
-			if (v == NULL) {
+			if (v == NULL || v->type == BCODE_NONE) {
 				n = new_number();
 				bn_check(BN_zero(n->number));
 				push_number(n);

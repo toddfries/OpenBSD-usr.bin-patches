@@ -1,4 +1,4 @@
-/* $OpenBSD: cfg.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: cfg.c,v 1.7 2009/10/26 21:42:04 deraadt Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,7 +30,6 @@
  * argv array and executed as a command.
  */
 
-char	 *cfg_string(FILE *, char, int);
 void printflike2 cfg_print(struct cmd_ctx *, const char *, ...);
 void printflike2 cfg_error(struct cmd_ctx *, const char *, ...);
 
@@ -52,24 +51,14 @@ cfg_error(unused struct cmd_ctx *ctx, const char *fmt, ...)
 }
 
 int
-load_cfg(const char *path, char **cause)
+load_cfg(const char *path, struct cmd_ctx *ctxin, char **cause)
 {
-	FILE   	        *f;
+	FILE		*f;
 	u_int		 n;
-	struct stat	 sb;
-	char	        *buf, *line, *ptr;
+	char		*buf, *line, *ptr;
 	size_t		 len;
 	struct cmd_list	*cmdlist;
 	struct cmd_ctx	 ctx;
-
-	if (stat(path, &sb) != 0) {
-		xasprintf(cause, "%s: %s", path, strerror(errno));
-		return (-1);
-	}
-	if (!S_ISREG(sb.st_mode)) {
-		xasprintf(cause, "%s: not a regular file", path);
-		return (-1);
-	}
 
 	if ((f = fopen(path, "rb")) == NULL) {
 		xasprintf(cause, "%s: %s", path, strerror(errno));
@@ -98,15 +87,19 @@ load_cfg(const char *path, char **cause)
 			continue;
 		cfg_cause = NULL;
 
-		ctx.msgdata = NULL;
-		ctx.cursession = NULL;
-		ctx.curclient = NULL;
+		if (ctxin == NULL) {
+			ctx.msgdata = NULL;
+			ctx.curclient = NULL;
+			ctx.cmdclient = NULL;
+		} else {
+			ctx.msgdata = ctxin->msgdata;
+			ctx.curclient = ctxin->curclient;
+			ctx.cmdclient = ctxin->cmdclient;
+		}
 
 		ctx.error = cfg_error;
 		ctx.print = cfg_print;
 		ctx.info = cfg_print;
-
-		ctx.cmdclient = NULL;
 
 		cfg_cause = NULL;
 		cmd_list_exec(cmdlist, &ctx);
@@ -123,6 +116,8 @@ load_cfg(const char *path, char **cause)
 	return (0);
 
 error:
+	if (line != NULL)
+		xfree(line);
 	fclose(f);
 
 	xasprintf(&ptr, "%s: %s at line %u", path, *cause, n);

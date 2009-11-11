@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.1 2009/06/01 22:58:49 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.28 2009/11/04 23:29:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,51 +17,56 @@
  */
 
 #include <sys/types.h>
-#include <sys/time.h>
 
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "tmux.h"
 
-int	server_lock_callback(void *, const char *);
+void	server_callback_identify(int, short, void *);
 
-const char **
-server_fill_environ(struct session *s)
+void
+server_fill_environ(struct session *s, struct environ *env)
 {
-	static const char *env[] = { NULL /* TMUX= */, "TERM=screen", NULL };
-	static char	tmuxvar[MAXPATHLEN + 256];
-	u_int		idx;
+	char		 tmuxvar[MAXPATHLEN], *term;
+	u_int		 idx;
 
 	if (session_index(s, &idx) != 0)
 		fatalx("session not found");
-
 	xsnprintf(tmuxvar, sizeof tmuxvar,
-	    "TMUX=%s,%ld,%u", socket_path, (long) getpid(), idx);
-	env[0] = tmuxvar;
+	    "%s,%ld,%u", socket_path, (long) getpid(), idx);
+	environ_set(env, "TMUX", tmuxvar);
 
-	return (env);
+	term = options_get_string(&s->options, "default-terminal");
+	environ_set(env, "TERM", term);
+}
+
+void
+server_write_error(struct client *c, const char *msg)
+{
+	struct msg_print_data	printdata;
+
+	strlcpy(printdata.msg, msg, sizeof printdata.msg);
+	server_write_client(c, MSG_ERROR, &printdata, sizeof printdata);
 }
 
 void
 server_write_client(
-    struct client *c, enum hdrtype type, const void *buf, size_t len)
+    struct client *c, enum msgtype type, const void *buf, size_t len)
 {
-	struct hdr	 hdr;
+	struct imsgbuf	*ibuf = &c->ibuf;
 
-	log_debug("writing %d to client %d", type, c->fd);
-
-	hdr.type = type;
-	hdr.size = len;
-
-	buffer_write(c->out, &hdr, sizeof hdr);
-	if (buf != NULL && len > 0)
-		buffer_write(c->out, buf, len);
+	if (c->flags & CLIENT_BAD)
+		return;
+	log_debug("writing %d to client %d", type, c->ibuf.fd);
+	imsg_compose(ibuf, type, PROTOCOL_VERSION, -1, -1, (void *) buf, len);
+	server_update_event(c);	
 }
 
 void
 server_write_session(
-    struct session *s, enum hdrtype type, const void *buf, size_t len)
+    struct session *s, enum msgtype type, const void *buf, size_t len)
 {
 	struct client	*c;
 	u_int		 i;
@@ -71,22 +76,6 @@ server_write_session(
 		if (c == NULL || c->session == NULL)
 			continue;
 		if (c->session == s)
-			server_write_client(c, type, buf, len);
-	}
-}
-
-void
-server_write_window(
-    struct window *w, enum hdrtype type, const void *buf, size_t len)
-{
-	struct client	*c;
-	u_int		 i;
-
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL || c->session == NULL)
-			continue;
-		if (c->session->curw->window == w)
 			server_write_client(c, type, buf, len);
 	}
 }
@@ -119,6 +108,19 @@ server_redraw_session(struct session *s)
 }
 
 void
+server_redraw_session_group(struct session *s)
+{
+	struct session_group	*sg;
+
+	if ((sg = session_group_find(s)) == NULL)
+		server_redraw_session(s);
+	else {
+		TAILQ_FOREACH(s, &sg->sessions, gentry)
+			server_redraw_session(s);
+	}
+}
+
+void
 server_status_session(struct session *s)
 {
 	struct client	*c;
@@ -130,6 +132,19 @@ server_status_session(struct session *s)
 			continue;
 		if (c->session == s)
 			server_status_client(c);
+	}
+}
+
+void
+server_status_session_group(struct session *s)
+{
+	struct session_group	*sg;
+
+	if ((sg = session_group_find(s)) == NULL)
+		server_status_session(s);
+	else {
+		TAILQ_FOREACH(s, &sg->sessions, gentry)
+			server_status_session(s);
 	}
 }
 
@@ -174,69 +189,211 @@ server_lock(void)
 	struct client	*c;
 	u_int		 i;
 
-	if (server_locked)
-		return;
-
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
 		if (c == NULL || c->session == NULL)
 			continue;
-
-		status_prompt_clear(c);
-		status_prompt_set(
-		    c, "Password: ", server_lock_callback, c, PROMPT_HIDDEN);
-  		server_redraw_client(c);
+		server_lock_client(c);
 	}
-	server_locked = 1;
 }
 
-int
-server_lock_callback(unused void *data, const char *s)
-{
-	return (server_unlock(s));
-}
-
-int
-server_unlock(const char *s)
+void
+server_lock_session(struct session *s)
 {
 	struct client	*c;
 	u_int		 i;
-	char		*out;
-
-	if (!server_locked)
-		return (0);
-	server_activity = time(NULL);
-
-	if (server_password != NULL) {
-		if (s == NULL)
-			return (-1);
-		out = crypt(s, server_password);
-		if (strcmp(out, server_password) != 0)
-			goto wrong;
-	}
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL)
+		if (c == NULL || c->session == NULL || c->session != s)
 			continue;
+		server_lock_client(c);
+	}	
+}
 
-		status_prompt_clear(c);
-  		server_redraw_client(c);
+void
+server_lock_client(struct client *c)
+{
+	const char		*cmd;
+	size_t			 cmdlen;
+	struct msg_lock_data	 lockdata;
+
+	if (c->flags & CLIENT_SUSPENDED)
+		return;
+
+	cmd = options_get_string(&c->session->options, "lock-command");
+	cmdlen = strlcpy(lockdata.cmd, cmd, sizeof lockdata.cmd);
+	if (cmdlen >= sizeof lockdata.cmd)
+		return;
+      
+	tty_stop_tty(&c->tty);
+	tty_raw(&c->tty, tty_term_string(c->tty.term, TTYC_SMCUP));
+	tty_raw(&c->tty, tty_term_string(c->tty.term, TTYC_CLEAR));
+
+	c->flags |= CLIENT_SUSPENDED;
+	server_write_client(c, MSG_LOCK, &lockdata, sizeof lockdata);
+}
+
+void
+server_kill_window(struct window *w)
+{
+	struct session	*s;
+	struct winlink	*wl;
+	u_int		 i;
+	
+	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+		s = ARRAY_ITEM(&sessions, i);
+		if (s == NULL || !session_has(s, w))
+			continue;
+		if ((wl = winlink_find_by_window(&s->windows, w)) == NULL)
+			continue;
+		
+		if (session_detach(s, wl))
+			server_destroy_session_group(s);
+		else {
+			server_redraw_session(s);
+			server_status_session_group(s);
+		}
+	}
+}
+
+int
+server_link_window(struct session *src, struct winlink *srcwl,
+    struct session *dst, int dstidx, int killflag, int selectflag, char **cause)
+{
+	struct winlink		*dstwl;
+	struct session_group	*srcsg, *dstsg;
+
+	srcsg = session_group_find(src);
+	dstsg = session_group_find(dst);
+	if (src != dst && srcsg != NULL && dstsg != NULL && srcsg == dstsg) {
+		xasprintf(cause, "sessions are grouped");
+		return (-1);
 	}
 
-	server_locked = 0;
+	dstwl = NULL;
+	if (dstidx != -1)
+		dstwl = winlink_find_by_index(&dst->windows, dstidx);
+	if (dstwl != NULL) {
+		if (dstwl->window == srcwl->window)
+			return (0);
+		if (killflag) {
+			/*
+			 * Can't use session_detach as it will destroy session
+			 * if this makes it empty.
+			 */
+			session_alert_cancel(dst, dstwl);
+			winlink_stack_remove(&dst->lastw, dstwl);
+			winlink_remove(&dst->windows, dstwl);
+
+			/* Force select/redraw if current. */
+			if (dstwl == dst->curw) {
+				selectflag = 1;
+				dst->curw = NULL;
+			}
+		}
+	}
+
+	if (dstidx == -1)
+		dstidx = -1 - options_get_number(&dst->options, "base-index");
+	dstwl = session_attach(dst, srcwl->window, dstidx, cause);
+	if (dstwl == NULL)
+		return (-1);
+
+	if (selectflag)
+		session_select(dst, dstwl->idx);
+	server_redraw_session_group(dst);
+
 	return (0);
+}
 
-wrong:
+void
+server_unlink_window(struct session *s, struct winlink *wl)
+{
+	if (session_detach(s, wl))
+		server_destroy_session_group(s);
+	else
+		server_redraw_session_group(s);
+}
+
+void
+server_destroy_session_group(struct session *s)
+{
+	struct session_group	*sg;
+
+	if ((sg = session_group_find(s)) == NULL)
+		server_destroy_session(s);
+	else {
+		TAILQ_FOREACH(s, &sg->sessions, gentry)
+			server_destroy_session(s);
+		TAILQ_REMOVE(&session_groups, sg, entry);
+		xfree(sg);
+	}
+}
+
+void
+server_destroy_session(struct session *s)
+{
+	struct client	*c;
+	u_int		 i;
+	
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL)
+		if (c == NULL || c->session != s)
 			continue;
-
-		*c->prompt_buffer = '\0';
-		c->prompt_index = 0;
-  		server_status_client(c);
+		c->session = NULL;
+		server_write_client(c, MSG_EXIT, NULL, 0);
 	}
+}
 
-	return (-1);
+void
+server_set_identify(struct client *c)
+{
+	struct timeval	tv;
+	int		delay;
+
+	delay = options_get_number(&c->session->options, "display-panes-time");
+	tv.tv_sec = delay / 1000;
+	tv.tv_usec = (delay % 1000) * 1000L;
+	
+	evtimer_del(&c->identify_timer);
+	evtimer_set(&c->identify_timer, server_callback_identify, c);
+	evtimer_add(&c->identify_timer, &tv);
+
+	c->flags |= CLIENT_IDENTIFY;
+	c->tty.flags |= (TTY_FREEZE|TTY_NOCURSOR);
+	server_redraw_client(c);
+}
+
+void
+server_clear_identify(struct client *c)
+{
+	if (c->flags & CLIENT_IDENTIFY) {
+		c->flags &= ~CLIENT_IDENTIFY;
+		c->tty.flags &= ~(TTY_FREEZE|TTY_NOCURSOR);
+		server_redraw_client(c);
+	}
+}
+
+void
+server_callback_identify(unused int fd, unused short events, void *data)
+{
+	struct client	*c = data;
+
+	server_clear_identify(c);
+}
+
+void
+server_update_event(struct client *c)
+{
+	short	events;
+
+	events = 0;
+	if (!(c->flags & CLIENT_BAD))
+		events |= EV_READ;
+	if (c->ibuf.w.queued > 0)
+		events |= EV_WRITE;
+	event_del(&c->event);
+	event_set(&c->event, c->ibuf.fd, events, server_client_callback, c);
+	event_add(&c->event, NULL);	
 }

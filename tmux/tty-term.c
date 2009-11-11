@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-term.c,v 1.2 2009/06/05 03:13:16 ray Exp $ */
+/* $OpenBSD: tty-term.c,v 1.13 2009/10/26 16:00:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,20 +18,23 @@
 
 #include <sys/types.h>
 
-#include <ncurses.h>
+#include <curses.h>
+#include <fnmatch.h>
+#include <stdlib.h>
 #include <string.h>
 #include <term.h>
+#include <vis.h>
 
 #include "tmux.h"
 
-void	 tty_term_quirks(struct tty_term *);
+void	 tty_term_override(struct tty_term *, const char *);
 char	*tty_term_strip(const char *);
 
 struct tty_terms tty_terms = SLIST_HEAD_INITIALIZER(tty_terms);
 
 struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
-	{ TTYC_AX, TTYCODE_FLAG, "AX" },
 	{ TTYC_ACSC, TTYCODE_STRING, "acsc" },
+	{ TTYC_AX, TTYCODE_FLAG, "AX" },
 	{ TTYC_BEL, TTYCODE_STRING, "bel" },
 	{ TTYC_BLINK, TTYCODE_STRING, "blink" },
 	{ TTYC_BOLD, TTYCODE_STRING, "bold" },
@@ -40,9 +43,15 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_CNORM, TTYCODE_STRING, "cnorm" },
 	{ TTYC_COLORS, TTYCODE_NUMBER, "colors" },
 	{ TTYC_CSR, TTYCODE_STRING, "csr" },
+	{ TTYC_CUB, TTYCODE_STRING, "cub" },
+	{ TTYC_CUB1, TTYCODE_STRING, "cub1" },
 	{ TTYC_CUD, TTYCODE_STRING, "cud" },
 	{ TTYC_CUD1, TTYCODE_STRING, "cud1" },
+	{ TTYC_CUF, TTYCODE_STRING, "cuf" },
+	{ TTYC_CUF1, TTYCODE_STRING, "cuf1" },
 	{ TTYC_CUP, TTYCODE_STRING, "cup" },
+	{ TTYC_CUU, TTYCODE_STRING, "cuu" },
+	{ TTYC_CUU1, TTYCODE_STRING, "cuu1" },
 	{ TTYC_DCH, TTYCODE_STRING, "dch" },
 	{ TTYC_DCH1, TTYCODE_STRING, "dch1" },
 	{ TTYC_DIM, TTYCODE_STRING, "dim" },
@@ -51,6 +60,8 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_EL, TTYCODE_STRING, "el" },
 	{ TTYC_EL1, TTYCODE_STRING, "el1" },
 	{ TTYC_ENACS, TTYCODE_STRING, "enacs" },
+	{ TTYC_HOME, TTYCODE_STRING, "home" },
+	{ TTYC_HPA, TTYCODE_STRING, "hpa" },
 	{ TTYC_ICH, TTYCODE_STRING, "ich" },
 	{ TTYC_ICH1, TTYCODE_STRING, "ich1" },
 	{ TTYC_IL, TTYCODE_STRING, "il" },
@@ -64,8 +75,26 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_KCUD1, TTYCODE_STRING, "kcud1" },
 	{ TTYC_KCUF1, TTYCODE_STRING, "kcuf1" },
 	{ TTYC_KCUU1, TTYCODE_STRING, "kcuu1" },
+	{ TTYC_KDC2, TTYCODE_STRING, "kDC" },
+	{ TTYC_KDC3, TTYCODE_STRING, "kDC3" },
+	{ TTYC_KDC4, TTYCODE_STRING, "kDC4" },
+	{ TTYC_KDC5, TTYCODE_STRING, "kDC5" },
+	{ TTYC_KDC6, TTYCODE_STRING, "kDC6" },
+	{ TTYC_KDC7, TTYCODE_STRING, "kDC7" },
 	{ TTYC_KDCH1, TTYCODE_STRING, "kdch1" },
+	{ TTYC_KDN2, TTYCODE_STRING, "kDN" },
+	{ TTYC_KDN3, TTYCODE_STRING, "kDN3" },
+	{ TTYC_KDN4, TTYCODE_STRING, "kDN4" },
+	{ TTYC_KDN5, TTYCODE_STRING, "kDN5" },
+	{ TTYC_KDN6, TTYCODE_STRING, "kDN6" },
+	{ TTYC_KDN7, TTYCODE_STRING, "kDN7" },
 	{ TTYC_KEND, TTYCODE_STRING, "kend" },
+	{ TTYC_KEND2, TTYCODE_STRING, "kEND" },
+	{ TTYC_KEND3, TTYCODE_STRING, "kEND3" },
+	{ TTYC_KEND4, TTYCODE_STRING, "kEND4" },
+	{ TTYC_KEND5, TTYCODE_STRING, "kEND5" },
+	{ TTYC_KEND6, TTYCODE_STRING, "kEND6" },
+	{ TTYC_KEND7, TTYCODE_STRING, "kEND7" },
 	{ TTYC_KF1, TTYCODE_STRING, "kf1" },
 	{ TTYC_KF10, TTYCODE_STRING, "kf10" },
 	{ TTYC_KF11, TTYCODE_STRING, "kf11" },
@@ -77,8 +106,8 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_KF17, TTYCODE_STRING, "kf17" },
 	{ TTYC_KF18, TTYCODE_STRING, "kf18" },
 	{ TTYC_KF19, TTYCODE_STRING, "kf19" },
-	{ TTYC_KF20, TTYCODE_STRING, "kf20" },
 	{ TTYC_KF2, TTYCODE_STRING, "kf2" },
+	{ TTYC_KF20, TTYCODE_STRING, "kf20" },
 	{ TTYC_KF3, TTYCODE_STRING, "kf3" },
 	{ TTYC_KF4, TTYCODE_STRING, "kf4" },
 	{ TTYC_KF5, TTYCODE_STRING, "kf5" },
@@ -86,11 +115,53 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_KF7, TTYCODE_STRING, "kf7" },
 	{ TTYC_KF8, TTYCODE_STRING, "kf8" },
 	{ TTYC_KF9, TTYCODE_STRING, "kf9" },
+	{ TTYC_KHOM2, TTYCODE_STRING, "kHOM" },
+	{ TTYC_KHOM3, TTYCODE_STRING, "kHOM3" },
+	{ TTYC_KHOM4, TTYCODE_STRING, "kHOM4" },
+	{ TTYC_KHOM5, TTYCODE_STRING, "kHOM5" },
+	{ TTYC_KHOM6, TTYCODE_STRING, "kHOM6" },
+	{ TTYC_KHOM7, TTYCODE_STRING, "kHOM7" },
 	{ TTYC_KHOME, TTYCODE_STRING, "khome" },
+	{ TTYC_KIC2, TTYCODE_STRING, "kIC" },
+	{ TTYC_KIC3, TTYCODE_STRING, "kIC3" },
+	{ TTYC_KIC4, TTYCODE_STRING, "kIC4" },
+	{ TTYC_KIC5, TTYCODE_STRING, "kIC5" },
+	{ TTYC_KIC6, TTYCODE_STRING, "kIC6" },
+	{ TTYC_KIC7, TTYCODE_STRING, "kIC7" },
 	{ TTYC_KICH1, TTYCODE_STRING, "kich1" },
+	{ TTYC_KLFT2, TTYCODE_STRING, "kLFT" },
+	{ TTYC_KLFT3, TTYCODE_STRING, "kLFT3" },
+	{ TTYC_KLFT4, TTYCODE_STRING, "kLFT4" },
+	{ TTYC_KLFT5, TTYCODE_STRING, "kLFT5" },
+	{ TTYC_KLFT6, TTYCODE_STRING, "kLFT6" },
+	{ TTYC_KLFT7, TTYCODE_STRING, "kLFT7" },
 	{ TTYC_KMOUS, TTYCODE_STRING, "kmous" },
 	{ TTYC_KNP, TTYCODE_STRING, "knp" },
+	{ TTYC_KNXT2, TTYCODE_STRING, "kNXT" },
+	{ TTYC_KNXT3, TTYCODE_STRING, "kNXT3" },
+	{ TTYC_KNXT4, TTYCODE_STRING, "kNXT4" },
+	{ TTYC_KNXT5, TTYCODE_STRING, "kNXT5" },
+	{ TTYC_KNXT6, TTYCODE_STRING, "kNXT6" },
+	{ TTYC_KNXT7, TTYCODE_STRING, "kNXT7" },
 	{ TTYC_KPP, TTYCODE_STRING, "kpp" },
+	{ TTYC_KPRV2, TTYCODE_STRING, "kPRV" },
+	{ TTYC_KPRV3, TTYCODE_STRING, "kPRV3" },
+	{ TTYC_KPRV4, TTYCODE_STRING, "kPRV4" },
+	{ TTYC_KPRV5, TTYCODE_STRING, "kPRV5" },
+	{ TTYC_KPRV6, TTYCODE_STRING, "kPRV6" },
+	{ TTYC_KPRV7, TTYCODE_STRING, "kPRV7" },
+	{ TTYC_KRIT2, TTYCODE_STRING, "kRIT" },
+	{ TTYC_KRIT3, TTYCODE_STRING, "kRIT3" },
+	{ TTYC_KRIT4, TTYCODE_STRING, "kRIT4" },
+	{ TTYC_KRIT5, TTYCODE_STRING, "kRIT5" },
+	{ TTYC_KRIT6, TTYCODE_STRING, "kRIT6" },
+	{ TTYC_KRIT7, TTYCODE_STRING, "kRIT7" },
+	{ TTYC_KUP2, TTYCODE_STRING, "kUP" },
+	{ TTYC_KUP3, TTYCODE_STRING, "kUP3" },
+	{ TTYC_KUP4, TTYCODE_STRING, "kUP4" },
+	{ TTYC_KUP5, TTYCODE_STRING, "kUP5" },
+	{ TTYC_KUP6, TTYCODE_STRING, "kUP6" },
+	{ TTYC_KUP7, TTYCODE_STRING, "kUP7" },
 	{ TTYC_OP, TTYCODE_STRING, "op" },
 	{ TTYC_REV, TTYCODE_STRING, "rev" },
 	{ TTYC_RI, TTYCODE_STRING, "ri" },
@@ -107,6 +178,7 @@ struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_SMKX, TTYCODE_STRING, "smkx" },
 	{ TTYC_SMSO, TTYCODE_STRING, "smso" },
 	{ TTYC_SMUL, TTYCODE_STRING, "smul" },
+	{ TTYC_VPA, TTYCODE_STRING, "vpa" },
 	{ TTYC_XENL, TTYCODE_FLAG, "xenl" },
 };
 
@@ -140,27 +212,88 @@ tty_term_strip(const char *s)
 }
 
 void
-tty_term_quirks(struct tty_term *term)
+tty_term_override(struct tty_term *term, const char *overrides)
 {
-	if (strncmp(term->name, "rxvt", 4) == 0) {
-		/* rxvt supports dch1 but some termcap files do not have it. */
-		if (!tty_term_has(term, TTYC_DCH1)) {
-			term->codes[TTYC_DCH1].type = TTYCODE_STRING;
-			term->codes[TTYC_DCH1].value.string = xstrdup("\033[P");
+	struct tty_term_code_entry	*ent;
+	struct tty_code			*code;
+	char				*termnext, *termstr, *entnext, *entstr;
+	char				*s, *ptr, *val;
+	const char			*errstr;
+	u_int				 i;
+	int				 n, removeflag;
+
+	s = xstrdup(overrides);
+
+	termnext = s;
+	while ((termstr = strsep(&termnext, ",")) != NULL) {
+		entnext = termstr;
+		
+		entstr = strsep(&entnext, ":");
+		if (entstr == NULL || entnext == NULL)
+			continue;
+		if (fnmatch(entstr, term->name, 0) != 0)
+			continue;
+		while ((entstr = strsep(&entnext, ":")) != NULL) {
+			if (*entstr == '\0')
+				continue;
+
+			val = NULL;
+			removeflag = 0;
+ 			if ((ptr = strchr(entstr, '=')) != NULL) {
+				*ptr++ = '\0';
+				val = xstrdup(ptr);
+				if (strunvis(val, ptr) == -1) {
+					xfree(val);
+					val = xstrdup(ptr);
+				}
+			} else if (entstr[strlen(entstr) - 1] == '@') {
+				entstr[strlen(entstr) - 1] = '\0';
+				removeflag = 1;
+			}
+
+			for (i = 0; i < NTTYCODE; i++) {
+				ent = &tty_term_codes[i];
+				if (strcmp(entstr, ent->name) != 0)
+					continue;
+				code = &term->codes[ent->code];
+
+				if (removeflag) {
+					code->type = TTYCODE_NONE;
+					continue;
+				}
+				switch (ent->type) {
+				case TTYCODE_NONE:
+					break;
+				case TTYCODE_STRING:
+					if (code->type == TTYCODE_STRING)
+						xfree(code->value.string);
+					code->value.string = xstrdup(val);
+					code->type = ent->type;
+					break;
+				case TTYCODE_NUMBER:
+					n = strtonum(val, 0, INT_MAX, &errstr);
+					if (errstr != NULL)
+						break;
+					code->value.number = n;
+					code->type = ent->type;
+					break;
+				case TTYCODE_FLAG:
+					code->value.flag = 1;
+					code->type = ent->type;
+					break;
+				}
+			}
+
+			if (val != NULL)
+				xfree(val);
 		}
 	}
 
-	if (strncmp(term->name, "xterm", 5) == 0) {
-		/* xterm supports ich1 but some termcaps omit it. */
-		if (!tty_term_has(term, TTYC_ICH1)) {
-			term->codes[TTYC_ICH1].type = TTYCODE_STRING;
-			term->codes[TTYC_ICH1].value.string = xstrdup("\033[@");
-		}
-	}
+	xfree(s);
 }
 
 struct tty_term *
-tty_term_find(char *name, int fd, char **cause)
+tty_term_find(char *name, int fd, const char *overrides, char **cause)
 {
 	struct tty_term			*term;
 	struct tty_term_code_entry	*ent;
@@ -181,18 +314,19 @@ tty_term_find(char *name, int fd, char **cause)
 	term->name = xstrdup(name);
 	term->references = 1;
 	term->flags = 0;
+	memset(&term->codes, 0, sizeof term->codes);
 	SLIST_INSERT_HEAD(&tty_terms, term, entry);
 
-	/* Set up ncurses terminal. */
+	/* Set up curses terminal. */
 	if (setupterm(name, fd, &error) != OK) {
 		switch (error) {
-		case 0:
-			xasprintf(cause, "can't use hardcopy terminal");
-			break;
 		case 1:
-			xasprintf(cause, "missing or unsuitable terminal");
+			xasprintf(cause, "can't use hardcopy terminal: %s", name);
 			break;
-		case 2:
+		case 0:
+			xasprintf(cause, "missing or unsuitable terminal: %s", name);
+			break;
+		case -1:
 			xasprintf(cause, "can't find terminfo database");
 			break;
 		default:
@@ -203,7 +337,6 @@ tty_term_find(char *name, int fd, char **cause)
 	}
 
 	/* Fill in codes. */
-	memset(&term->codes, 0, sizeof term->codes);
 	for (i = 0; i < NTTYCODE; i++) {
 		ent = &tty_term_codes[i];
 
@@ -235,9 +368,9 @@ tty_term_find(char *name, int fd, char **cause)
 			break;
 		}
 	}
-	tty_term_quirks(term);
+	tty_term_override(term, overrides);
 
-	/* Delete ncurses data. */
+	/* Delete curses data. */
 	del_curterm(cur_term);
 
 	/* These are always required. */
@@ -274,34 +407,11 @@ tty_term_find(char *name, int fd, char **cause)
 		    "terminal does not support ich1 or ich or smir and rmir");
 		goto error;
 	}
-	if (!tty_term_has(term, TTYC_DCH1) && !tty_term_has(term, TTYC_DCH)) {
-		xasprintf(cause, "terminal does not support dch1 or dch");
-		goto error;
-	}
 
-	/*
-	 * Figure out if terminal support default colours. AX is a screen
-	 * extension which indicates this. Also check if op (orig_pair) uses
-	 * the default colours - if it does, this is a good indication the
-	 * terminal supports them.
-	 */
-	if (tty_term_flag(term, TTYC_AX))
-		term->flags |= TERM_HASDEFAULTS;
-	if (strcmp(tty_term_string(term, TTYC_OP), "\033[39;49m") == 0)
-		term->flags |= TERM_HASDEFAULTS;
-
-	/*
-	 * Try to figure out if we have 256 or 88 colours. The standard xterm
-	 * definitions are broken (well, or the way they are parsed is: in any
-	 * case they end up returning 8). So also do a hack.
-	 */
+	/* Figure out if we have 256 or 88 colours. */
 	if (tty_term_number(term, TTYC_COLORS) == 256)
 		term->flags |= TERM_256COLOURS;
-	if (strstr(name, "256col") != NULL) /* XXX HACK */
-		term->flags |= TERM_256COLOURS;
 	if (tty_term_number(term, TTYC_COLORS) == 88)
-		term->flags |= TERM_88COLOURS;
-	if (strstr(name, "88col") != NULL) /* XXX HACK */
 		term->flags |= TERM_88COLOURS;
 
 	/*
@@ -358,7 +468,7 @@ tty_term_string(struct tty_term *term, enum tty_code_code code)
 	return (term->codes[code].value.string);
 }
 
-/* No vtparm. Fucking ncurses. */
+/* No vtparm. Fucking curses. */
 const char *
 tty_term_string1(struct tty_term *term, enum tty_code_code code, int a)
 {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: xstr.c,v 1.14 2007/09/10 14:29:53 tobias Exp $	*/
+/*	$OpenBSD: xstr.c,v 1.16 2009/10/27 23:59:50 deraadt Exp $	*/
 /*	$NetBSD: xstr.c,v 1.5 1994/12/24 16:57:59 cgd Exp $	*/
 
 /*
@@ -29,19 +29,6 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
-
-#ifndef lint
-static char copyright[] =
-"@(#) Copyright (c) 1980, 1993\n\
-	The Regents of the University of California.  All rights reserved.\n";
-#endif /* not lint */
-
-#ifndef lint
-#if 0
-static char sccsid[] = "@(#)xstr.c	8.1 (Berkeley) 6/9/93";
-#endif
-static char rcsid[] = "$OpenBSD: xstr.c,v 1.14 2007/09/10 14:29:53 tobias Exp $";
-#endif /* not lint */
 
 #include <sys/types.h>
 #include <signal.h>
@@ -391,7 +378,8 @@ flushsh(void)
 			found(hp->hnew, hp->hpt, hp->hstr);
 			if (hp->hnew) {
 				fseek(mesgwrit, hp->hpt, SEEK_SET);
-				fwrite(hp->hstr, strlen(hp->hstr) + 1, 1, mesgwrit);
+				fwrite(hp->hstr, strlen(hp->hstr) + 1, 1,
+				    mesgwrit);
 				if (ferror(mesgwrit)) {
 					perror(strings);
 					exit(4);
