@@ -1,23 +1,19 @@
 # On branch master
+# Your branch is ahead of 'origin/master' by 1 commit.
+#
 # Changed but not updated:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   cap_mkdb/getinfo.c
-#	modified:   compress/gzopen.c
-#	modified:   file/apprentice.c
-#	modified:   ftp/util.c
-#	modified:   ssh/channels.c
-#	modified:   ssh/channels.h
+#	modified:   audioctl/audioctl.c
+#	modified:   finger/finger.c
+#	modified:   hexdump/odsyntax.c
+#	modified:   mg/line.c
+#	modified:   mixerctl/mixerctl.c
 #	modified:   status.log
-#	modified:   tmux/cmd-attach-session.c
-#	modified:   tmux/cmd-new-session.c
-#	modified:   tmux/cmd-string.c
-#	modified:   tmux/screen-write.c
-#	modified:   tmux/server-client.c
-#	modified:   tmux/server.c
-#	modified:   tmux/tmux.h
-#	modified:   tset/tset.c
+#	modified:   tmux/tty-keys.c
+#	modified:   tmux/tty-term.c
+#	modified:   tmux/tty.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
