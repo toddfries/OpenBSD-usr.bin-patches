@@ -3,14 +3,21 @@
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   make/cond.c
+#	modified:   cap_mkdb/getinfo.c
+#	modified:   compress/gzopen.c
+#	modified:   file/apprentice.c
+#	modified:   ftp/util.c
+#	modified:   ssh/channels.c
+#	modified:   ssh/channels.h
 #	modified:   status.log
-#	modified:   tmux/input-keys.c
-#	modified:   tmux/key-string.c
-#	modified:   tmux/tmux.1
-#	modified:   tmux/tmux.c
+#	modified:   tmux/cmd-attach-session.c
+#	modified:   tmux/cmd-new-session.c
+#	modified:   tmux/cmd-string.c
+#	modified:   tmux/screen-write.c
+#	modified:   tmux/server-client.c
+#	modified:   tmux/server.c
 #	modified:   tmux/tmux.h
-#	modified:   tmux/tty-keys.c
+#	modified:   tset/tset.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")
