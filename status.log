@@ -1,19 +1,9 @@
 # On branch master
-# Your branch is ahead of 'origin/master' by 1 commit.
-#
 # Changed but not updated:
 #   (use "git add <file>..." to update what will be committed)
 #   (use "git checkout -- <file>..." to discard changes in working directory)
 #
-#	modified:   audioctl/audioctl.c
-#	modified:   finger/finger.c
-#	modified:   hexdump/odsyntax.c
-#	modified:   mg/line.c
-#	modified:   mixerctl/mixerctl.c
 #	modified:   status.log
-#	modified:   tmux/tty-keys.c
-#	modified:   tmux/tty-term.c
-#	modified:   tmux/tty.c
 #	modified:   up.log
 #
 no changes added to commit (use "git add" and/or "git commit -a")

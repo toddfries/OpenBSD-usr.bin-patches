@@ -3,11 +3,3 @@
 ? status.log
 ? up.log
 ? vi/build/obj
-P audioctl/audioctl.c
-P finger/finger.c
-P hexdump/odsyntax.c
-P mg/line.c
-P mixerctl/mixerctl.c
-P tmux/tty-keys.c
-P tmux/tty-term.c
-P tmux/tty.c
