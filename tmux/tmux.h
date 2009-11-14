@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.175 2009/11/11 08:00:42 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.179 2009/11/13 19:58:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1150,10 +1150,7 @@ struct cmd_entry {
 #define CMD_ARG12 0x40
 	int		 flags;
 
-#define CMD_CHFLAG(flag) \
-	((flag) >= 'a' && (flag) <= 'z' ? 1ULL << ((flag) - 'a') :	\
-	(flag) >= 'A' && (flag) <= 'Z' ? 1ULL << (26 + (flag) - 'A') : 0)
-	uint64_t	 chflags;
+	const char	*chflags;
 
 	void		 (*init)(struct cmd *, int);
 	int		 (*parse)(struct cmd *, int, char **, char **);
@@ -1165,23 +1162,29 @@ struct cmd_entry {
 /* Generic command data. */
 struct cmd_target_data {
 	uint64_t chflags;
+
 	char	*target;
+
 	char	*arg;
 	char	*arg2;
 };
 
 struct cmd_srcdst_data {
 	uint64_t chflags;
+
 	char	*src;
 	char	*dst;
+
 	char	*arg;
 	char	*arg2;
 };
 
 struct cmd_buffer_data {
 	uint64_t chflags;
+
 	char	*target;
 	int	 buffer;
+
 	char	*arg;
 	char	*arg2;
 };
@@ -1249,7 +1252,6 @@ const char *mode_key_tostring(struct mode_key_cmdstr *r, enum mode_key_cmd);
 enum mode_key_cmd mode_key_fromstring(struct mode_key_cmdstr *, const char *);
 const struct mode_key_table *mode_key_findtable(const char *);
 void	mode_key_init_trees(void);
-void	mode_key_free_trees(void);
 void	mode_key_init(struct mode_key_data *, struct mode_key_tree *);
 enum mode_key_cmd mode_key_lookup(struct mode_key_data *, int);
 
@@ -1503,6 +1505,8 @@ int	cmd_string_parse(const char *, struct cmd_list **, char **);
 
 /* cmd-generic.c */
 size_t  cmd_prarg(char *, size_t, const char *, char *);
+int	cmd_check_flag(uint64_t, int);
+void	cmd_set_flag(uint64_t *, int);
 #define CMD_TARGET_PANE_USAGE "[-t target-pane]"
 #define CMD_TARGET_WINDOW_USAGE "[-t target-window]"
 #define CMD_TARGET_SESSION_USAGE "[-t target-session]"
@@ -1541,7 +1545,6 @@ void	 key_bindings_add(int, int, struct cmd_list *);
 void	 key_bindings_remove(int);
 void	 key_bindings_clean(void);
 void	 key_bindings_init(void);
-void	 key_bindings_free(void);
 void	 key_bindings_dispatch(struct key_binding *, struct client *);
 void printflike2 key_bindings_error(struct cmd_ctx *, const char *, ...);
 void printflike2 key_bindings_print(struct cmd_ctx *, const char *, ...);
@@ -1592,6 +1595,7 @@ void	 server_kill_window(struct window *);
 int	 server_link_window(struct session *,
 	     struct winlink *, struct session *, int, int, int, char **);
 void	 server_unlink_window(struct session *, struct winlink *);
+void	 server_destroy_pane(struct window_pane *);
 void	 server_destroy_session_group(struct session *);
 void	 server_destroy_session(struct session *);
 void	 server_set_identify(struct client *);
