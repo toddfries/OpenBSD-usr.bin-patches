@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_args.c,v 1.7 2009/10/27 23:59:47 deraadt Exp $	*/
+/*	$OpenBSD: ex_args.c,v 1.9 2009/11/15 04:32:31 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994
@@ -310,14 +310,20 @@ ex_buildargv(sp, cmdp, name)
 		return (NULL);
 
 	if (cmdp == NULL) {
-		if ((*ap = v_strdup(sp, name, strlen(name))) == NULL)
+		if ((*ap = v_strdup(sp, name, strlen(name))) == NULL) {
+			free(s_argv);
 			return (NULL);
+		}
 		++ap;
 	} else
 		for (argv = cmdp->argv; argv[0]->len != 0; ++ap, ++argv)
 			if ((*ap =
-			    v_strdup(sp, argv[0]->bp, argv[0]->len)) == NULL)
+			    v_strdup(sp, argv[0]->bp, argv[0]->len)) == NULL) {
+				while (--ap >= s_argv)
+					free(*ap);
+				free(s_argv);
 				return (NULL);
+			}
 	*ap = NULL;
 	return (s_argv);
 }
