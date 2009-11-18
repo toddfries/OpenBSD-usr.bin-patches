@@ -3,10 +3,6 @@
 ? status.log
 ? up.log
 ? vi/build/obj
-P aucat/aproc.c
-P systat/systat.1
-P tmux/cmd-string.c
-P tmux/screen-write.c
-P vi/ex/ex_args.c
-P vi/ex/ex_tag.c
-P vi/vi/v_ex.c
+P ssh/clientloop.c
+P tmux/status.c
+P tmux/window-choose.c
