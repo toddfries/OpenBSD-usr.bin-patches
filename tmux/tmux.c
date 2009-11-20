@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.57 2009/11/10 18:53:11 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.60 2009/11/19 16:22:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -332,6 +332,7 @@ main(int argc, char **argv)
 	options_set_number(so, "message-attr", 0);
 	options_set_number(so, "message-bg", 3);
 	options_set_number(so, "message-fg", 0);
+	options_set_number(so, "message-limit", 20);
 	options_set_number(so, "mouse-select-pane", 0);
 	options_set_number(so, "repeat-time", 500);
 	options_set_number(so, "set-remain-on-exit", 0);
@@ -390,7 +391,9 @@ main(int argc, char **argv)
 	options_set_number(wo, "window-status-current-bg", 8);
 	options_set_number(wo, "window-status-current-fg", 8);
 	options_set_number(wo, "window-status-fg", 8);
-	options_set_number(wo, "xterm-keys", 1);
+	options_set_string(wo, "window-status-format", "#I:#W#F");
+	options_set_string(wo, "window-status-current-format", "#I:#W#F");
+	options_set_number(wo, "xterm-keys", 0);
  	options_set_number(wo, "remain-on-exit", 0);
 	options_set_number(wo, "synchronize-panes", 0);
 

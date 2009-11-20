@@ -1,8 +1,0 @@
-? .git
-? .gitignore
-? status.log
-? up.log
-? vi/build/obj
-P ssh/clientloop.c
-P tmux/status.c
-P tmux/window-choose.c

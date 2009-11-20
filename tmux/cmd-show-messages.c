@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-display-message.c,v 1.6 2009/11/19 16:22:10 nicm Exp $ */
+/* $OpenBSD: cmd-show-messages.c,v 1.1 2009/11/18 13:16:33 nicm Exp $ */
 
 /*
- * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
+ * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,46 +18,48 @@
 
 #include <sys/types.h>
 
+#include <string.h>
 #include <time.h>
 
 #include "tmux.h"
 
 /*
- * Displays a message in the status line.
+ * Show client message log.
  */
 
-int	cmd_display_message_exec(struct cmd *, struct cmd_ctx *);
+int	cmd_show_messages_exec(struct cmd *, struct cmd_ctx *);
 
-const struct cmd_entry cmd_display_message_entry = {
-	"display-message", "display",
-	CMD_TARGET_CLIENT_USAGE " [message]",
-	CMD_ARG01, "",
+const struct cmd_entry cmd_show_messages_entry = {
+	"show-messages", "showmsgs",
+	CMD_TARGET_CLIENT_USAGE,
+	0, "",
 	cmd_target_init,
 	cmd_target_parse,
-	cmd_display_message_exec,
+	cmd_show_messages_exec,
 	cmd_target_free,
 	cmd_target_print
 };
 
 int
-cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
+cmd_show_messages_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_target_data	*data = self->data;
-	struct client		*c;
-	const char		*template;
-	char			*msg;
+	struct cmd_target_data		*data = self->data;
+	struct client			*c;
+	struct message_entry		*msg;
+	char				*tim;
+	u_int				 i;
 
 	if ((c = cmd_find_client(ctx, data->target)) == NULL)
 		return (-1);
 
-	if (data->arg == NULL)
-		template = "[#S] #I:#W, current pane #P - (%H:%M %d-%b-%y)";
-	else
-		template = data->arg;
+	for (i = 0; i < ARRAY_LENGTH(&c->message_log); i++) {
+		msg = &ARRAY_ITEM(&c->message_log, i);
 
-	msg = status_replace(c, NULL, template, time(NULL), 0);
-	status_message_set(c, "%s", msg);
-	xfree(msg);
+		tim = ctime(&msg->msg_time);
+		*strchr(tim, '\n') = '\0';
+		
+		ctx->print(ctx, "%s %s", tim, msg->msg);
+	}
 
 	return (0);
 }
