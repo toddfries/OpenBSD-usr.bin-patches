@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.71 2009/11/18 17:02:17 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.73 2009/11/26 21:37:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -38,7 +38,7 @@ int	tty_try_88(struct tty *, u_char, const char *);
 
 void	tty_colours(struct tty *, const struct grid_cell *, int *);
 void	tty_colours_fg(struct tty *, const struct grid_cell *, int *);
-void	tty_colours_bg(struct tty *, const struct grid_cell *, int *);
+void	tty_colours_bg(struct tty *, const struct grid_cell *);
 
 void	tty_redraw_region(struct tty *, const struct tty_ctx *);
 void	tty_emulate_repeat(
@@ -125,6 +125,7 @@ tty_open(struct tty *tty, const char *overrides, char **cause)
 	return (0);
 }
 
+/* ARGSUSED */
 void
 tty_read_callback(unused struct bufferevent *bufev, void *data)
 {
@@ -134,6 +135,7 @@ tty_read_callback(unused struct bufferevent *bufev, void *data)
 		;
 }
 
+/* ARGSUSED */
 void
 tty_error_callback(
     unused struct bufferevent *bufev, unused short what, unused void *data)
@@ -569,12 +571,14 @@ tty_cmd_insertcharacter(struct tty *tty, const struct tty_ctx *ctx)
 	if (tty_term_has(tty->term, TTYC_ICH) ||
 	    tty_term_has(tty->term, TTYC_ICH1))
 		tty_emulate_repeat(tty, TTYC_ICH, TTYC_ICH1, ctx->num);
-	else {
+	else if (tty_term_has(tty->term, TTYC_SMIR) && 
+	    tty_term_has(tty->term, TTYC_RMIR)) {
 		tty_putcode(tty, TTYC_SMIR);
 		for (i = 0; i < ctx->num; i++)
 			tty_putc(tty, ' ');
 		tty_putcode(tty, TTYC_RMIR);
-	}
+	} else
+		tty_draw_line(tty, wp->screen, ctx->ocy, wp->xoff, wp->yoff);
 }
 
 void
@@ -606,7 +610,8 @@ tty_cmd_insertline(struct tty *tty, const struct tty_ctx *ctx)
 	struct screen		*s = wp->screen;
 
  	if (wp->xoff != 0 || screen_size_x(s) < tty->sx ||
-	    !tty_term_has(tty->term, TTYC_CSR)) {
+	    !tty_term_has(tty->term, TTYC_CSR) || 
+	    !tty_term_has(tty->term, TTYC_IL1)) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -626,7 +631,8 @@ tty_cmd_deleteline(struct tty *tty, const struct tty_ctx *ctx)
 	struct screen		*s = wp->screen;
 
  	if (wp->xoff != 0 || screen_size_x(s) < tty->sx ||
-	    !tty_term_has(tty->term, TTYC_CSR)) {
+	    !tty_term_has(tty->term, TTYC_CSR) ||
+	    !tty_term_has(tty->term, TTYC_DL1)) {
 		tty_redraw_region(tty, ctx);
 		return;
 	}
@@ -1274,7 +1280,7 @@ tty_colours(struct tty *tty, const struct grid_cell *gc, int *attr)
 	 */
 	if (!bg_default && (bg != tc->bg ||
 	    ((flags & GRID_FLAG_BG256) != (tc->flags & GRID_FLAG_BG256))))
-		tty_colours_bg(tty, gc, attr);
+		tty_colours_bg(tty, gc);
 }
 
 void
@@ -1311,7 +1317,7 @@ save_fg:
 }
 
 void
-tty_colours_bg(struct tty *tty, const struct grid_cell *gc, unused int *attr)
+tty_colours_bg(struct tty *tty, const struct grid_cell *gc)
 {
 	struct grid_cell	*tc = &tty->cell;
 	u_char			 bg = gc->bg;
