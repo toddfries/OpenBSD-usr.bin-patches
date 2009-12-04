@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.127 2009/11/24 19:16:11 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.131 2009/12/03 22:54:34 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: November 24 2009 $
+.Dd $Mdocdate: December 3 2009 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -627,7 +627,8 @@ command or cycled with
 .Ic next-layout
 (bound to
 .Ql C-space
-by default); once a layout is chosen, panes within it may be moved and resized as normal.
+by default); once a layout is chosen, panes within it may be moved and resized
+as normal.
 .Pp
 The following layouts are supported:
 .Bl -tag -width Ds
@@ -636,8 +637,8 @@ Panes are spread out evenly from left to right across the window.
 .It Ic even-vertical
 Panes are spread evenly from top to bottom.
 .It Ic main-horizontal
-A large (main) pane is shown at the top of the window and the remaining panes are
-spread from left to right in the leftover space at the bottom.
+A large (main) pane is shown at the top of the window and the remaining panes
+are spread from left to right in the leftover space at the bottom.
 Use the
 .Em main-pane-height
 window option to specify the height of the top pane.
@@ -664,6 +665,13 @@ off from its containing window to make it the only pane in a new window.
 If
 .Fl d
 is given, the new window does not become the current window.
+.It Xo Ic capture-pane
+.Op Fl b Ar buffer-index
+.Op Fl t Ar target-pane
+.Xc
+.D1 (alias: Ic capturep )
+Capture the contents of a pane to the specified buffer, or a new buffer if none
+is specified.
 .It Xo
 .Ic choose-client
 .Op Fl t Ar target-window
@@ -1223,8 +1231,8 @@ command.
 Commands which set options are as follows:
 .Bl -tag -width Ds
 .It Xo Ic set-option
-.Op Fl agu
-.Op Fl t Ar target-session
+.Op Fl aguw
+.Op Fl t Ar target-session | Ar target-window
 .Ar option Ar value
 .Xc
 .D1 (alias: Ic set )
@@ -1241,6 +1249,13 @@ The
 .Fl u
 flag unsets an option, so a session inherits the option from the global
 options - it is not possible to unset a global option.
+.Pp
+With
+.Fl w ,
+this command is equivalent to
+.Ic set-window-option
+with
+.Ar target-window .
 .Pp
 Available session options are:
 .Bl -tag -width Ds
@@ -1504,7 +1519,8 @@ these may be
 .Ql fg=colour
 to set the foreground colour,
 .Ql bg=colour
-to set the background colour, the name of one of the attributes (listed under the
+to set the background colour, the name of one of the attributes (listed under
+the
 .Ic message-attr
 option) to turn an attribute on, or an attribute prefixed with
 .Ql no
@@ -1824,14 +1840,21 @@ as Shift, Alt or Ctrl.
 The default is off.
 .El
 .It Xo Ic show-options
-.Op Fl g
-.Op Fl t Ar target-session
+.Op Fl gw
+.Op Fl t Ar target-session | Ar target-window
 .Xc
 .D1 (alias: Ic show )
 Show the session options for
 .Ar target session ,
 or the global session options with
 .Fl g .
+.Pp
+If
+.Fl w
+is used, this command is equivalent to
+.Ic show-window-options
+with
+.Ar target-window .
 .It Xo Ic show-window-options
 .Op Fl g
 .Op Fl t Ar target-window
@@ -1943,8 +1966,8 @@ window options.
 The window name is printed in inverted colours if an alert (bell, activity or
 content) is present.
 .Pp
-The colour and attributes of the status line may be configured, the entire status line using
-the
+The colour and attributes of the status line may be configured, the entire
+status line using the
 .Ic status-attr ,
 .Ic status-fg
 and
@@ -1956,8 +1979,8 @@ and
 .Ic window-status-bg
 window options.
 .Pp
-The status line is automatically refreshed at interval if it has changed, the interval may be
-controlled with the
+The status line is automatically refreshed at interval if it has changed, the
+interval may be controlled with the
 .Ic status-interval
 session option.
 .Pp

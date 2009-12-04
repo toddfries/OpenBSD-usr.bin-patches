@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.25 2009/11/30 16:44:03 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.27 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,7 @@ void		tty_keys_add1(struct tty_key **, const char *, int);
 void		tty_keys_add(struct tty *, const char *, int);
 void		tty_keys_free1(struct tty_key *);
 struct tty_key *tty_keys_find1(
-    		    struct tty_key *, const char *, size_t, size_t *);
+		    struct tty_key *, const char *, size_t, size_t *);
 struct tty_key *tty_keys_find(struct tty *, const char *, size_t, size_t *);
 void		tty_keys_callback(int, short, void *);
 int		tty_keys_mouse(
@@ -50,7 +50,7 @@ struct tty_key_ent {
 #define TTYKEY_RAW 0x1
 };
 
-/* 
+/*
  * Default key tables. Those flagged with TTYKEY_RAW are inserted directly,
  * otherwise they are looked up in terminfo(5).
  */
@@ -319,7 +319,7 @@ tty_keys_add1(struct tty_key **tkp, const char *s, int key)
 
 		/* Use the child tree for the next character. */
 		tkp = &tk->next;
-	} else { 
+	} else {
 		if (*s < tk->ch)
 			tkp = &tk->left;
 		else if (*s > tk->ch)
@@ -374,7 +374,7 @@ tty_keys_free1(struct tty_key *tk)
 	if (tk->right != NULL)
 		tty_keys_free1(tk->right);
 	xfree(tk);
-	
+
 }
 
 /* Lookup a key in the tree. */
@@ -453,14 +453,7 @@ tty_keys_next(struct tty *tty)
 		goto handle_key;
 	}
 
-	/* Look for matching key string and return if found. */
-	tk = tty_keys_find(tty, buf + 1, len - 1, &size);
-	if (tk != NULL) {
-		key = tk->key;
-		goto found_key;
-	}
-
-	/* Not found. Is this a mouse key press? */
+	/* Is this a mouse key press? */
 	switch (tty_keys_mouse(buf, len, &size, &mouse)) {
 	case 0:		/* yes */
 		evbuffer_drain(tty->event->input, size);
@@ -472,7 +465,7 @@ tty_keys_next(struct tty *tty)
 		goto partial_key;
 	}
 
-	/* Not found. Try to parse a key with an xterm-style modifier. */
+	/* Try to parse a key with an xterm-style modifier. */
 	switch (xterm_keys_find(buf, len, &size, &key)) {
 	case 0:		/* found */
 		evbuffer_drain(tty->event->input, size);
@@ -481,6 +474,13 @@ tty_keys_next(struct tty *tty)
 		break;
 	case 1:
 		goto partial_key;
+	}
+
+	/* Look for matching key string and return if found. */
+	tk = tty_keys_find(tty, buf + 1, len - 1, &size);
+	if (tk != NULL) {
+		key = tk->key;
+		goto found_key;
 	}
 
 	/* Skip the escape. */
@@ -523,11 +523,11 @@ start_timer:
 	/* Start the timer and wait for expiry or more data. */
 	tv.tv_sec = 0;
 	tv.tv_usec = ESCAPE_PERIOD * 1000L;
-	
+
 	evtimer_del(&tty->key_timer);
 	evtimer_set(&tty->key_timer, tty_keys_callback, tty);
 	evtimer_add(&tty->key_timer, &tv);
-	
+
 	tty->flags |= TTY_ESCAPE;
 	return (0);
 
@@ -548,7 +548,7 @@ found_key:
 	goto handle_key;
 
 handle_key:
- 	evtimer_del(&tty->key_timer);
+	evtimer_del(&tty->key_timer);
 
 	tty->key_callback(key, &mouse, tty->key_data);
 
@@ -570,7 +570,7 @@ tty_keys_callback(unused int fd, unused short events, void *data)
 		;
 }
 
-/* 
+/*
  * Handle mouse key input. Returns 0 for success, -1 for failure, 1 for partial
  * (probably a mouse sequence but need more data).
  */
@@ -593,7 +593,7 @@ tty_keys_mouse(const char *buf, size_t len, size_t *size, struct mouse_event *m)
 		return (-1);
 	if (len == 2)
 		return (1);
-		
+
 	if (buf[2] != 'M')
 		return (-1);
 	if (len == 3)
