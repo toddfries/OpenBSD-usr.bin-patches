@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.74 2009/11/05 08:50:32 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.80 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -59,7 +59,6 @@ void		 server_loop(void);
 int		 server_should_shutdown(void);
 void		 server_send_shutdown(void);
 void		 server_clean_dead(void);
-int		 server_update_socket(void);
 void		 server_accept_callback(int, short, void *);
 void		 server_signal_callback(int, short, void *);
 void		 server_child_signal(void);
@@ -104,6 +103,8 @@ server_create_socket(void)
 		fatal("fcntl failed");
 	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
 		fatal("fcntl failed");
+
+	server_update_socket();
 
 	return (fd);
 }
@@ -208,8 +209,6 @@ void
 server_loop(void)
 {
 	while (!server_should_shutdown()) {
-		server_update_socket();
-
 		event_loop(EVLOOP_ONCE);
 
 		server_window_loop();
@@ -217,7 +216,7 @@ server_loop(void)
 
 		key_bindings_clean();
 		server_clean_dead();
-	} 
+	}
 }
 
 /* Check if the server should be shutting down (no more clients or windows). */
@@ -288,7 +287,7 @@ server_clean_dead(void)
 }
 
 /* Update socket execute permissions based on whether sessions are attached. */
-int
+void
 server_update_socket(void)
 {
 	struct session	*s;
@@ -312,11 +311,10 @@ server_update_socket(void)
 		else
 			chmod(socket_path, S_IRUSR|S_IWUSR);
 	}
-
-	return (n);
 }
 
 /* Callback for server socket. */
+/* ARGSUSED */
 void
 server_accept_callback(int fd, short events, unused void *data)
 {
@@ -338,7 +336,6 @@ server_accept_callback(int fd, short events, unused void *data)
 		return;
 	}
 	server_client_create(newfd);
-
 }
 
 /* Set up server signal handling. */
@@ -393,6 +390,7 @@ server_signal_clear(void)
 }
 
 /* Signal handler. */
+/* ARGSUSED */
 void
 server_signal_callback(int sig, unused short events, unused void *data)
 {
@@ -433,7 +431,7 @@ server_child_signal(void)
 		}
 		if (WIFSTOPPED(status))
 			server_child_stopped(pid, status);
-		else if (WIFEXITED(status))
+		else if (WIFEXITED(status) || WIFSIGNALED(status))
 			server_child_exited(pid, status);
 	}
 }
@@ -452,11 +450,11 @@ server_child_exited(pid_t pid, int status)
 			continue;
 		TAILQ_FOREACH(wp, &w->panes, entry) {
 			if (wp->pid == pid) {
-				close(wp->fd);
-				wp->fd = -1;
+				server_destroy_pane(wp);
+				break;
 			}
 		}
-	}		
+	}
 
 	SLIST_FOREACH(job, &all_jobs, lentry) {
 		if (pid == job->pid) {
@@ -490,6 +488,7 @@ server_child_stopped(pid_t pid, int status)
 }
 
 /* Handle once-per-second timer events. */
+/* ARGSUSED */
 void
 server_second_callback(unused int fd, unused short events, unused void *arg)
 {
@@ -555,7 +554,7 @@ server_lock_server(void)
 void
 server_lock_sessions(void)
 {
-        struct session  *s;
+	struct session  *s;
 	u_int		 i;
 	int		 timeout;
 	time_t		 t;

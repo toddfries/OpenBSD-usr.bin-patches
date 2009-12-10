@@ -1,4 +1,4 @@
-/* $OpenBSD: window-clock.c,v 1.2 2009/06/27 14:40:22 nicm Exp $ */
+/* $OpenBSD: window-clock.c,v 1.5 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -78,10 +78,11 @@ window_clock_resize(struct window_pane *wp, u_int sx, u_int sy)
 	struct window_clock_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
 
- 	screen_resize(s, sx, sy);
+	screen_resize(s, sx, sy);
 	window_clock_draw_screen(wp);
 }
 
+/* ARGSUSED */
 void
 window_clock_key(
     struct window_pane *wp, unused struct client *c, unused int key)
@@ -112,8 +113,7 @@ window_clock_draw_screen(struct window_pane *wp)
 {
 	struct window_clock_mode_data	*data = wp->modedata;
 	struct screen_write_ctx	 	 ctx;
-	u_int				 colour;
-	int				 style;
+	int				 colour, style;
 
 	colour = options_get_number(&wp->window->options, "clock-mode-colour");
 	style = options_get_number(&wp->window->options, "clock-mode-style");

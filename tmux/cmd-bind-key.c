@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-bind-key.c,v 1.5 2009/07/28 17:05:10 nicm Exp $ */
+/* $OpenBSD: cmd-bind-key.c,v 1.7 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -46,7 +46,7 @@ struct cmd_bind_key_data {
 const struct cmd_entry cmd_bind_key_entry = {
 	"bind-key", "bind",
 	"[-cnr] [-t key-table] key command [arguments]",
-	0, 0,
+	0, "",
 	NULL,
 	cmd_bind_key_parse,
 	cmd_bind_key_exec,
@@ -152,7 +152,7 @@ cmd_bind_key_table(struct cmd *self, struct cmd_ctx *ctx)
 		ctx->error(ctx, "unknown command: %s", data->modecmd);
 		return (-1);
 	}
-	
+
 	mtmp.key = data->key & ~KEYC_PREFIX;
 	mtmp.mode = data->command_key ? 1 : 0;
 	if ((mbind = SPLAY_FIND(mode_key_tree, mtab->tree, &mtmp)) != NULL) {

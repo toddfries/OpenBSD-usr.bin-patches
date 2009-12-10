@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-pipe-pane.c,v 1.5 2009/11/04 22:43:11 nicm Exp $ */
+/* $OpenBSD: cmd-pipe-pane.c,v 1.9 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -38,7 +38,7 @@ void	cmd_pipe_pane_error_callback(struct bufferevent *, short, void *);
 const struct cmd_entry cmd_pipe_pane_entry = {
 	"pipe-pane", "pipep",
 	CMD_TARGET_PANE_USAGE "[-o] [command]",
-	CMD_ARG01, CMD_CHFLAG('o'),
+	CMD_ARG01, "o",
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_pipe_pane_exec,
@@ -74,7 +74,7 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
 	 *
 	 *	bind ^p pipep -o 'cat >>~/output'
 	 */
-	if (data->chflags & CMD_CHFLAG('o') && old_fd != -1)
+	if (cmd_check_flag(data->chflags, 'o') && old_fd != -1)
 		return (0);
 
 	/* Open the new pipe. */
@@ -87,7 +87,7 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
 	switch (fork()) {
 	case -1:
 		ctx->error(ctx, "fork error: %s", strerror(errno));
-		return (-1);		
+		return (-1);
 	case 0:
 		/* Child process. */
 		close(pipe_fd[0]);
@@ -114,23 +114,22 @@ cmd_pipe_pane_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 		wp->pipe_fd = pipe_fd[0];
 		wp->pipe_off = EVBUFFER_LENGTH(wp->event->input);
-		
+
 		wp->pipe_event = bufferevent_new(wp->pipe_fd,
 		    NULL, NULL, cmd_pipe_pane_error_callback, wp);
 		bufferevent_enable(wp->pipe_event, EV_WRITE);
-		
+
 		if ((mode = fcntl(wp->pipe_fd, F_GETFL)) == -1)
 			fatal("fcntl failed");
 		if (fcntl(wp->pipe_fd, F_SETFL, mode|O_NONBLOCK) == -1)
 			fatal("fcntl failed");
 		if (fcntl(wp->pipe_fd, F_SETFD, FD_CLOEXEC) == -1)
-			fatal("fcntl failed");	
+			fatal("fcntl failed");
 		return (0);
 	}
-
-	return (0);
 }
 
+/* ARGSUSED */
 void
 cmd_pipe_pane_error_callback(
     unused struct bufferevent *bufev, unused short what, void *data)

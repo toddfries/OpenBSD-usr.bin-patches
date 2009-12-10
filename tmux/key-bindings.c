@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.12 2009/10/06 07:19:32 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.15 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -61,11 +61,11 @@ key_bindings_add(int key, int can_repeat, struct cmd_list *cmdlist)
 	struct key_binding	*bd;
 
 	key_bindings_remove(key);
-		    
+
 	bd = xmalloc(sizeof *bd);
 	bd->key = key;
 	SPLAY_INSERT(key_bindings, &key_bindings, bd);
-	
+
 	bd->can_repeat = can_repeat;
 	bd->cmdlist = cmdlist;
 }
@@ -104,9 +104,9 @@ key_bindings_init(void)
 	} table[] = {
 		{ ' ',			  0, &cmd_next_layout_entry },
 		{ '!', 			  0, &cmd_break_pane_entry },
-		{ '"', 			  0, &cmd_split_window_entry },	
-		{ '%', 			  0, &cmd_split_window_entry },	
+		{ '"', 			  0, &cmd_split_window_entry },
 		{ '#', 			  0, &cmd_list_buffers_entry },
+		{ '%', 			  0, &cmd_split_window_entry },
 		{ '&', 			  0, &cmd_confirm_before_entry },
 		{ ',', 			  0, &cmd_command_prompt_entry },
 		{ '-', 			  0, &cmd_delete_buffer_entry },
@@ -123,13 +123,15 @@ key_bindings_init(void)
 		{ '9', 			  0, &cmd_select_window_entry },
 		{ ':', 			  0, &cmd_command_prompt_entry },
 		{ '?', 			  0, &cmd_list_keys_entry },
+		{ 'D',			  0, &cmd_choose_client_entry },
 		{ '[', 			  0, &cmd_copy_mode_entry },
 		{ '\'',			  0, &cmd_select_prompt_entry },
+		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
+		{ '\017', /* C-o */	  0, &cmd_rotate_window_entry },
 		{ '\032', /* C-z */	  0, &cmd_suspend_client_entry },
 		{ ']', 			  0, &cmd_paste_buffer_entry },
 		{ 'c', 			  0, &cmd_new_window_entry },
 		{ 'd', 			  0, &cmd_detach_client_entry },
-		{ 'D',			  0, &cmd_choose_client_entry },
 		{ 'f', 			  0, &cmd_command_prompt_entry },
 		{ 'i',			  0, &cmd_display_message_entry },
 		{ 'l', 			  0, &cmd_last_window_entry },
@@ -144,13 +146,14 @@ key_bindings_init(void)
 		{ 'x', 			  0, &cmd_confirm_before_entry },
 		{ '{',			  0, &cmd_swap_pane_entry },
 		{ '}',			  0, &cmd_swap_pane_entry },
-		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
+		{ '~',			  0, &cmd_show_messages_entry },
 		{ '1' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ '2' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ '3' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ '4' | KEYC_ESCAPE,	  0, &cmd_select_layout_entry },
 		{ KEYC_PPAGE, 		  0, &cmd_copy_mode_entry },
 		{ 'n' | KEYC_ESCAPE, 	  0, &cmd_next_window_entry },
+		{ 'o' | KEYC_ESCAPE,	  0, &cmd_rotate_window_entry },
 		{ 'p' | KEYC_ESCAPE, 	  0, &cmd_previous_window_entry },
 		{ KEYC_UP, 		  0, &cmd_up_pane_entry },
 		{ KEYC_DOWN, 		  0, &cmd_down_pane_entry },
@@ -159,11 +162,9 @@ key_bindings_init(void)
 		{ KEYC_LEFT | KEYC_ESCAPE,  1, &cmd_resize_pane_entry },
 		{ KEYC_RIGHT | KEYC_ESCAPE, 1, &cmd_resize_pane_entry },
 		{ KEYC_UP | KEYC_CTRL,    1, &cmd_resize_pane_entry },
-		{ KEYC_DOWN | KEYC_CTRL,  1, &cmd_resize_pane_entry },	
+		{ KEYC_DOWN | KEYC_CTRL,  1, &cmd_resize_pane_entry },
 		{ KEYC_LEFT | KEYC_CTRL,  1, &cmd_resize_pane_entry },
 		{ KEYC_RIGHT | KEYC_CTRL, 1, &cmd_resize_pane_entry },
-		{ 'o' | KEYC_ESCAPE,	  0, &cmd_rotate_window_entry },
-		{ '\017', /* C-o */	  0, &cmd_rotate_window_entry },
 	};
 	u_int		 i;
 	struct cmd	*cmd;
@@ -187,20 +188,6 @@ key_bindings_init(void)
 	}
 }
 
-void
-key_bindings_free(void)
-{
-	struct key_binding	*bd;
-
-	key_bindings_clean();
-	while (!SPLAY_EMPTY(&key_bindings)) {
-		bd = SPLAY_ROOT(&key_bindings);
-		SPLAY_REMOVE(key_bindings, &key_bindings, bd);
-		cmd_list_free(bd->cmdlist);
-		xfree(bd);
-	}
-}
-
 void printflike2
 key_bindings_error(struct cmd_ctx *ctx, const char *fmt, ...)
 {
@@ -212,7 +199,7 @@ key_bindings_error(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, "%s", msg);
+	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 
@@ -245,7 +232,7 @@ key_bindings_info(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_end(ap);
 
 	*msg = toupper((u_char) *msg);
- 	status_message_set(ctx->curclient, "%s", msg);
+	status_message_set(ctx->curclient, "%s", msg);
 	xfree(msg);
 }
 

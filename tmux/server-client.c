@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.18 2009/11/05 08:45:08 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.25 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,7 +36,7 @@ void	server_client_reset_state(struct client *);
 int	server_client_msg_dispatch(struct client *);
 void	server_client_msg_command(struct client *, struct msg_command_data *);
 void	server_client_msg_identify(
-    	    struct client *, struct msg_identify_data *, int);
+	    struct client *, struct msg_identify_data *, int);
 void	server_client_msg_shell(struct client *);
 
 void printflike2 server_client_msg_error(struct cmd_ctx *, const char *, ...);
@@ -62,7 +62,7 @@ server_client_create(int fd)
 	c->references = 0;
 	imsg_init(&c->ibuf, fd);
 	server_update_event(c);
-	
+
 	if (gettimeofday(&c->creation_time, NULL) != 0)
 		fatal("gettimeofday failed");
 	memcpy(&c->activity_time, &c->creation_time, sizeof c->activity_time);
@@ -80,6 +80,7 @@ server_client_create(int fd)
 	job_tree_init(&c->status_jobs);
 
 	c->message_string = NULL;
+	ARRAY_INIT(&c->message_log);
 
 	c->prompt_string = NULL;
 	c->prompt_buffer = NULL;
@@ -101,7 +102,8 @@ server_client_create(int fd)
 void
 server_client_lost(struct client *c)
 {
-	u_int	i;
+	struct message_entry	*msg;
+	u_int			 i;
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		if (ARRAY_ITEM(&clients, i) == c)
@@ -129,6 +131,11 @@ server_client_lost(struct client *c)
 	if (c->message_string != NULL)
 		xfree(c->message_string);
 	evtimer_del(&c->message_timer);
+	for (i = 0; i < ARRAY_LENGTH(&c->message_log); i++) {
+		msg = &ARRAY_ITEM(&c->message_log, i);
+		xfree(msg->msg);
+	}
+	ARRAY_FREE(&c->message_log);
 
 	if (c->prompt_string != NULL)
 		xfree(c->prompt_string);
@@ -156,6 +163,7 @@ server_client_lost(struct client *c)
 	c->flags |= CLIENT_DEAD;
 
 	recalculate_sizes();
+	server_update_socket();
 }
 
 /* Process a single client event. */
@@ -181,7 +189,7 @@ server_client_callback(int fd, short events, void *data)
 			goto client_lost;
 	}
 
-	server_update_event(c);	
+	server_update_event(c);
 	return;
 
 client_lost:
@@ -196,7 +204,9 @@ server_client_status_timer(void)
 	struct session	*s;
 	struct job	*job;
 	struct timeval	 tv;
-	u_int		 i, interval;
+	u_int		 i;
+	int		 interval;
+	time_t		 difference;
 
 	if (gettimeofday(&tv, NULL) != 0)
 		fatal("gettimeofday failed");
@@ -219,9 +229,10 @@ server_client_status_timer(void)
 			continue;
 		interval = options_get_number(&s->options, "status-interval");
 
-		if (tv.tv_sec - c->status_timer.tv_sec >= interval) {
+		difference = tv.tv_sec - c->status_timer.tv_sec;
+		if (difference >= interval) {
 			RB_FOREACH(job, jobs, &c->status_jobs)
-			    job_run(job);
+				job_run(job);
 			c->flags |= CLIENT_STATUS;
 		}
 	}
@@ -259,7 +270,7 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 	oo = &c->session->options;
 
 	/* Special case: number keys jump to pane in identify mode. */
-	if (c->flags & CLIENT_IDENTIFY && key >= '0' && key <= '9') {	
+	if (c->flags & CLIENT_IDENTIFY && key >= '0' && key <= '9') {
 		wp = window_pane_at_index(w, key - '0');
 		if (wp != NULL && window_pane_visible(wp))
 			window_set_active_pane(w, wp);
@@ -337,7 +348,7 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 	xtimeout = options_get_number(&c->session->options, "repeat-time");
 	if (xtimeout != 0 && bd->can_repeat) {
 		c->flags |= CLIENT_PREFIX|CLIENT_REPEAT;
-		
+
 		tv.tv_sec = xtimeout / 1000;
 		tv.tv_usec = (xtimeout % 1000) * 1000L;
 		evtimer_del(&c->repeat_timer);
@@ -416,6 +427,7 @@ server_client_reset_state(struct client *c)
 }
 
 /* Repeat time callback. */
+/* ARGSUSED */
 void
 server_client_repeat_timer(unused int fd, unused short events, void *data)
 {
@@ -477,8 +489,8 @@ server_client_set_title(struct client *c)
 	char		*title;
 
 	template = options_get_string(&s->options, "set-titles-string");
-	
-	title = status_replace(c, template, time(NULL));
+
+	title = status_replace(c, NULL, template, time(NULL), 1);
 	if (c->title == NULL || strcmp(title, c->title) != 0) {
 		if (c->title != NULL)
 			xfree(c->title);
@@ -731,14 +743,14 @@ server_client_msg_shell(struct client *c)
 {
 	struct msg_shell_data	 data;
 	const char		*shell;
-	
+
 	shell = options_get_string(&global_s_options, "default-shell");
 
 	if (*shell == '\0' || areshell(shell))
 		shell = _PATH_BSHELL;
 	if (strlcpy(data.shell, shell, sizeof data.shell) >= sizeof data.shell)
 		strlcpy(data.shell, _PATH_BSHELL, sizeof data.shell);
-	
+
 	server_write_client(c, MSG_SHELL, &data, sizeof data);
 	c->flags |= CLIENT_BAD;	/* it will die after exec */
 }

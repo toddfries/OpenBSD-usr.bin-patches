@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.28 2009/11/04 22:44:53 nicm Exp $
+# $OpenBSD: Makefile,v 1.32 2009/12/03 17:44:02 nicm Exp $
 
 PROG=	tmux
 SRCS=	attributes.c cfg.c client.c clock.c \
@@ -22,18 +22,18 @@ SRCS=	attributes.c cfg.c client.c clock.c \
 	cmd-select-layout.c cmd-select-pane.c \
 	cmd-select-prompt.c cmd-select-window.c cmd-send-keys.c \
 	cmd-send-prefix.c cmd-server-info.c cmd-set-buffer.c cmd-set-option.c \
-	cmd-set-window-option.c cmd-show-buffer.c \
+	cmd-set-window-option.c cmd-show-buffer.c cmd-show-messages.c \
 	cmd-show-options.c cmd-show-window-options.c cmd-source-file.c \
 	cmd-split-window.c cmd-start-server.c cmd-string.c cmd-if-shell.c \
 	cmd-run-shell.c cmd-suspend-client.c cmd-swap-pane.c cmd-swap-window.c \
 	cmd-switch-client.c cmd-unbind-key.c cmd-unlink-window.c \
 	cmd-set-environment.c cmd-show-environment.c cmd-choose-client.c \
 	cmd-up-pane.c cmd-display-message.c cmd-display-panes.c \
-	cmd-pipe-pane.c cmd.c \
-	colour.c environ.c grid-view.c grid.c input-keys.c \
+	cmd-pipe-pane.c cmd-capture-pane.c cmd.c \
+	colour.c environ.c grid-view.c grid-utf8.c grid.c input-keys.c \
 	imsg.c imsg-buffer.c input.c key-bindings.c key-string.c \
 	layout-set.c layout.c log.c job.c \
-	mode-key.c names.c options-cmd.c options.c paste.c procname.c \
+	mode-key.c names.c options.c paste.c procname.c \
 	resize.c screen-redraw.c screen-write.c screen.c session.c status.c \
 	server-fn.c server.c server-client.c server-window.c \
 	tmux.c tty-keys.c tty-term.c tty.c utf8.c \

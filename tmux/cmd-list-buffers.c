@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-buffers.c,v 1.5 2009/09/07 18:50:45 nicm Exp $ */
+/* $OpenBSD: cmd-list-buffers.c,v 1.8 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,7 @@ int	cmd_list_buffers_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_list_buffers_entry = {
 	"list-buffers", "lsb",
 	CMD_TARGET_SESSION_USAGE,
-	0, 0,
+	0, "",
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_list_buffers_exec,
@@ -64,14 +64,14 @@ cmd_list_buffers_exec(struct cmd *self, struct cmd_ctx *ctx)
 		strvisx(tmp, pb->data, len, VIS_OCTAL|VIS_TAB|VIS_NL);
 
 		/*
-		 * If the first 50 characterswere encoded as a longer string,
+		 * If the first 50 characters were encoded as a longer string,
 		 * or there is definitely more data, add "...".
 		 */
 		if (size > 50 || strlen(tmp) > 50) {
 			tmp[50 - 3] = '\0';
 			strlcat(tmp, "...", sizeof tmp);
 		}
-		
+
 		ctx->print(ctx, "%u: %zu bytes: \"%s\"", idx - 1, size, tmp);
 	}
 

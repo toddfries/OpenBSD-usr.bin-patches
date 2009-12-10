@@ -1,4 +1,4 @@
-/* $OpenBSD: window-choose.c,v 1.10 2009/10/11 07:01:10 nicm Exp $ */
+/* $OpenBSD: window-choose.c,v 1.13 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,11 +27,11 @@ void	window_choose_free(struct window_pane *);
 void	window_choose_resize(struct window_pane *, u_int, u_int);
 void	window_choose_key(struct window_pane *, struct client *, int);
 void	window_choose_mouse(
-    	    struct window_pane *, struct client *, struct mouse_event *);
+	    struct window_pane *, struct client *, struct mouse_event *);
 
 void	window_choose_redraw_screen(struct window_pane *);
 void	window_choose_write_line(
-    	    struct window_pane *, struct screen_write_ctx *, u_int);
+	    struct window_pane *, struct screen_write_ctx *, u_int);
 
 void	window_choose_scroll_up(struct window_pane *);
 void	window_choose_scroll_down(struct window_pane *);
@@ -63,6 +63,9 @@ struct window_choose_mode_data {
 	void			(*freefn)(void *);
 	void		       *data;
 };
+
+int	window_choose_key_index(struct window_choose_mode_data *, u_int);
+int	window_choose_index_key(struct window_choose_mode_data *, int);
 
 void
 window_choose_vadd(struct window_pane *wp, int idx, const char *fmt, va_list ap)
@@ -166,6 +169,7 @@ window_choose_resize(struct window_pane *wp, u_int sx, u_int sy)
 	window_choose_redraw_screen(wp);
 }
 
+/* ARGSUSED */
 void
 window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 {
@@ -173,7 +177,8 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 	struct screen			*s = &data->screen;
 	struct screen_write_ctx		 ctx;
 	struct window_choose_mode_item	*item;
-	u_int				 items;
+	u_int		       		 items;
+	int				 idx;
 
 	items = ARRAY_LENGTH(&data->list);
 
@@ -242,7 +247,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 			else
 				data->top -= screen_size_y(s);
 		}
- 		window_choose_redraw_screen(wp);
+		window_choose_redraw_screen(wp);
 		break;
 	case MODEKEYCHOICE_PAGEDOWN:
 		data->selected += screen_size_y(s);
@@ -259,10 +264,19 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 		window_choose_redraw_screen(wp);
 		break;
 	default:
+		idx = window_choose_index_key(data, key);
+		if (idx < 0 || (u_int) idx >= ARRAY_LENGTH(&data->list))
+			break;
+		data->selected = idx;
+
+		item = &ARRAY_ITEM(&data->list, data->selected);
+		data->callbackfn(data->data, item->idx);
+		window_pane_reset_mode(wp);
 		break;
 	}
 }
 
+/* ARGSUSED */
 void
 window_choose_mouse(
     struct window_pane *wp, unused struct client *c, struct mouse_event *m)
@@ -298,7 +312,8 @@ window_choose_write_line(
 	struct options			*oo = &wp->window->options;
 	struct screen			*s = &data->screen;
 	struct grid_cell		 gc;
- 	int				 utf8flag;
+	int				 utf8flag;
+	char				 key;
 
 	if (data->callbackfn == NULL)
 		fatalx("called before callback assigned");
@@ -314,11 +329,54 @@ window_choose_write_line(
 	screen_write_cursormove(ctx, 0, py);
 	if (data->top + py  < ARRAY_LENGTH(&data->list)) {
 		item = &ARRAY_ITEM(&data->list, data->top + py);
-		screen_write_nputs(
-		    ctx, screen_size_x(s) - 1, &gc, utf8flag, "%s", item->name);
+		key = window_choose_key_index(data, data->top + py);
+		if (key != -1) {
+			screen_write_nputs(ctx, screen_size_x(s) - 1,
+			    &gc, utf8flag, "(%c) %s", key, item->name);
+		} else {
+			screen_write_nputs(ctx, screen_size_x(s) - 1,
+			    &gc, utf8flag, "    %s", item->name);
+		}
+
 	}
 	while (s->cx < screen_size_x(s))
 		screen_write_putc(ctx, &gc, ' ');
+}
+
+int
+window_choose_key_index(struct window_choose_mode_data *data, u_int idx)
+{
+	static const char	keys[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+	const char	       *ptr;
+	int			mkey;
+
+	for (ptr = keys; *ptr != '\0'; ptr++) {
+		mkey = mode_key_lookup(&data->mdata, *ptr);
+		if (mkey != MODEKEY_NONE && mkey != MODEKEY_OTHER)
+			continue;
+		if (idx-- == 0)
+			return (*ptr);
+	}
+	return (-1);
+}
+
+int
+window_choose_index_key(struct window_choose_mode_data *data, int key)
+{
+	static const char	keys[] = "0123456789abcdefghijklmnopqrstuvwxyz";
+	const char	       *ptr;
+	int			mkey;
+	u_int			idx = 0;
+
+	for (ptr = keys; *ptr != '\0'; ptr++) {
+		mkey = mode_key_lookup(&data->mdata, *ptr);
+		if (mkey != MODEKEY_NONE && mkey != MODEKEY_OTHER)
+			continue;
+		if (key == *ptr)
+			return (idx);
+		idx++;
+	}
+	return (-1);
 }
 
 void

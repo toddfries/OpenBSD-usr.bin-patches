@@ -1,7 +1,7 @@
-/* $OpenBSD: cmd-has-session.c,v 1.4 2009/11/13 19:53:29 nicm Exp $ */
+/* $OpenBSD: cmd-show-messages.c,v 1.2 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
- * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
+ * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -18,32 +18,48 @@
 
 #include <sys/types.h>
 
+#include <string.h>
+#include <time.h>
+
 #include "tmux.h"
 
 /*
- * Cause client to report an error and exit with 1 if session doesn't exist.
+ * Show client message log.
  */
 
-int	cmd_has_session_exec(struct cmd *, struct cmd_ctx *);
+int	cmd_show_messages_exec(struct cmd *, struct cmd_ctx *);
 
-const struct cmd_entry cmd_has_session_entry = {
-	"has-session", "has",
-	CMD_TARGET_SESSION_USAGE,
+const struct cmd_entry cmd_show_messages_entry = {
+	"show-messages", "showmsgs",
+	CMD_TARGET_CLIENT_USAGE,
 	0, "",
 	cmd_target_init,
 	cmd_target_parse,
-	cmd_has_session_exec,
+	cmd_show_messages_exec,
 	cmd_target_free,
 	cmd_target_print
 };
 
 int
-cmd_has_session_exec(struct cmd *self, struct cmd_ctx *ctx)
+cmd_show_messages_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_target_data	*data = self->data;
+	struct cmd_target_data		*data = self->data;
+	struct client			*c;
+	struct message_entry		*msg;
+	char				*tim;
+	u_int				 i;
 
-	if (cmd_find_session(ctx, data->target) == NULL)
+	if ((c = cmd_find_client(ctx, data->target)) == NULL)
 		return (-1);
+
+	for (i = 0; i < ARRAY_LENGTH(&c->message_log); i++) {
+		msg = &ARRAY_ITEM(&c->message_log, i);
+
+		tim = ctime(&msg->msg_time);
+		*strchr(tim, '\n') = '\0';
+
+		ctx->print(ctx, "%s %s", tim, msg->msg);
+	}
 
 	return (0);
 }

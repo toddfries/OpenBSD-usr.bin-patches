@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-show-window-options.c,v 1.6 2009/09/21 14:46:47 nicm Exp $ */
+/* $OpenBSD: cmd-show-window-options.c,v 1.8 2009/12/03 17:44:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -24,7 +24,7 @@
 #include "tmux.h"
 
 /*
- * Show window options.
+ * Show window options. This is an alias for show-options -w.
  */
 
 int	cmd_show_window_options_exec(struct cmd *, struct cmd_ctx *);
@@ -32,7 +32,7 @@ int	cmd_show_window_options_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_show_window_options_entry = {
 	"show-window-options", "showw",
 	"[-g] " CMD_TARGET_WINDOW_USAGE,
-	0, CMD_CHFLAG('g'),
+	0, "g",
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_show_window_options_exec,
@@ -44,26 +44,7 @@ int
 cmd_show_window_options_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct cmd_target_data		*data = self->data;
-	struct winlink			*wl;
-	struct options			*oo;
-	struct options_entry		*o;
-	const struct set_option_entry	*entry;
-	const char			*optval;
 
-	if (data->chflags & CMD_CHFLAG('g'))
-		oo = &global_w_options;
-	else {
-		if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
-			return (-1);
-		oo = &wl->window->options;
-	}
-
-	for (entry = set_window_option_table; entry->name != NULL; entry++) {
-		if ((o = options_find1(oo, entry->name)) == NULL)
-			continue;
-		optval = set_option_print(entry, o);
-		ctx->print(ctx, "%s %s", entry->name, optval);
-	}
-
-	return (0);
+	cmd_set_flag(&data->chflags, 'w');
+	return (cmd_show_options_entry.exec(self, ctx));
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbufs.c,v 1.24 2009/04/20 20:30:41 chl Exp $ */
+/*	$OpenBSD: mbufs.c,v 1.26 2009/11/23 21:44:33 henning Exp $ */
 /*
  * Copyright (c) 2008 Can Erkin Acar <canacar@openbsd.org>
  *

@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-keys.c,v 1.19 2009/11/09 14:40:06 nicm Exp $ */
+/* $OpenBSD: tty-keys.c,v 1.27 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,7 @@ void		tty_keys_add1(struct tty_key **, const char *, int);
 void		tty_keys_add(struct tty *, const char *, int);
 void		tty_keys_free1(struct tty_key *);
 struct tty_key *tty_keys_find1(
-    		    struct tty_key *, const char *, size_t, size_t *);
+		    struct tty_key *, const char *, size_t, size_t *);
 struct tty_key *tty_keys_find(struct tty *, const char *, size_t, size_t *);
 void		tty_keys_callback(int, short, void *);
 int		tty_keys_mouse(
@@ -47,45 +47,42 @@ struct tty_key_ent {
 
 	int	 	 	key;
 	int		 	flags;
-#define TTYKEY_CTRL 0x1
-#define TTYKEY_RAW 0x2
+#define TTYKEY_RAW 0x1
 };
 
-/* 
+/*
  * Default key tables. Those flagged with TTYKEY_RAW are inserted directly,
- * otherwise they are looked up in terminfo(5). Any keys marked TTYKEY_CTRL
- * have their last byte twiddled and are inserted as a Ctrl key as well.
+ * otherwise they are looked up in terminfo(5).
  */
 struct tty_key_ent tty_keys[] = {
 	/* Function keys. */
-	{ TTYC_KF1,	NULL,		KEYC_F1,		TTYKEY_CTRL },
-	{ TTYC_KF1,	NULL,		KEYC_F1,		TTYKEY_CTRL },
-	{ TTYC_KF2,	NULL,		KEYC_F2,		TTYKEY_CTRL },
-	{ TTYC_KF3,	NULL,		KEYC_F3,		TTYKEY_CTRL },
-	{ TTYC_KF4,	NULL,		KEYC_F4,		TTYKEY_CTRL },
-	{ TTYC_KF5,	NULL,		KEYC_F5,		TTYKEY_CTRL },
-	{ TTYC_KF6,	NULL,		KEYC_F6,		TTYKEY_CTRL },
-	{ TTYC_KF7,	NULL,		KEYC_F7,		TTYKEY_CTRL },
-	{ TTYC_KF8,	NULL,		KEYC_F8,		TTYKEY_CTRL },
-	{ TTYC_KF9,	NULL,		KEYC_F9,		TTYKEY_CTRL },
-	{ TTYC_KF10,	NULL,		KEYC_F10,		TTYKEY_CTRL },
-	{ TTYC_KF11,	NULL,		KEYC_F11,		TTYKEY_CTRL },
-	{ TTYC_KF12,	NULL,		KEYC_F12,		TTYKEY_CTRL },
-	{ TTYC_KF13,	NULL,		KEYC_F13,		TTYKEY_CTRL },
-	{ TTYC_KF14,	NULL,		KEYC_F14,		TTYKEY_CTRL },
-	{ TTYC_KF15,	NULL,		KEYC_F15,		TTYKEY_CTRL },
-	{ TTYC_KF16,	NULL,		KEYC_F16,		TTYKEY_CTRL },
-	{ TTYC_KF17,	NULL,		KEYC_F17,		TTYKEY_CTRL },
-	{ TTYC_KF18,	NULL,		KEYC_F18,		TTYKEY_CTRL },
-	{ TTYC_KF19,	NULL,		KEYC_F19,		TTYKEY_CTRL },
-	{ TTYC_KF20,	NULL,		KEYC_F20,		TTYKEY_CTRL },
-	{ TTYC_KICH1,	NULL,		KEYC_IC,		TTYKEY_CTRL },
-	{ TTYC_KDCH1,	NULL,		KEYC_DC,		TTYKEY_CTRL },
-	{ TTYC_KHOME,	NULL,		KEYC_HOME,		TTYKEY_CTRL },
-	{ TTYC_KEND,	NULL,		KEYC_END,		TTYKEY_CTRL },
-	{ TTYC_KNP,	NULL,		KEYC_NPAGE,		TTYKEY_CTRL },
-	{ TTYC_KPP,	NULL,		KEYC_PPAGE,		TTYKEY_CTRL },
-	{ TTYC_KCBT,	NULL,		KEYC_BTAB,		TTYKEY_CTRL },
+	{ TTYC_KF1,	NULL,		KEYC_F1,		0 },
+	{ TTYC_KF2,	NULL,		KEYC_F2,		0 },
+	{ TTYC_KF3,	NULL,		KEYC_F3,		0 },
+	{ TTYC_KF4,	NULL,		KEYC_F4,		0 },
+	{ TTYC_KF5,	NULL,		KEYC_F5,		0 },
+	{ TTYC_KF6,	NULL,		KEYC_F6,		0 },
+	{ TTYC_KF7,	NULL,		KEYC_F7,		0 },
+	{ TTYC_KF8,	NULL,		KEYC_F8,		0 },
+	{ TTYC_KF9,	NULL,		KEYC_F9,		0 },
+	{ TTYC_KF10,	NULL,		KEYC_F10,		0 },
+	{ TTYC_KF11,	NULL,		KEYC_F11,		0 },
+	{ TTYC_KF12,	NULL,		KEYC_F12,		0 },
+	{ TTYC_KF13,	NULL,		KEYC_F13,		0 },
+	{ TTYC_KF14,	NULL,		KEYC_F14,		0 },
+	{ TTYC_KF15,	NULL,		KEYC_F15,		0 },
+	{ TTYC_KF16,	NULL,		KEYC_F16,		0 },
+	{ TTYC_KF17,	NULL,		KEYC_F17,		0 },
+	{ TTYC_KF18,	NULL,		KEYC_F18,		0 },
+	{ TTYC_KF19,	NULL,		KEYC_F19,		0 },
+	{ TTYC_KF20,	NULL,		KEYC_F20,		0 },
+	{ TTYC_KICH1,	NULL,		KEYC_IC,		0 },
+	{ TTYC_KDCH1,	NULL,		KEYC_DC,		0 },
+	{ TTYC_KHOME,	NULL,		KEYC_HOME,		0 },
+	{ TTYC_KEND,	NULL,		KEYC_END,		0 },
+	{ TTYC_KNP,	NULL,		KEYC_NPAGE,		0 },
+	{ TTYC_KPP,	NULL,		KEYC_PPAGE,		0 },
+	{ TTYC_KCBT,	NULL,		KEYC_BTAB,		0 },
 
 	/* Arrow keys. */
 	{ 0,		"\033OA",	KEYC_UP,		TTYKEY_RAW },
@@ -98,21 +95,10 @@ struct tty_key_ent tty_keys[] = {
 	{ 0,		"\033[C",	KEYC_RIGHT,		TTYKEY_RAW },
 	{ 0,		"\033[D",	KEYC_LEFT,		TTYKEY_RAW },
 
-	{ TTYC_KCUU1,	NULL,		KEYC_UP,		TTYKEY_CTRL },
-	{ TTYC_KCUD1,	NULL,		KEYC_DOWN,		TTYKEY_CTRL },
-	{ TTYC_KCUB1,	NULL,		KEYC_LEFT,		TTYKEY_CTRL },
-	{ TTYC_KCUF1,	NULL,		KEYC_RIGHT,		TTYKEY_CTRL },
-
-	/* Special-case arrow keys for rxvt until terminfo has kRIT5 etc. */
-	{ 0,		"\033Oa",	KEYC_UP|KEYC_CTRL,	TTYKEY_RAW },
-	{ 0,		"\033Ob",	KEYC_DOWN|KEYC_CTRL,	TTYKEY_RAW },
-	{ 0,		"\033Oc",	KEYC_RIGHT|KEYC_CTRL,	TTYKEY_RAW },
-	{ 0,		"\033Od",	KEYC_LEFT|KEYC_CTRL,	TTYKEY_RAW },
-
-	{ 0,		"\033[a",	KEYC_UP|KEYC_SHIFT,	TTYKEY_RAW },
-	{ 0,		"\033[b",	KEYC_DOWN|KEYC_SHIFT,	TTYKEY_RAW },
-	{ 0,		"\033[c",	KEYC_RIGHT|KEYC_SHIFT,	TTYKEY_RAW },
-	{ 0,		"\033[d",	KEYC_LEFT|KEYC_SHIFT,	TTYKEY_RAW },
+	{ TTYC_KCUU1,	NULL,		KEYC_UP,		0 },
+	{ TTYC_KCUD1,	NULL,		KEYC_DOWN,		0 },
+	{ TTYC_KCUB1,	NULL,		KEYC_LEFT,		0 },
+	{ TTYC_KCUF1,	NULL,		KEYC_RIGHT,		0 },
 
 	/*
 	 * Numeric keypad. Just use the vt100 escape sequences here and always
@@ -197,6 +183,102 @@ struct tty_key_ent tty_keys[] = {
 	{ TTYC_KUP5,	NULL,		KEYC_UP|KEYC_CTRL,	0 },
 	{ TTYC_KUP6,	NULL,		KEYC_UP|KEYC_SHIFT|KEYC_CTRL, 0 },
 	{ TTYC_KUP7,	NULL,		KEYC_UP|KEYC_ESCAPE|KEYC_CTRL, 0 },
+
+	/* rxvt-style arrow + modifier keys. */
+	{ 0,	"\033Oa",	KEYC_UP|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033Ob",	KEYC_DOWN|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033Oc",	KEYC_RIGHT|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033Od",	KEYC_LEFT|KEYC_CTRL,	TTYKEY_RAW },
+
+	{ 0,	"\033[a",	KEYC_UP|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[b",	KEYC_DOWN|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[c",	KEYC_RIGHT|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[d",	KEYC_LEFT|KEYC_SHIFT,	TTYKEY_RAW },
+
+	/*
+	 * rxvt-style function + modifier keys:
+	 *		Ctrl = ^, Shift = $, Ctrl+Shift = @
+	 */
+	{ 0,	"\033[11^",	KEYC_F1|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[12^",	KEYC_F2|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[13^",	KEYC_F3|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[14^",	KEYC_F4|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[15^",	KEYC_F5|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[17^",	KEYC_F6|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[18^",	KEYC_F7|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[19^",	KEYC_F8|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[20^",	KEYC_F9|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[21^",	KEYC_F10|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[23^",	KEYC_F11|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[24^",	KEYC_F12|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[25^",	KEYC_F13|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[26^",	KEYC_F14|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[28^",	KEYC_F15|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[29^",	KEYC_F16|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[31^",	KEYC_F17|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[32^",	KEYC_F18|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[33^",	KEYC_F19|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[34^",	KEYC_F20|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[2^",	KEYC_IC|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[3^",	KEYC_DC|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[7^",	KEYC_HOME|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[8^",	KEYC_END|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[6^",	KEYC_NPAGE|KEYC_CTRL,	TTYKEY_RAW },
+	{ 0,	"\033[5^",	KEYC_PPAGE|KEYC_CTRL,	TTYKEY_RAW },
+
+	{ 0,	"\033[11$",	KEYC_F1|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[12$",	KEYC_F2|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[13$",	KEYC_F3|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[14$",	KEYC_F4|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[15$",	KEYC_F5|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[17$",	KEYC_F6|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[18$",	KEYC_F7|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[19$",	KEYC_F8|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[20$",	KEYC_F9|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[21$",	KEYC_F10|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[23$",	KEYC_F11|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[24$",	KEYC_F12|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[25$",	KEYC_F13|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[26$",	KEYC_F14|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[28$",	KEYC_F15|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[29$",	KEYC_F16|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[31$",	KEYC_F17|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[32$",	KEYC_F18|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[33$",	KEYC_F19|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[34$",	KEYC_F20|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[2$",	KEYC_IC|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[3$",	KEYC_DC|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[7$",	KEYC_HOME|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[8$",	KEYC_END|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[6$",	KEYC_NPAGE|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[5$",	KEYC_PPAGE|KEYC_SHIFT,	TTYKEY_RAW },
+
+	{ 0,	"\033[11@",	KEYC_F1|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[12@",	KEYC_F2|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[13@",	KEYC_F3|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[14@",	KEYC_F4|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[15@",	KEYC_F5|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[17@",	KEYC_F6|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[18@",	KEYC_F7|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[19@",	KEYC_F8|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[20@",	KEYC_F9|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[21@",	KEYC_F10|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[23@",	KEYC_F11|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[24@",	KEYC_F12|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[25@",	KEYC_F13|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[26@",	KEYC_F14|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[28@",	KEYC_F15|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[29@",	KEYC_F16|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[31@",	KEYC_F17|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[32@",	KEYC_F18|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[33@",	KEYC_F19|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[34@",	KEYC_F20|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[2@",	KEYC_IC|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[3@",	KEYC_DC|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[7@",	KEYC_HOME|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[8@",	KEYC_END|KEYC_CTRL|KEYC_SHIFT,	TTYKEY_RAW },
+	{ 0,	"\033[6@",	KEYC_NPAGE|KEYC_CTRL|KEYC_SHIFT,TTYKEY_RAW },
+	{ 0,	"\033[5@",	KEYC_PPAGE|KEYC_CTRL|KEYC_SHIFT,TTYKEY_RAW },
 };
 
 void
@@ -237,7 +319,7 @@ tty_keys_add1(struct tty_key **tkp, const char *s, int key)
 
 		/* Use the child tree for the next character. */
 		tkp = &tk->next;
-	} else { 
+	} else {
 		if (*s < tk->ch)
 			tkp = &tk->left;
 		else if (*s > tk->ch)
@@ -255,7 +337,6 @@ tty_keys_init(struct tty *tty)
 	struct tty_key_ent	*tke;
 	u_int		 	 i;
 	const char		*s;
-	char			 tmp[64];
 
 	tty->key_tree = NULL;
 	for (i = 0; i < nitems(tty_keys); i++) {
@@ -272,12 +353,6 @@ tty_keys_init(struct tty *tty)
 			continue;
 
 		tty_keys_add(tty, s + 1, tke->key);
-		if (!(tke->flags & TTYKEY_CTRL)) {
-			if (strlcpy(tmp, s, sizeof tmp) >= sizeof tmp)
-				continue;
-			tmp[strlen(tmp) - 1] ^= 0x20;
-			tty_keys_add(tty, tmp + 1, tke->key | KEYC_CTRL);
-		}
 	}
 }
 
@@ -299,7 +374,7 @@ tty_keys_free1(struct tty_key *tk)
 	if (tk->right != NULL)
 		tty_keys_free1(tk->right);
 	xfree(tk);
-	
+
 }
 
 /* Lookup a key in the tree. */
@@ -343,7 +418,7 @@ tty_keys_find1(struct tty_key *tk, const char *buf, size_t len, size_t *size)
 
 /*
  * Process at least one key in the buffer and invoke tty->key_callback. Return
- * 1 if there are no further keys, or 0 if there is more in the buffer.
+ * 0 if there are no further keys, or 1 if there could be more in the buffer.
  */
 int
 tty_keys_next(struct tty *tty)
@@ -378,25 +453,34 @@ tty_keys_next(struct tty *tty)
 		goto handle_key;
 	}
 
+	/* Is this a mouse key press? */
+	switch (tty_keys_mouse(buf, len, &size, &mouse)) {
+	case 0:		/* yes */
+		evbuffer_drain(tty->event->input, size);
+		key = KEYC_MOUSE;
+		goto handle_key;
+	case -1:	/* no, or not valid */
+		break;
+	case 1:		/* partial */
+		goto partial_key;
+	}
+
+	/* Try to parse a key with an xterm-style modifier. */
+	switch (xterm_keys_find(buf, len, &size, &key)) {
+	case 0:		/* found */
+		evbuffer_drain(tty->event->input, size);
+		goto handle_key;
+	case -1:	/* not found */
+		break;
+	case 1:
+		goto partial_key;
+	}
+
 	/* Look for matching key string and return if found. */
 	tk = tty_keys_find(tty, buf + 1, len - 1, &size);
 	if (tk != NULL) {
 		key = tk->key;
 		goto found_key;
-	}
-
-	/* Not found. Is this a mouse key press? */
-	key = tty_keys_mouse(buf, len, &size, &mouse);
-	if (key != KEYC_NONE) {
-		evbuffer_drain(tty->event->input, size);
-		goto handle_key;
-	}
-
-	/* Not found. Try to parse a key with an xterm-style modifier. */
-	key = xterm_keys_find(buf, len, &size);
-	if (key != KEYC_NONE) {
-		evbuffer_drain(tty->event->input, size);
-		goto handle_key;
 	}
 
 	/* Skip the escape. */
@@ -439,11 +523,11 @@ start_timer:
 	/* Start the timer and wait for expiry or more data. */
 	tv.tv_sec = 0;
 	tv.tv_usec = ESCAPE_PERIOD * 1000L;
-	
+
 	evtimer_del(&tty->key_timer);
 	evtimer_set(&tty->key_timer, tty_keys_callback, tty);
 	evtimer_add(&tty->key_timer, &tv);
-	
+
 	tty->flags |= TTY_ESCAPE;
 	return (0);
 
@@ -464,7 +548,7 @@ found_key:
 	goto handle_key;
 
 handle_key:
- 	evtimer_del(&tty->key_timer);
+	evtimer_del(&tty->key_timer);
 
 	tty->key_callback(key, &mouse, tty->key_data);
 
@@ -473,6 +557,7 @@ handle_key:
 }
 
 /* Key timer callback. */
+/* ARGSUSED */
 void
 tty_keys_callback(unused int fd, unused short events, void *data)
 {
@@ -485,7 +570,10 @@ tty_keys_callback(unused int fd, unused short events, void *data)
 		;
 }
 
-/* Handle mouse key input. */
+/*
+ * Handle mouse key input. Returns 0 for success, -1 for failure, 1 for partial
+ * (probably a mouse sequence but need more data).
+ */
 int
 tty_keys_mouse(const char *buf, size_t len, size_t *size, struct mouse_event *m)
 {
@@ -494,19 +582,36 @@ tty_keys_mouse(const char *buf, size_t len, size_t *size, struct mouse_event *m)
 	 * buttons, X and Y, all based at 32 with 1,1 top-left.
 	 */
 
-	if (len != 6 || memcmp(buf, "\033[M", 3) != 0)
-		return (KEYC_NONE);
+	*size = 0;
+
+	if (buf[0] != '\033')
+		return (-1);
+	if (len == 1)
+		return (1);
+
+	if (buf[1] != '[')
+		return (-1);
+	if (len == 2)
+		return (1);
+
+	if (buf[2] != 'M')
+		return (-1);
+	if (len == 3)
+		return (1);
+
+	if (len < 6)
+		return (1);
 	*size = 6;
 
-	log_debug("mouse input is: %.*s", (int) len, buf);
+	log_debug("mouse input is: %.6s", buf);
 
 	m->b = buf[3];
 	m->x = buf[4];
 	m->y = buf[5];
 	if (m->b < 32 || m->x < 33 || m->y < 33)
-		return (KEYC_NONE);
+		return (-1);
 	m->b -= 32;
 	m->x -= 33;
 	m->y -= 33;
-	return (KEYC_MOUSE);
+	return (0);
 }

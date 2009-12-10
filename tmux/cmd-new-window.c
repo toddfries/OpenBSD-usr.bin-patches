@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-window.c,v 1.8 2009/10/10 10:02:48 nicm Exp $ */
+/* $OpenBSD: cmd-new-window.c,v 1.11 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -43,7 +43,7 @@ struct cmd_new_window_data {
 const struct cmd_entry cmd_new_window_entry = {
 	"new-window", "neww",
 	"[-dk] [-n window-name] [-t target-window] [command]",
-	0, 0,
+	0, "",
 	cmd_new_window_init,
 	cmd_new_window_parse,
 	cmd_new_window_exec,
@@ -51,6 +51,7 @@ const struct cmd_entry cmd_new_window_entry = {
 	cmd_new_window_print
 };
 
+/* ARGSUSED */
 void
 cmd_new_window_init(struct cmd *self, unused int arg)
 {
@@ -165,7 +166,7 @@ cmd_new_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (!data->flag_detached) {
 		session_select(s, wl->idx);
 		server_redraw_session_group(s);
-	} else	
+	} else
 		server_status_session_group(s);
 
 	return (0);

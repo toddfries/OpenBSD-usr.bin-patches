@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-server-info.c,v 1.14 2009/11/03 20:29:47 nicm Exp $ */
+/* $OpenBSD: cmd-server-info.c,v 1.17 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,7 +36,7 @@ int	cmd_server_info_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_server_info_entry = {
 	"server-info", "info",
 	"",
-	0, 0,
+	0, "",
 	NULL,
 	NULL,
 	cmd_server_info_exec,
@@ -44,6 +44,7 @@ const struct cmd_entry cmd_server_info_entry = {
 	NULL
 };
 
+/* ARGSUSED */
 int
 cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 {
@@ -93,12 +94,12 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 		ctx->print(ctx, "%2d: %s (%d, %d): %s [%ux%u %s] "
 		    "[flags=0x%x/0x%x, references=%u]", i, c->tty.path,
 		    c->ibuf.fd, c->tty.fd, c->session->name,
-		    c->tty.sx, c->tty.sy, c->tty.termname, c->flags, 
+		    c->tty.sx, c->tty.sy, c->tty.termname, c->flags,
 		    c->tty.flags, c->references);
 	}
 	ctx->print(ctx, "%s", "");
 
- 	ctx->print(ctx, "Sessions: [%zu/%zu]",
+	ctx->print(ctx, "Sessions: [%zu/%zu]",
 	    sizeof (struct grid_cell), sizeof (struct grid_utf8));
 	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
 		s = ARRAY_ITEM(&sessions, i);
@@ -147,7 +148,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	}
 	ctx->print(ctx, "%s", "");
 
-  	ctx->print(ctx, "Terminals:");
+	ctx->print(ctx, "Terminals:");
 	SLIST_FOREACH(term, &tty_terms, entry) {
 		ctx->print(ctx, "%s [references=%u, flags=0x%x]:",
 		    term->name, term->references, term->flags);
@@ -179,7 +180,7 @@ cmd_server_info_exec(unused struct cmd *self, struct cmd_ctx *ctx)
 	}
 	ctx->print(ctx, "%s", "");
 
-  	ctx->print(ctx, "Jobs:");
+	ctx->print(ctx, "Jobs:");
 	SLIST_FOREACH(job, &all_jobs, lentry) {
 		ctx->print(ctx, "%s [fd=%d, pid=%d, status=%d, flags=0x%x]",
 		    job->cmd, job->fd, job->pid, job->status, job->flags);

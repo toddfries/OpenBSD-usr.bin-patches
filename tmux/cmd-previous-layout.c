@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-previous-layout.c,v 1.4 2009/07/26 12:58:44 nicm Exp $ */
+/* $OpenBSD: cmd-previous-layout.c,v 1.6 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,7 +29,7 @@ int	cmd_previous_layout_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_previous_layout_entry = {
 	"previous-layout", "prevl",
 	CMD_TARGET_WINDOW_USAGE,
-	0, 0,
+	0, "",
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_previous_layout_exec,
@@ -43,7 +43,7 @@ cmd_previous_layout_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_target_data	*data = self->data;
 	struct winlink		*wl;
 	u_int			 layout;
-	
+
 	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
 		return (-1);
 

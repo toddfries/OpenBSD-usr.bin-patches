@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-select-layout.c,v 1.6 2009/07/28 06:48:44 nicm Exp $ */
+/* $OpenBSD: cmd-select-layout.c,v 1.8 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,7 +30,7 @@ int	cmd_select_layout_exec(struct cmd *, struct cmd_ctx *);
 const struct cmd_entry cmd_select_layout_entry = {
 	"select-layout", "selectl",
 	CMD_TARGET_WINDOW_USAGE " [layout-name]",
-	CMD_ARG01, 0,
+	CMD_ARG01, "",
 	cmd_select_layout_init,
 	cmd_target_parse,
 	cmd_select_layout_exec,
@@ -52,7 +52,7 @@ cmd_select_layout_init(struct cmd *self, int key)
 		break;
 	case ('2' | KEYC_ESCAPE):
 		data->arg = xstrdup("even-vertical");
-    		break;
+		break;
 	case ('3' | KEYC_ESCAPE):
 		data->arg = xstrdup("main-horizontal");
 		break;
@@ -80,7 +80,7 @@ cmd_select_layout_exec(struct cmd *self, struct cmd_ctx *ctx)
 		ctx->error(ctx, "unknown layout or ambiguous: %s", data->arg);
 		return (-1);
 	}
-	
+
 	layout = layout_set_select(wl->window, layout);
 	ctx->info(ctx, "arranging in: %s", layout_set_name(layout));
 

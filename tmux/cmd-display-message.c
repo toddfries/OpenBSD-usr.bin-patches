@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-display-message.c,v 1.3 2009/10/10 15:03:01 nicm Exp $ */
+/* $OpenBSD: cmd-display-message.c,v 1.7 2009/11/24 19:16:11 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -30,8 +30,8 @@ int	cmd_display_message_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_display_message_entry = {
 	"display-message", "display",
-	CMD_TARGET_CLIENT_USAGE " [message]",
-	CMD_ARG01, 0,
+	"[-p] " CMD_TARGET_CLIENT_USAGE " [message]",
+	CMD_ARG01, "p",
 	cmd_target_init,
 	cmd_target_parse,
 	cmd_display_message_exec,
@@ -55,8 +55,11 @@ cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
 	else
 		template = data->arg;
 
-	msg = status_replace(c, template, time(NULL));
-	status_message_set(c, "%s", msg);
+	msg = status_replace(c, NULL, template, time(NULL), 0);
+	if (cmd_check_flag(data->chflags, 'p'))
+		ctx->print(ctx, "%s", msg);
+	else
+		status_message_set(c, "%s", msg);
 	xfree(msg);
 
 	return (0);

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.21 2009/10/10 10:02:48 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.25 2009/12/03 22:50:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -44,7 +44,7 @@ struct cmd_new_session_data {
 const struct cmd_entry cmd_new_session_entry = {
 	"new-session", "new",
 	"[-d] [-n window-name] [-s session-name] [-t target-session] [command]",
-	CMD_STARTSERVER|CMD_CANTNEST|CMD_SENDENVIRON, 0,
+	CMD_STARTSERVER|CMD_CANTNEST|CMD_SENDENVIRON, "",
 	cmd_new_session_init,
 	cmd_new_session_parse,
 	cmd_new_session_exec,
@@ -52,6 +52,7 @@ const struct cmd_entry cmd_new_session_entry = {
 	cmd_new_session_print
 };
 
+/* ARGSUSED */
 void
 cmd_new_session_init(struct cmd *self, unused int arg)
 {
@@ -183,8 +184,8 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 			ctx->error(ctx, "not a terminal");
 			return (-1);
 		}
-		
-		overrides = 
+
+		overrides =
 		    options_get_string(&global_s_options, "terminal-overrides");
 		if (tty_open(&ctx->cmdclient->tty, overrides, &cause) != 0) {
 			ctx->error(ctx, "open terminal failed: %s", cause);
@@ -266,17 +267,18 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	 * Set the client to the new session. If a command client exists, it is
 	 * taking this session and needs to get MSG_READY and stay around.
 	 */
- 	if (!detached) {
+	if (!detached) {
 		if (ctx->cmdclient != NULL) {
 			server_write_client(ctx->cmdclient, MSG_READY, NULL, 0);
- 			ctx->cmdclient->session = s;
+			ctx->cmdclient->session = s;
 			server_redraw_client(ctx->cmdclient);
 		} else {
- 			ctx->curclient->session = s;
+			ctx->curclient->session = s;
 			server_redraw_client(ctx->curclient);
 		}
 	}
 	recalculate_sizes();
+	server_update_socket();
 
 	return (!detached);	/* 1 means don't tell command client to exit */
 }
