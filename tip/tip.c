@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.c,v 1.35 2009/10/27 23:59:45 deraadt Exp $	*/
+/*	$OpenBSD: tip.c,v 1.38 2009/12/12 18:26:23 nicm Exp $	*/
 /*	$NetBSD: tip.c,v 1.13 1997/04/20 00:03:05 mellon Exp $	*/
 
 /*
@@ -36,6 +36,10 @@
  * or
  *  cu phone-number [-s speed] [-l line] [-a acu]
  */
+
+#include <sys/types.h>
+#include <sys/socket.h>
+
 #include "tip.h"
 #include "pathnames.h"
 
@@ -50,15 +54,11 @@ int
 main(int argc, char *argv[])
 {
 	char *sys = NULL, sbuf[12], *p;
-	int i;
+	int i, pair[2];
 
 	/* XXX preserve previous braindamaged behavior */
 	setboolean(value(DC), TRUE);
 
-	gid = getgid();
-	egid = getegid();
-	uid = getuid();
-	euid = geteuid();
 	if (equal(__progname, "cu")) {
 		cumode = 1;
 		cumain(argc, argv);
@@ -140,15 +140,6 @@ notnumber:
 	loginit();
 
 	/*
-	 * Now that we have the logfile and the ACU open
-	 *  return to the real uid and gid.  These things will
-	 *  be closed on exit.  Swap real and effective uid's
-	 *  so we can get the original permissions back
-	 *  for removing the uucp lock.
-	 */
-	user_uid();
-
-	/*
 	 * Kludge, their's no easy way to get the initialization
 	 *   in the right order, so force it here
 	 */
@@ -165,20 +156,17 @@ notnumber:
 	if (HW && ttysetup(number(value(BAUDRATE)))) {
 		fprintf(stderr, "%s: bad baud rate %ld\n", __progname,
 		    number(value(BAUDRATE)));
-		daemon_uid();
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}
 	if ((p = con())) {
 		printf("\07%s\n[EOT]\n", p);
-		daemon_uid();
 		(void)uu_unlock(uucplock);
 		exit(1);
 	}
 	if (!HW && ttysetup(number(value(BAUDRATE)))) {
 		fprintf(stderr, "%s: bad baud rate %ld\n", __progname,
 		    number(value(BAUDRATE)));
-		daemon_uid();
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}
@@ -213,13 +201,17 @@ cucommon:
 	    term.c_cc[VLNEXT] = _POSIX_VDISABLE;
 	raw();
 
-	pipe(fildes); pipe(repdes);
 	(void)signal(SIGALRM, timeout);
 
 	if (value(LINEDISC) != TTYDISC) {
 		int ld = (int)value(LINEDISC);
 		ioctl(FD, TIOCSETD, &ld);
 	}		
+
+	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pair) != 0) {
+		(void)uu_unlock(uucplock);
+		err(3, "socketpair");
+	}
 
 	/*
 	 * Everything's set up now:
@@ -230,10 +222,19 @@ cucommon:
 	 */
 	printf(cumode ? "Connected\r\n" : "\07connected\r\n");
 	tipin_pid = getpid();
-	if ((tipout_pid = fork()))
-		tipin();
-	else
+	switch (tipout_pid = fork()) {
+	case -1:
+		(void)uu_unlock(uucplock);
+		err(3, "fork");
+	case 0:
+		close(pair[1]);
+		tipin_fd = pair[0];
 		tipout();
+	default:
+		close(pair[0]);
+		tipout_fd = pair[1];
+		tipin();
+	}
 	/*NOTREACHED*/
 	exit(0);
 }
@@ -241,7 +242,6 @@ cucommon:
 void
 cleanup(int signo)
 {
-	daemon_uid();
 	(void)uu_unlock(uucplock);
 	if (odisc)
 		ioctl(0, TIOCSETD, &odisc);
@@ -251,42 +251,6 @@ cleanup(int signo)
 		wait(NULL);
 	}
 	exit(0);
-}
-
-/*
- * Muck with user ID's.  We are setuid to the owner of the lock
- * directory when we start.  user_uid() reverses real and effective
- * ID's after startup, to run with the user's permissions.
- * daemon_uid() switches back to the privileged uid for unlocking.
- * Finally, to avoid running a shell with the wrong real uid,
- * shell_uid() sets real and effective uid's to the user's real ID.
- */
-static int uidswapped;
-
-void
-user_uid(void)
-{
-	if (uidswapped == 0) {
-		seteuid(uid);
-		uidswapped = 1;
-	}
-}
-
-void
-daemon_uid(void)
-{
-
-	if (uidswapped) {
-		seteuid(euid);
-		uidswapped = 0;
-	}
-}
-
-void
-shell_uid(void)
-{
-	setegid(gid);
-	seteuid(uid);
 }
 
 /*
@@ -421,8 +385,6 @@ escape(void)
 	/* XXX does not check for EOF */
 	for (p = etable; p->e_char; p++)
 		if (p->e_char == gch) {
-			if ((p->e_flags&PRIV) && uid)
-				continue;
 			printf("%s", ctrl(c));
 			(*p->e_func)(gch);
 			return (0);
@@ -504,11 +466,8 @@ help(int c)
 
 	printf("%c\r\n", c);
 	for (p = etable; p->e_char; p++) {
-		if ((p->e_flags&PRIV) && uid)
-			continue;
 		printf("%2s", ctrl(character(value(ESCAPE))));
-		printf("%-2s %c   %s\r\n", ctrl(p->e_char),
-			p->e_flags&EXP ? '*': ' ', p->e_help);
+		printf("%-2s     %s\r\n", ctrl(p->e_char), p->e_help);
 	}
 }
 
