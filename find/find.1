@@ -1,4 +1,4 @@
-.\"	$OpenBSD: find.1,v 1.74 2009/04/09 14:30:39 jmc Exp $
+.\"	$OpenBSD: find.1,v 1.76 2009/12/20 20:19:49 schwarze Exp $
 .\" Copyright (c) 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"	from: @(#)find.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: April 9 2009 $
+.Dd $Mdocdate: December 20 2009 $
 .Dt FIND 1
 .Os
 .Sh NAME
@@ -139,6 +139,14 @@ Prevents
 from descending into directories that have a device number different
 than that of the file from which the descent began.
 .El
+.Pp
+It is not an error to specify more than one of
+the mutually exclusive options
+.Fl H
+and
+.Fl L .
+Where more than one of these options is specified,
+the last option given overrides the others.
 .Sh PRIMARIES
 .Bl -tag -width Ds
 .It Ic -amin Ar n
