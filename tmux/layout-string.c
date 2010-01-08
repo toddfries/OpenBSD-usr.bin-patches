@@ -1,4 +1,4 @@
-/* $Id: layout-string.c,v 1.1 2009/12/08 07:49:31 nicm Exp $ */
+/* $Id: layout-string.c,v 1.3 2010/01/07 20:30:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -42,24 +42,26 @@ struct layout_cell *layout_find_bottomright(struct layout_cell *);
 struct layout_cell *
 layout_find_string(struct window *w, const char *s)
 {
-	struct layout_cell	*lc = w->layout_root;
+	struct layout_cell	*lc;
+
+	lc = NULL;
 
 	if (strcasecmp(s, "top") == 0)
-		lc = layout_find_top(lc);
+		lc = layout_find_top(w->layout_root);
 	else if (strcasecmp(s, "bottom") == 0)
-		lc = layout_find_bottom(lc);
+		lc = layout_find_bottom(w->layout_root);
 	else if (strcasecmp(s, "left") == 0)
-		lc = layout_find_left(lc);
+		lc = layout_find_left(w->layout_root);
 	else if (strcasecmp(s, "right") == 0)
-		lc = layout_find_right(lc);
+		lc = layout_find_right(w->layout_root);
 	else if (strcasecmp(s, "top-left") == 0)
-		lc = layout_find_topleft(lc);
+		lc = layout_find_topleft(w->layout_root);
 	else if (strcasecmp(s, "top-right") == 0)
-		lc = layout_find_topright(lc);
+		lc = layout_find_topright(w->layout_root);
 	else if (strcasecmp(s, "bottom-left") == 0)
-		lc = layout_find_bottomleft(lc);
+		lc = layout_find_bottomleft(w->layout_root);
 	else if (strcasecmp(s, "bottom-right") == 0)
-		lc = layout_find_bottomright(lc);
+		lc = layout_find_bottomright(w->layout_root);
 
 	if (lc == NULL || lc->type != LAYOUT_WINDOWPANE)
 		return (NULL);
