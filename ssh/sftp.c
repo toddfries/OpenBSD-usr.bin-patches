@@ -1,4 +1,4 @@
-/* $OpenBSD: sftp.c,v 1.116 2010/01/04 02:03:57 djm Exp $ */
+/* $OpenBSD: sftp.c,v 1.118 2010/01/09 11:13:02 dtucker Exp $ */
 /*
  * Copyright (c) 2001-2004 Damien Miller <djm@openbsd.org>
  *
@@ -1089,16 +1089,17 @@ parse_args(const char **cpp, int *pflag, int *rflag, int *lflag, int *iflag,
 	/* Skip leading whitespace */
 	cp = cp + strspn(cp, WHITESPACE);
 
-	/* Ignore blank lines and lines which begin with comment '#' char */
-	if (*cp == '\0' || *cp == '#')
-		return (0);
-
 	/* Check for leading '-' (disable error processing) */
 	*iflag = 0;
 	if (*cp == '-') {
 		*iflag = 1;
 		cp++;
+		cp = cp + strspn(cp, WHITESPACE);
 	}
+
+	/* Ignore blank lines and lines which begin with comment '#' char */
+	if (*cp == '\0' || *cp == '#')
+		return (0);
 
 	if ((argv = makeargv(cp, &argc, 0, NULL, NULL)) == NULL)
 		return -1;
@@ -1544,7 +1545,7 @@ complete_ambiguous(const char *word, char **list, size_t count)
 		if (matchlen > strlen(word)) {
 			char *tmp = xstrdup(list[0]);
 
-			tmp[matchlen] = NULL;
+			tmp[matchlen] = '\0';
 			return tmp;
 		}
 	} 
@@ -2014,7 +2015,7 @@ int
 main(int argc, char **argv)
 {
 	int in, out, ch, err;
-	char *host, *userhost, *cp, *file2 = NULL;
+	char *host = NULL, *userhost, *cp, *file2 = NULL;
 	int debug_level = 0, sshver = 2;
 	char *file1 = NULL, *sftp_server = NULL;
 	char *ssh_program = _PATH_SSH_PROGRAM, *sftp_direct = NULL;
