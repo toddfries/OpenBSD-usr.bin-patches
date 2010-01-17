@@ -1,4 +1,4 @@
-/*	$OpenBSD: aproc.c,v 1.46 2010/01/15 22:17:10 ratchov Exp $	*/
+/*	$OpenBSD: aproc.c,v 1.48 2010/01/17 19:17:23 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -1258,8 +1258,6 @@ resamp_bcopy(struct aproc *p, struct abuf *ibuf, struct abuf *obuf)
 #endif
 	for (;;) {
 		if (diff < 0) {
-			if (ifr == 0)
-				break;
 			ctx_start ^= 1;
 			ctx = ctxbuf + ctx_start;
 			for (c = inch; c > 0; c--) {
@@ -1267,10 +1265,9 @@ resamp_bcopy(struct aproc *p, struct abuf *ibuf, struct abuf *obuf)
 				ctx += RESAMP_NCTX;
 			}
 			diff += oblksz;
-			ifr--;
-		} else if (diff > 0) {
-			if (ofr == 0)
+			if (--ifr == 0)
 				break;
+		} else {
 			ctx = ctxbuf;
 			for (c = onch; c > 0; c--) {
 				s1 = ctx[ctx_start];
@@ -1279,19 +1276,8 @@ resamp_bcopy(struct aproc *p, struct abuf *ibuf, struct abuf *obuf)
 				*odata++ = s1 + (s2 - s1) * diff / (int)oblksz;
 			}
 			diff -= iblksz;
-			ofr--;
-		} else {
-			if (ifr == 0 || ofr == 0)
+			if (--ofr == 0)
 				break;
-			ctx_start ^= 1;
-			ctx = ctxbuf + ctx_start;
-			for (c = inch; c > 0; c--) {
-				*ctx = *odata++ = *idata++;
-				ctx += RESAMP_NCTX;
-			}
-			ifr--;
-			ofr--;
-			diff += oblksz - iblksz;
 		}
 	}
 	p->u.resamp.diff = diff;
