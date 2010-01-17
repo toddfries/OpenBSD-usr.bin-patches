@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.14 2010/01/10 21:47:41 ratchov Exp $	*/
+/*	$OpenBSD: midi.c,v 1.16 2010/01/16 23:21:56 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -59,6 +59,7 @@
 #define MIDI_PC		0xc0		/* program change */
 #define MIDI_CAT	0xd0		/* channel after touch */
 #define MIDI_BEND	0xe0		/* pitch bend */
+#define MIDI_ACK	0xfe		/* active sensing message */
 
 /*
  * MIDI controller numbers
@@ -135,6 +136,8 @@ thru_rt(struct aproc *p, struct abuf *ibuf, struct abuf *obuf, unsigned c)
 		dbg_puts(": flushing realtime message\n");
 	}
 #endif
+	if (c == MIDI_ACK)
+		return;
 	if (!ABUF_WOK(obuf)) {
 #ifdef DEBUG
 		if (debug_level >= 4) {
@@ -268,17 +271,13 @@ thru_eof(struct aproc *p, struct abuf *ibuf)
 {
 	if (!(p->flags & APROC_QUIT))
 		return;
-	if (LIST_EMPTY(&p->obuflist) || LIST_EMPTY(&p->ibuflist))
+	if (LIST_EMPTY(&p->ibuflist))
 		aproc_del(p);
 }
 
 void
 thru_hup(struct aproc *p, struct abuf *obuf)
 {
-	if (!(p->flags & APROC_QUIT))
-		return;
-	if (LIST_EMPTY(&p->obuflist) || LIST_EMPTY(&p->ibuflist))
-		aproc_del(p);
 }
 
 void
