@@ -1,4 +1,4 @@
-/*	$OpenBSD: theo.c,v 1.115 2010/01/01 23:01:17 schwarze Exp $	*/
+/*	$OpenBSD: theo.c,v 1.117 2010/01/24 15:02:15 jasper Exp $	*/
 /*
  * Copyright (c) 2002 Artur Grabowski <art@openbsd.org>
  * All rights reserved.
