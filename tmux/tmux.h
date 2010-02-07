@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.202 2010/02/04 20:00:26 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.206 2010/02/06 23:22:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -469,6 +469,7 @@ enum mode_key_cmd {
 	MODEKEYCOPY_PREVIOUSPAGE,
 	MODEKEYCOPY_PREVIOUSSPACE,
 	MODEKEYCOPY_PREVIOUSWORD,
+	MODEKEYCOPY_RECTANGLETOGGLE,
 	MODEKEYCOPY_RIGHT,
 	MODEKEYCOPY_SCROLLDOWN,
 	MODEKEYCOPY_SCROLLUP,
@@ -674,6 +675,7 @@ SLIST_HEAD(joblist, job);
 /* Screen selection. */
 struct screen_sel {
 	int		 flag;
+	int		 rectflag;
 
 	u_int		 sx;
 	u_int		 sy;
@@ -1092,6 +1094,7 @@ struct client {
 #define CLIENT_IDENTIFY 0x100
 #define CLIENT_DEAD 0x200
 #define CLIENT_BORDERS 0x400
+#define CLIENT_READONLY 0x800
 	int		 flags;
 
 	struct event	 identify_timer;
@@ -1170,6 +1173,7 @@ struct cmd_entry {
 #define CMD_ARG01 0x10
 #define CMD_ARG2 0x20
 #define CMD_ARG12 0x40
+#define CMD_READONLY 0x80
 	int		 flags;
 
 	const char	*chflags;
@@ -1240,6 +1244,9 @@ struct set_option_entry {
 	const char     **choices;
 };
 
+/* List of configuration causes. */
+ARRAY_DECL(causelist, char *);
+
 /* tmux.c */
 extern struct options global_options;
 extern struct options global_s_options;
@@ -1257,7 +1264,10 @@ int		 checkshell(const char *);
 int		 areshell(const char *);
 
 /* cfg.c */
-int		 load_cfg(const char *, struct cmd_ctx *, char **);
+extern int       cfg_finished;
+struct causelist cfg_causes;
+void printflike2 cfg_add_cause(struct causelist *, const char *, ...);
+int		 load_cfg(const char *, struct cmd_ctx *, struct causelist *);
 
 /* mode-key.c */
 extern const struct mode_key_table mode_key_tables[];
@@ -1770,8 +1780,8 @@ void	 screen_free(struct screen *);
 void	 screen_reset_tabs(struct screen *);
 void	 screen_set_title(struct screen *, const char *);
 void	 screen_resize(struct screen *, u_int, u_int);
-void	 screen_set_selection(
-	     struct screen *, u_int, u_int, u_int, u_int, struct grid_cell *);
+void	 screen_set_selection(struct screen *,
+	     u_int, u_int, u_int, u_int, u_int, struct grid_cell *);
 void	 screen_clear_selection(struct screen *);
 int	 screen_check_selection(struct screen *, u_int, u_int);
 
@@ -1867,6 +1877,7 @@ void		 window_copy_pageup(struct window_pane *);
 
 /* window-more.c */
 extern const struct window_mode window_more_mode;
+void		 window_more_add(struct window_pane *, const char *, ...);
 void		 window_more_vadd(struct window_pane *, const char *, va_list);
 
 /* window-choose.c */
