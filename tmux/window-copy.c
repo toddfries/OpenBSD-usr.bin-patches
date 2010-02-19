@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.43 2010/02/11 20:39:40 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.46 2010/02/19 00:03:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -138,6 +138,9 @@ window_copy_init(struct window_pane *wp)
 	data->searchtype = WINDOW_COPY_OFF;
 	data->searchstr = NULL;
 
+	wp->flags |= PANE_FREEZE;
+	bufferevent_disable(wp->event, EV_READ|EV_WRITE);
+
 	s = &data->screen;
 	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
 	if (options_get_number(&wp->window->options, "mode-mouse"))
@@ -165,6 +168,9 @@ void
 window_copy_free(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
+
+	wp->flags &= ~PANE_FREEZE;
+	bufferevent_enable(wp->event, EV_READ|EV_WRITE);
 
 	if (data->searchstr != NULL)
 		xfree(data->searchstr);
@@ -1038,7 +1044,7 @@ window_copy_copy_line(struct window_pane *wp,
 	}
 
 	/* Only add a newline if the line wasn't wrapped. */
-	if (!wrapped) {
+	if (!wrapped || ex != xx) {
 		*buf = xrealloc(*buf, 1, (*off) + 1);
 		(*buf)[(*off)++] = '\n';
 	}
@@ -1263,8 +1269,8 @@ window_copy_cursor_next_word(struct window_pane *wp, const char *separators)
 
 			py = screen_hsize(base_s) + data->cy - data->oy;
 			xx = window_copy_find_length(wp, py);
-		}
-		px++;
+		} else
+			px++;
 	}
 
 	window_copy_update_cursor(wp, px, data->cy);
@@ -1295,8 +1301,8 @@ window_copy_cursor_next_word_end(struct window_pane *wp, const char *separators)
 
 			py = screen_hsize(base_s) + data->cy - data->oy;
 			xx = window_copy_find_length(wp, py);
-		}
-		px++;
+		} else
+			px++;
 	}
 
 	/* Find the end of this word. */
@@ -1417,4 +1423,3 @@ window_copy_rectangle_toggle(struct window_pane *wp)
 	window_copy_update_selection(wp);
 	window_copy_redraw_screen(wp);
 }
-
