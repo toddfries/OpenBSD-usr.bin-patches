@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.43 2010/02/06 17:15:33 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.45 2010/03/22 19:07:52 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -623,6 +623,81 @@ window_pane_resize(struct window_pane *wp, u_int sx, u_int sy)
 		fatal("ioctl failed");
 }
 
+/*
+ * Enter alternative screen mode. A copy of the visible screen is saved and the
+ * history is not updated
+ */
+void
+window_pane_alternate_on(struct window_pane *wp, struct grid_cell *gc)
+{
+	struct screen	*s = &wp->base;
+	u_int		 sx, sy;
+
+	if (wp->saved_grid != NULL)
+		return;
+	if (!options_get_number(&wp->window->options, "alternate-screen"))
+		return;
+	sx = screen_size_x(s);
+	sy = screen_size_y(s);
+
+	wp->saved_grid = grid_create(sx, sy, 0);
+	grid_duplicate_lines(wp->saved_grid, 0, s->grid, screen_hsize(s), sy);
+	wp->saved_cx = s->cx;
+	wp->saved_cy = s->cy;
+	memcpy(&wp->saved_cell, gc, sizeof wp->saved_cell);
+
+	grid_view_clear(s->grid, 0, 0, sx, sy);
+
+	wp->base.grid->flags &= ~GRID_HISTORY;
+
+	wp->flags |= PANE_REDRAW;
+}
+
+/* Exit alternate screen mode and restore the copied grid. */
+void
+window_pane_alternate_off(struct window_pane *wp, struct grid_cell *gc)
+{
+	struct screen	*s = &wp->base;
+	u_int		 sx, sy;
+
+	if (wp->saved_grid == NULL)
+		return;
+	if (!options_get_number(&wp->window->options, "alternate-screen"))
+		return;
+	sx = screen_size_x(s);
+	sy = screen_size_y(s);
+
+	/*
+	 * If the current size is bigger, temporarily resize to the old size
+	 * before copying back.
+	 */
+	if (sy > wp->saved_grid->sy)
+		screen_resize(s, sx, wp->saved_grid->sy);
+
+	/* Restore the grid, cursor position and cell. */
+	grid_duplicate_lines(s->grid, screen_hsize(s), wp->saved_grid, 0, sy);
+	s->cx = wp->saved_cx;
+	if (s->cx > screen_size_x(s) - 1)
+		s->cx = screen_size_x(s) - 1;
+	s->cy = wp->saved_cy;
+	if (s->cy > screen_size_y(s) - 1)
+		s->cy = screen_size_y(s) - 1;
+	memcpy(gc, &wp->saved_cell, sizeof *gc);
+
+	/*
+	 * Turn history back on (so resize can use it) and then resize back to
+	 * the current size.
+	 */
+	wp->base.grid->flags |= GRID_HISTORY;
+	if (sy > wp->saved_grid->sy)
+		screen_resize(s, sx, sy);
+
+	grid_destroy(wp->saved_grid);
+	wp->saved_grid = NULL;
+
+	wp->flags |= PANE_REDRAW;
+}
+
 int
 window_pane_set_mode(struct window_pane *wp, const struct window_mode *mode)
 {
@@ -751,4 +826,114 @@ window_pane_search(struct window_pane *wp, const char *searchstr, u_int *lineno)
 
 	xfree(newsearchstr);
 	return (msg);
+}
+
+/* Find the pane directly above another. */
+struct window_pane *
+window_pane_find_up(struct window_pane *wp)
+{
+	struct window_pane     *wp2;
+	u_int			left, top;
+
+	if (wp == NULL || !window_pane_visible(wp))
+		return (NULL);
+
+	top = wp->yoff;
+	if (top == 0)
+		top = wp->window->sy + 1;
+	left = wp->xoff;
+
+	TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
+		if (!window_pane_visible(wp2))
+			continue;
+		if (wp2->yoff + wp2->sy + 1 != top)
+			continue;
+		if (left >= wp2->xoff && left <= wp2->xoff + wp2->sx)
+			return (wp2);
+	}
+	return (NULL);
+}
+
+/* Find the pane directly below another. */
+struct window_pane *
+window_pane_find_down(struct window_pane *wp)
+{
+	struct window_pane     *wp2;
+	u_int			left, bottom;
+
+	if (wp == NULL || !window_pane_visible(wp))
+		return (NULL);
+
+	bottom = wp->yoff + wp->sy + 1;
+	if (bottom >= wp->window->sy)
+		bottom = 0;
+	left = wp->xoff;
+
+	TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
+		if (!window_pane_visible(wp2))
+			continue;
+		if (wp2->yoff != bottom)
+			continue;
+		if (left >= wp2->xoff && left <= wp2->xoff + wp2->sx)
+			return (wp2);
+	}
+	return (NULL);
+}
+
+/*
+ * Find the pane directly to the left of another, adjacent to the left side and
+ * containing the top edge.
+ */
+struct window_pane *
+window_pane_find_left(struct window_pane *wp)
+{
+	struct window_pane     *wp2;
+	u_int			left, top;
+
+	if (wp == NULL || !window_pane_visible(wp))
+		return (NULL);
+
+	left = wp->xoff;
+	if (left == 0)
+		left = wp->window->sx + 1;
+	top = wp->yoff;
+
+	TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
+		if (!window_pane_visible(wp2))
+			continue;
+		if (wp2->xoff + wp2->sx + 1 != left)
+			continue;
+		if (top >= wp2->yoff && top <= wp2->yoff + wp2->sy)
+			return (wp2);
+	}
+	return (NULL);
+}
+
+/*
+ * Find the pane directly to the right of another, that is adjacent to the
+ * right edge and including the top edge.
+ */
+struct window_pane *
+window_pane_find_right(struct window_pane *wp)
+{
+	struct window_pane     *wp2;
+	u_int			right, top;
+
+	if (wp == NULL || !window_pane_visible(wp))
+		return (NULL);
+
+	right = wp->xoff + wp->sx + 1;
+	if (right >= wp->window->sx)
+		right = 0;
+	top = wp->yoff;
+
+	TAILQ_FOREACH(wp2, &wp->window->panes, entry) {
+		if (!window_pane_visible(wp2))
+			continue;
+		if (wp2->xoff != right)
+			continue;
+		if (top >= wp2->yoff && top <= wp2->yoff + wp2->sy)
+			return (wp2);
+	}
+	return (NULL);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.209 2010/03/02 00:32:41 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.213 2010/03/22 19:18:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -459,6 +459,10 @@ enum mode_key_cmd {
 	MODEKEYCOPY_HALFPAGEUP,
 	MODEKEYCOPY_HISTORYBOTTOM,
 	MODEKEYCOPY_HISTORYTOP,
+	MODEKEYCOPY_JUMP,
+	MODEKEYCOPY_JUMPAGAIN,
+	MODEKEYCOPY_JUMPREVERSE,
+	MODEKEYCOPY_JUMPBACK,
 	MODEKEYCOPY_LEFT,
 	MODEKEYCOPY_MIDDLELINE,
 	MODEKEYCOPY_NEXTPAGE,
@@ -719,43 +723,36 @@ struct screen_write_ctx {
 #define screen_hsize(s) ((s)->grid->hsize)
 #define screen_hlimit(s) ((s)->grid->hlimit)
 
-/* Input parser sequence argument. */
-struct input_arg {
-	u_char		 data[64];
-	size_t		 used;
-};
-
 /* Input parser context. */
 struct input_ctx {
-	struct window_pane *wp;
+	struct window_pane     *wp;
 	struct screen_write_ctx ctx;
 
-	u_char		*buf;
-	size_t		 len;
-	size_t		 off;
-	size_t		 was;
+	struct grid_cell	cell;
 
-	struct grid_cell cell;
+	struct grid_cell	old_cell;
+	u_int 			old_cx;
+	u_int			old_cy;
 
-	struct grid_cell saved_cell;
-	u_int		 saved_cx;
-	u_int		 saved_cy;
+	u_char			interm_buf[4];
+	size_t			interm_len;
 
-#define MAXSTRINGLEN	1024
-	u_char		*string_buf;
-	size_t		 string_len;
-	int		 string_type;
-#define STRING_SYSTEM 0
-#define STRING_APPLICATION 1
-#define STRING_NAME 2
+	u_char			param_buf[64];
+	size_t			param_len;
 
-	struct utf8_data utf8data;
+	u_char			input_buf[256];
+	size_t			input_len;
 
-	u_char		 intermediate;
-	void		*(*state)(u_char, struct input_ctx *);
+	int			param_list[24];	/* -1 not present */
+	u_int			param_list_len;
 
-	u_char		 private;
-	ARRAY_DECL(, struct input_arg) args;
+	struct utf8_data	utf8data;
+
+	int			ch;
+	int			flags;
+#define INPUT_DISCARD 0x1
+
+	const struct input_state *state;
 };
 
 /*
@@ -1600,7 +1597,6 @@ void	 server_window_loop(void);
 
 /* server-fn.c */
 void	 server_fill_environ(struct session *, struct environ *);
-void	 server_write_error(struct client *, const char *);
 void	 server_write_client(
 	     struct client *, enum msgtype, const void *, size_t);
 void	 server_write_session(
@@ -1825,6 +1821,10 @@ int		 window_pane_spawn(struct window_pane *, const char *,
 		     const char *, const char *, struct environ *,
 		     struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
+void		 window_pane_alternate_on(
+		     struct window_pane *, struct grid_cell *);
+void		 window_pane_alternate_off(
+		     struct window_pane *, struct grid_cell *);
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);
@@ -1835,6 +1835,10 @@ void		 window_pane_mouse(struct window_pane *,
 int		 window_pane_visible(struct window_pane *);
 char		*window_pane_search(
 		     struct window_pane *, const char *, u_int *);
+struct window_pane *window_pane_find_up(struct window_pane *);
+struct window_pane *window_pane_find_down(struct window_pane *);
+struct window_pane *window_pane_find_left(struct window_pane *);
+struct window_pane *window_pane_find_right(struct window_pane *);
 
 /* layout.c */
 struct layout_cell *layout_create_cell(struct layout_cell *);
