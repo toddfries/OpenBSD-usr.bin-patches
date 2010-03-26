@@ -1,4 +1,4 @@
-/*	$Id: man_term.c,v 1.25 2010/03/02 01:24:04 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.27 2010/03/26 01:22:05 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -61,6 +61,8 @@ struct	mtermp {
 struct	termact {
 	int		(*pre)(DECL_ARGS);
 	void		(*post)(DECL_ARGS);
+	int		  flags;
+#define	MAN_NOTEXT	 (1 << 0) /* Never has text children. */
 };
 
 static	int		  a2width(const struct man_node *);
@@ -101,41 +103,47 @@ static	void		  post_SS(DECL_ARGS);
 static	void		  post_TP(DECL_ARGS);
 
 static	const struct termact termacts[MAN_MAX] = {
-	{ pre_br, NULL }, /* br */
-	{ NULL, NULL }, /* TH */
-	{ pre_SH, post_SH }, /* SH */
-	{ pre_SS, post_SS }, /* SS */
-	{ pre_TP, post_TP }, /* TP */
-	{ pre_PP, NULL }, /* LP */
-	{ pre_PP, NULL }, /* PP */
-	{ pre_PP, NULL }, /* P */
-	{ pre_IP, post_IP }, /* IP */
-	{ pre_HP, post_HP }, /* HP */ 
-	{ NULL, NULL }, /* SM */
-	{ pre_B, NULL }, /* SB */
-	{ pre_BI, NULL }, /* BI */
-	{ pre_BI, NULL }, /* IB */
-	{ pre_RB, NULL }, /* BR */
-	{ pre_RB, NULL }, /* RB */
-	{ NULL, NULL }, /* R */
-	{ pre_B, NULL }, /* B */
-	{ pre_I, NULL }, /* I */
-	{ pre_RI, NULL }, /* IR */
-	{ pre_RI, NULL }, /* RI */
-	{ NULL, NULL }, /* na */
-	{ pre_I, NULL }, /* i */
-	{ pre_sp, NULL }, /* sp */
-	{ pre_nf, NULL }, /* nf */
-	{ pre_fi, NULL }, /* fi */
-	{ NULL, NULL }, /* r */
-	{ NULL, NULL }, /* RE */
-	{ pre_RS, post_RS }, /* RS */
-	{ pre_ign, NULL }, /* DT */
-	{ pre_ign, NULL }, /* UC */
-	{ pre_ign, NULL }, /* PD */
-	{ pre_sp, NULL }, /* Sp */
-	{ pre_nf, NULL }, /* Vb */
-	{ pre_fi, NULL }, /* Ve */
+	{ pre_br, NULL, MAN_NOTEXT }, /* br */
+	{ NULL, NULL, 0 }, /* TH */
+	{ pre_SH, post_SH, 0 }, /* SH */
+	{ pre_SS, post_SS, 0 }, /* SS */
+	{ pre_TP, post_TP, 0 }, /* TP */
+	{ pre_PP, NULL, 0 }, /* LP */
+	{ pre_PP, NULL, 0 }, /* PP */
+	{ pre_PP, NULL, 0 }, /* P */
+	{ pre_IP, post_IP, 0 }, /* IP */
+	{ pre_HP, post_HP, 0 }, /* HP */ 
+	{ NULL, NULL, 0 }, /* SM */
+	{ pre_B, NULL, 0 }, /* SB */
+	{ pre_BI, NULL, 0 }, /* BI */
+	{ pre_BI, NULL, 0 }, /* IB */
+	{ pre_RB, NULL, 0 }, /* BR */
+	{ pre_RB, NULL, 0 }, /* RB */
+	{ NULL, NULL, 0 }, /* R */
+	{ pre_B, NULL, 0 }, /* B */
+	{ pre_I, NULL, 0 }, /* I */
+	{ pre_RI, NULL, 0 }, /* IR */
+	{ pre_RI, NULL, 0 }, /* RI */
+	{ NULL, NULL, MAN_NOTEXT }, /* na */
+	{ pre_I, NULL, 0 }, /* i */
+	{ pre_sp, NULL, MAN_NOTEXT }, /* sp */
+	{ pre_nf, NULL, 0 }, /* nf */
+	{ pre_fi, NULL, 0 }, /* fi */
+	{ NULL, NULL, 0 }, /* r */
+	{ NULL, NULL, 0 }, /* RE */
+	{ pre_RS, post_RS, 0 }, /* RS */
+	{ pre_ign, NULL, 0 }, /* DT */
+	{ pre_ign, NULL, 0 }, /* UC */
+	{ pre_ign, NULL, 0 }, /* PD */
+ 	{ pre_sp, NULL, MAN_NOTEXT }, /* Sp */
+ 	{ pre_nf, NULL, 0 }, /* Vb */
+ 	{ pre_fi, NULL, 0 }, /* Ve */
+ 	{ pre_ign, NULL, MAN_NOTEXT }, /* de */
+ 	{ pre_ign, NULL, MAN_NOTEXT }, /* dei */
+ 	{ pre_ign, NULL, MAN_NOTEXT }, /* am */
+ 	{ pre_ign, NULL, MAN_NOTEXT }, /* ami */
+ 	{ pre_ign, NULL, MAN_NOTEXT }, /* ig */
+ 	{ NULL, NULL, 0 }, /* . */
 };
 
 
@@ -150,10 +158,12 @@ terminal_man(void *arg, const struct man *man)
 
 	p = (struct termp *)arg;
 
+	p->overstep = 0;
+	p->maxrmargin = 65;
+
 	if (NULL == p->symtab)
 		switch (p->enc) {
 		case (TERMENC_ASCII):
-			p->maxrmargin = 65;
 			p->symtab = chars_init(CHARS_ASCII);
 			break;
 		default:
@@ -257,10 +267,11 @@ static int
 pre_nf(DECL_ARGS)
 {
 
-	p->rmargin = p->maxrmargin = 160;
+	p->rmargin = p->maxrmargin = 78;
 	term_newln(p);
 	mt->fl |= MANT_LITERAL;
-	return(1);
+
+	return(MAN_Vb != n->tok);
 }
 
 
@@ -776,6 +787,8 @@ post_RS(DECL_ARGS)
 	case (MAN_BLOCK):
 		mt->offset = mt->lmargin = INDENT;
 		break;
+	case (MAN_HEAD):
+		break;
 	default:
 		term_newln(p);
 		p->offset = INDENT;
@@ -808,7 +821,8 @@ print_man_node(DECL_ARGS)
 		}
 		break;
 	default:
-		term_fontrepl(p, TERMFONT_NONE);
+		if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
+			term_fontrepl(p, TERMFONT_NONE);
 		if (termacts[n->tok].pre)
 			c = (*termacts[n->tok].pre)(p, mt, n, m);
 		break;
@@ -820,7 +834,8 @@ print_man_node(DECL_ARGS)
 	if (MAN_TEXT != n->type) {
 		if (termacts[n->tok].post)
 			(*termacts[n->tok].post)(p, mt, n, m);
-		term_fontrepl(p, TERMFONT_NONE);
+		if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
+			term_fontrepl(p, TERMFONT_NONE);
 	}
 }
 
@@ -874,6 +889,7 @@ print_man_head(struct termp *p, const struct man_meta *m)
 	size_t		buflen, titlen;
 
 	p->rmargin = p->maxrmargin;
+
 	p->offset = 0;
 	buf[0] = title[0] = '\0';
 

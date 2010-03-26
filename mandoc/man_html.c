@@ -1,4 +1,4 @@
-/*	$Id: man_html.c,v 1.6 2010/03/02 01:00:39 schwarze Exp $ */
+/*	$Id: man_html.c,v 1.8 2010/03/26 01:22:05 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -100,8 +100,14 @@ static	const struct htmlman mans[MAN_MAX] = {
 	{ man_ign_pre, NULL }, /* UC */
 	{ man_ign_pre, NULL }, /* PD */
 	{ man_br_pre, NULL }, /* Sp */
-	{ NULL, NULL }, /* Vb */
-	{ NULL, NULL }, /* Vi */
+	{ man_ign_pre, NULL }, /* Vb */
+	{ NULL, NULL }, /* Ve */
+	{ man_ign_pre, NULL }, /* de */
+	{ man_ign_pre, NULL }, /* dei */
+	{ man_ign_pre, NULL }, /* am */
+	{ man_ign_pre, NULL }, /* ami */
+	{ man_ign_pre, NULL }, /* ig */
+	{ NULL, NULL }, /* . */
 };
 
 
@@ -179,6 +185,12 @@ print_man_node(MAN_ARGS)
 	t = h->tags.head;
 
 	bufinit(h);
+
+	/*
+	 * FIXME: embedded elements within next-line scopes (e.g., `br'
+	 * within an empty `B') will cause formatting to be forgotten
+	 * due to scope closing out.
+	 */
 
 	switch (n->type) {
 	case (MAN_ROOT):
@@ -334,10 +346,18 @@ man_br_pre(MAN_ARGS)
 
 	SCALE_VS_INIT(&su, 1);
 
-	if ((MAN_sp == n->tok || MAN_Sp == n->tok) && n->child)
-		a2roffsu(n->child->string, &su, SCALE_VS);
-	else if (MAN_br == n->tok)
+	switch (n->tok) {
+	case (MAN_Sp):
+		SCALE_VS_INIT(&su, 0.5);
+		break;
+	case (MAN_sp):
+		if (n->child)
+			a2roffsu(n->child->string, &su, SCALE_VS);
+		break;
+	default:
 		su.scale = 0;
+		break;
+	}
 
 	bufcat_su(h, "height", &su);
 	PAIR_STYLE_INIT(&tag, h);
@@ -566,6 +586,8 @@ man_IP_pre(MAN_ARGS)
 	SCALE_HS_INIT(&su, INDENT);
 	width = 0;
 
+	/* Width is the last token. */
+
 	if (MAN_IP == n->tok && NULL != nn)
 		if (NULL != (nn = nn->next)) {
 			for ( ; nn->next; nn = nn->next)
@@ -573,8 +595,15 @@ man_IP_pre(MAN_ARGS)
 			width = a2width(nn, &su);
 		}
 
-	if (MAN_TP == n->tok && NULL != nn)
-		width = a2width(nn, &su);
+	/* Width is the first token. */
+
+	if (MAN_TP == n->tok && NULL != nn) {
+		/* Skip past non-text children. */
+		while (nn && MAN_TEXT != nn->type)
+			nn = nn->next;
+		if (nn)
+			width = a2width(nn, &su);
+	}
 
 	if (MAN_BLOCK == n->type) {
 		bufcat_su(h, "margin-left", &su);
@@ -599,10 +628,19 @@ man_IP_pre(MAN_ARGS)
 	PAIR_STYLE_INIT(&tag, h);
 	print_otag(h, TAG_DIV, 1, &tag);
 
-	/* With a length string, manually omit the last child. */
+	/*
+	 * Without a length string, we can print all of our children.
+	 */
 
 	if ( ! width)
 		return(1);
+
+	/*
+	 * When a length has been specified, we need to carefully print
+	 * our child context:  IP gets all children printed but the last
+	 * (the width), while TP gets all children printed but the first
+	 * (the width).
+	 */
 
 	if (MAN_IP == n->tok)
 		for (nn = n->child; nn->next; nn = nn->next)
