@@ -1,4 +1,4 @@
-/*	$Id: mdoc_action.c,v 1.27 2010/03/02 00:38:59 schwarze Exp $ */
+/*	$Id: mdoc_action.c,v 1.29 2010/04/04 17:36:57 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -417,7 +417,7 @@ post_sh(POST_ARGS)
 	if ( ! concat(m, buf, n->child, BUFSIZ))
 		return(0);
 	sec = mdoc_atosec(buf);
-	if (SEC_CUSTOM != sec)
+	if (SEC_NONE == m->lastnamed || SEC_CUSTOM != sec)
 		m->lastnamed = sec;
 
 	/* Some sections only live in certain manual sections. */
@@ -644,7 +644,8 @@ static int
 post_bl_width(POST_ARGS)
 {
 	size_t		  width;
-	int		  i, tok;
+	int		  i;
+	enum mdoct	  tok;
 	char		  buf[NUMSIZ];
 	char		 *p;
 

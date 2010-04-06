@@ -1,4 +1,4 @@
-/*	$Id: mdoc_html.c,v 1.8 2010/03/02 00:38:59 schwarze Exp $ */
+/*	$Id: mdoc_html.c,v 1.10 2010/04/04 00:00:12 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -752,6 +752,9 @@ mdoc_xr_pre(MDOC_ARGS)
 {
 	struct htmlpair	 	 tag[2];
 	const struct mdoc_node	*nn;
+
+	if (NULL == n->child)
+		return(0);
 
 	PAIR_CLASS_INIT(&tag[0], "link-man");
 
@@ -1800,7 +1803,7 @@ mdoc_mt_pre(MDOC_ARGS)
 		bufinit(h);
 		bufcat(h, "mailto:");
 		bufcat(h, nn->string);
-		PAIR_STYLE_INIT(&tag[1], h);
+		PAIR_HREF_INIT(&tag[1], h->buf);
 		t = print_otag(h, TAG_A, 2, tag);
 		print_text(h, nn->string);
 		print_tagq(h, t);

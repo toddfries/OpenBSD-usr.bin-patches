@@ -1,4 +1,4 @@
-/*	$OpenBSD: siofile.c,v 1.1 2010/01/13 10:02:52 ratchov Exp $	*/
+/*	$OpenBSD: siofile.c,v 1.3 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

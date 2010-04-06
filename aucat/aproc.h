@@ -1,4 +1,4 @@
-/*	$OpenBSD: aproc.h,v 1.29 2010/01/11 13:06:32 ratchov Exp $	*/
+/*	$OpenBSD: aproc.h,v 1.31 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

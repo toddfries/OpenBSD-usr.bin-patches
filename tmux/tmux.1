@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.158 2010/03/22 19:13:28 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.163 2010/04/05 17:46:05 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 22 2010 $
+.Dd $Mdocdate: April 5 2010 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -373,7 +373,6 @@ bind-key F1 set-window-option force-width 81
 .Pp
 Or if using
 .Xr sh 1 :
-.Pp
 .Bd -literal -offset indent
 $ tmux bind-key F1 set-window-option force-width 81
 .Ed
@@ -401,13 +400,12 @@ new-window ; split-window -d
 .Pp
 Or from
 .Xr sh 1 :
-.Pp
 .Bd -literal -offset indent
 $ tmux kill-window -t :1
 
-$ tmux new-window \\; split-window -d
+$ tmux new-window \e; split-window -d
 
-$ tmux new-session -d 'vi /etc/passwd' \\; split-window -d \\; attach
+$ tmux new-session -d 'vi /etc/passwd' \e; split-window -d \e; attach
 .Ed
 .Sh CLIENTS AND SESSIONS
 The
@@ -976,13 +974,22 @@ except the window at
 is moved to
 .Ar dst-window .
 .It Xo Ic new-window
-.Op Fl dk
+.Op Fl adk
 .Op Fl n Ar window-name
 .Op Fl t Ar target-window
 .Op Ar shell-command
 .Xc
 .D1 (alias: Ic neww )
 Create a new window.
+With
+.Fl a ,
+the new window is inserted at the next index up from the specified
+.Ar target-window ,
+moving windows up if necessary,
+otherwise
+.Ar target-window
+is the new window location.
+.Pp
 If
 .Fl d
 is given, the session does not make the new window the current window.
@@ -1736,6 +1743,19 @@ the
 .Ic status-interval
 option: if the status line is redrawn in the meantime, the previous result is
 used.
+Shell commands are executed with the
+.Nm
+global environment set (see the
+.Sx ENVIRONMENT
+section).
+.Pp
+The window title (#T) is the title set by the program running within the window
+using the OSC title setting sequence, for example:
+.Bd -literal -offset indent
+$ printf '\e033]2;My Title\e033\e\e'
+.Ed
+.Pp
+When a window is first created, its title is the hostname.
 .Pp
 #[attributes] allows a comma-separated list of attributes to be specified,
 these may be

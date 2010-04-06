@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.h,v 1.5 2009/11/03 21:31:37 ratchov Exp $	*/
+/*	$OpenBSD: midi.h,v 1.7 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

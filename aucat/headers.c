@@ -1,4 +1,4 @@
-/*	$OpenBSD: headers.c,v 1.10 2010/01/10 21:47:41 ratchov Exp $	*/
+/*	$OpenBSD: headers.c,v 1.12 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

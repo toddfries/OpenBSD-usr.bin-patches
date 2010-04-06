@@ -1,4 +1,4 @@
-/*	$OpenBSD: abuf.c,v 1.18 2010/01/11 13:06:32 ratchov Exp $	*/
+/*	$OpenBSD: abuf.c,v 1.20 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

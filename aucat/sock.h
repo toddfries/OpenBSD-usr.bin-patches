@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.h,v 1.12 2010/01/15 22:17:44 ratchov Exp $	*/
+/*	$OpenBSD: sock.h,v 1.14 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

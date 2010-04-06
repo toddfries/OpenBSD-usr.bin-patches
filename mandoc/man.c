@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.22 2010/03/26 01:22:05 schwarze Exp $ */
+/*	$Id: man.c,v 1.24 2010/04/02 11:37:07 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -47,6 +47,8 @@ const	char *const __man_merrnames[WERRMAX] = {
 	"literal context already open", /* WOLITERAL */
 	"no literal context open", /* WNLITERAL */
 	"invalid nesting of roff declarations", /* WROFFNEST */
+	"scope in roff instructions broken", /* WROFFSCOPE */
+	"document title should be uppercase", /* WTITLECASE */
 };
 
 const	char *const __man_macronames[MAN_MAX] = {		 
@@ -151,7 +153,7 @@ int
 man_parseln(struct man *m, int ln, char *buf)
 {
 
-	return('.' == *buf ? 
+	return('.' == *buf || '\'' == *buf ? 
 			man_pmacro(m, ln, buf) : 
 			man_ptext(m, ln, buf));
 }
@@ -443,7 +445,7 @@ descope:
 
 	if (MAN_ELINE & m->flags) {
 		m->flags &= ~MAN_ELINE;
-		if ( ! man_unscope(m, m->last->parent))
+		if ( ! man_unscope(m, m->last->parent, WERRMAX))
 			return(0);
 	}
 
@@ -451,7 +453,7 @@ descope:
 		return(1);
 	m->flags &= ~MAN_BLINE;
 
-	if ( ! man_unscope(m, m->last->parent))
+	if ( ! man_unscope(m, m->last->parent, WERRMAX))
 		return(0);
 	return(man_body_alloc(m, line, 0, m->last->tok));
 }
@@ -472,23 +474,25 @@ macrowarn(struct man *m, int ln, const char *buf)
 int
 man_pmacro(struct man *m, int ln, char *buf)
 {
-	int		 i, j, ppos, fl;
+	int		 i, j, ppos;
 	enum mant	 tok;
 	char		 mac[5];
 	struct man_node	*n;
 
 	/* Comments and empties are quickly ignored. */
 
-	fl = m->flags;
-
 	if ('\0' == buf[1])
 		return(1);
 
 	i = 1;
 
-	if (' ' == buf[i]) {
+	/*
+	 * Skip whitespace between the control character and initial
+	 * text.  "Whitespace" is both spaces and tabs.
+	 */
+	if (' ' == buf[i] || '\t' == buf[i]) {
 		i++;
-		while (buf[i] && ' ' == buf[i])
+		while (buf[i] && (' ' == buf[i] || '\t' == buf[i]))
 			i++;
 		if ('\0' == buf[i])
 			goto out;
@@ -544,6 +548,9 @@ man_pmacro(struct man *m, int ln, char *buf)
 	 * Remove prior ELINE macro, as it's being clobbering by a new
 	 * macro.  Note that NSCOPED macros do not close out ELINE
 	 * macros---they don't print text---so we let those slip by.
+	 * NOTE: we don't allow roff blocks (NOCLOSE) to be embedded
+	 * here because that would stipulate blocks as children of
+	 * elements!
 	 */
 
 	if ( ! (MAN_NSCOPED & man_macros[tok].flags) &&
@@ -575,10 +582,18 @@ man_pmacro(struct man *m, int ln, char *buf)
 		m->flags &= ~MAN_ELINE;
 	}
 
-	/* Begin recursive parse sequence. */
+	/*
+	 * Save the fact that we're in the next-line for a block.  In
+	 * this way, embedded roff instructions can "remember" state
+	 * when they exit.
+	 */
+
+	if (MAN_BLINE & m->flags)
+		m->flags |= MAN_BPLINE;
+
+	/* Call to handler... */
 
 	assert(man_macros[tok].fp);
-
 	if ( ! (*man_macros[tok].fp)(m, tok, ln, ppos, &i, buf))
 		goto err;
 
@@ -586,15 +601,13 @@ out:
 	/* 
 	 * We weren't in a block-line scope when entering the
 	 * above-parsed macro, so return.
-	 *
-	 * FIXME: this prohibits the nesting of blocks (e.g., `de' and
-	 * family) within BLINE or ELINE systems.  This is annoying.
 	 */
 
-	if ( ! (MAN_BLINE & fl)) {
+	if ( ! (MAN_BPLINE & m->flags)) {
 		m->flags &= ~MAN_ILINE; 
 		return(1);
 	}
+	m->flags &= ~MAN_BPLINE;
 
 	/*
 	 * If we're in a block scope, then allow this macro to slip by
@@ -619,7 +632,7 @@ out:
 	assert(MAN_BLINE & m->flags);
 	m->flags &= ~MAN_BLINE;
 
-	if ( ! man_unscope(m, m->last->parent))
+	if ( ! man_unscope(m, m->last->parent, WERRMAX))
 		return(0);
 	return(man_body_alloc(m, ln, 0, m->last->tok));
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.43 2010/01/16 23:18:31 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.45 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

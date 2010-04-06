@@ -1,4 +1,4 @@
-/*	$Id: mdoc.c,v 1.36 2010/03/25 02:02:28 schwarze Exp $ */
+/*	$Id: mdoc.c,v 1.39 2010/04/04 20:14:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "libmdoc.h"
 #include "libmandoc.h"
@@ -139,7 +140,7 @@ const	char * const *mdoc_argnames = __mdoc_argnames;
 static	void		  mdoc_free1(struct mdoc *);
 static	void		  mdoc_alloc1(struct mdoc *);
 static	struct mdoc_node *node_alloc(struct mdoc *, int, int, 
-				int, enum mdoc_type);
+				enum mdoct, enum mdoc_type);
 static	int		  node_append(struct mdoc *, 
 				struct mdoc_node *);
 static	int		  parsetext(struct mdoc *, int, char *);
@@ -337,9 +338,11 @@ mdoc_err(struct mdoc *m, int line, int pos, int iserr, enum merr type)
 
 
 int
-mdoc_macro(struct mdoc *m, int tok, 
+mdoc_macro(struct mdoc *m, enum mdoct tok, 
 		int ln, int pp, int *pos, char *buf)
 {
+
+	assert(tok < MDOC_MAX);
 	/*
 	 * If we're in the prologue, deny "body" macros.  Similarly, if
 	 * we're in the body, deny prologue calls.
@@ -348,8 +351,19 @@ mdoc_macro(struct mdoc *m, int tok,
 			MDOC_PBODY & m->flags)
 		return(mdoc_perr(m, ln, pp, EPROLBODY));
 	if ( ! (MDOC_PROLOGUE & mdoc_macros[tok].flags) && 
-			! (MDOC_PBODY & m->flags))
-		return(mdoc_perr(m, ln, pp, EBODYPROL));
+			! (MDOC_PBODY & m->flags)) {
+		if ( ! mdoc_pwarn(m, ln, pp, EBODYPROL))
+			return(0);
+		if (NULL == m->meta.title)
+			m->meta.title = mandoc_strdup("unknown");
+		if (NULL == m->meta.vol)
+			m->meta.vol = mandoc_strdup("local");
+		if (NULL == m->meta.os)
+			m->meta.os = mandoc_strdup("local");
+		if (0 == m->meta.date)
+			m->meta.date = time(NULL);
+		m->flags |= MDOC_PBODY;
+	}
 
 	return((*mdoc_macros[tok].fp)(m, tok, ln, pp, pos, buf));
 }
@@ -420,8 +434,8 @@ node_append(struct mdoc *mdoc, struct mdoc_node *p)
 
 
 static struct mdoc_node *
-node_alloc(struct mdoc *m, int line, 
-		int pos, int tok, enum mdoc_type type)
+node_alloc(struct mdoc *m, int line, int pos, 
+		enum mdoct tok, enum mdoc_type type)
 {
 	struct mdoc_node *p;
 
@@ -430,15 +444,14 @@ node_alloc(struct mdoc *m, int line,
 	p->line = line;
 	p->pos = pos;
 	p->tok = tok;
-	if (MDOC_TEXT != (p->type = type))
-		assert(p->tok >= 0);
+	p->type = type;
 
 	return(p);
 }
 
 
 int
-mdoc_tail_alloc(struct mdoc *m, int line, int pos, int tok)
+mdoc_tail_alloc(struct mdoc *m, int line, int pos, enum mdoct tok)
 {
 	struct mdoc_node *p;
 
@@ -451,7 +464,7 @@ mdoc_tail_alloc(struct mdoc *m, int line, int pos, int tok)
 
 
 int
-mdoc_head_alloc(struct mdoc *m, int line, int pos, int tok)
+mdoc_head_alloc(struct mdoc *m, int line, int pos, enum mdoct tok)
 {
 	struct mdoc_node *p;
 
@@ -467,7 +480,7 @@ mdoc_head_alloc(struct mdoc *m, int line, int pos, int tok)
 
 
 int
-mdoc_body_alloc(struct mdoc *m, int line, int pos, int tok)
+mdoc_body_alloc(struct mdoc *m, int line, int pos, enum mdoct tok)
 {
 	struct mdoc_node *p;
 
@@ -481,7 +494,7 @@ mdoc_body_alloc(struct mdoc *m, int line, int pos, int tok)
 
 int
 mdoc_block_alloc(struct mdoc *m, int line, int pos, 
-		int tok, struct mdoc_arg *args)
+		enum mdoct tok, struct mdoc_arg *args)
 {
 	struct mdoc_node *p;
 
@@ -498,7 +511,7 @@ mdoc_block_alloc(struct mdoc *m, int line, int pos,
 
 int
 mdoc_elem_alloc(struct mdoc *m, int line, int pos, 
-		int tok, struct mdoc_arg *args)
+		enum mdoct tok, struct mdoc_arg *args)
 {
 	struct mdoc_node *p;
 
@@ -595,8 +608,12 @@ parsetext(struct mdoc *m, int line, char *buf)
 	for (i = 0; ' ' == buf[i]; i++)
 		/* Skip leading whitespace. */ ;
 
-	if ('\0' == buf[i])
-		return(mdoc_perr(m, line, 0, ENOBLANK));
+	if ('\0' == buf[i]) {
+		if ( ! mdoc_pwarn(m, line, 0, ENOBLANK))
+			return(0);
+		if ( ! mdoc_elem_alloc(m, line, 0, MDOC_Pp, NULL))
+			return(0);
+	}
 
 	/*
 	 * Break apart a free-form line into tokens.  Spaces are

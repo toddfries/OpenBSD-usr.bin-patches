@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipe.h,v 1.2 2009/07/25 10:52:19 ratchov Exp $	*/
+/*	$OpenBSD: pipe.h,v 1.4 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

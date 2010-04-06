@@ -1,4 +1,4 @@
-/*	$OpenBSD: wav.h,v 1.5 2010/01/05 10:18:12 ratchov Exp $	*/
+/*	$OpenBSD: wav.h,v 1.7 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.12 2010/01/10 21:47:41 ratchov Exp $	*/
+/*	$OpenBSD: conf.h,v 1.14 2010/04/03 17:59:17 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *

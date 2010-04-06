@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.43 2010/03/02 00:38:59 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.47 2010/04/03 17:06:19 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -40,7 +40,7 @@ struct	valids {
 	v_post	*post;
 };
 
-static	int	 check_parent(PRE_ARGS, int, enum mdoc_type);
+static	int	 check_parent(PRE_ARGS, enum mdoct, enum mdoc_type);
 static	int	 check_msec(PRE_ARGS, ...);
 static	int	 check_sec(PRE_ARGS, ...);
 static	int	 check_stdarg(PRE_ARGS);
@@ -129,7 +129,7 @@ static	v_post	 posts_text1[] = { eerr_eq1, NULL };
 static	v_post	 posts_vt[] = { post_vt, NULL };
 static	v_post	 posts_wline[] = { bwarn_ge1, herr_eq0, NULL };
 static	v_post	 posts_wtext[] = { ewarn_ge1, NULL };
-static	v_post	 posts_xr[] = { eerr_ge1, NULL };
+static	v_post	 posts_xr[] = { ewarn_ge1, NULL };
 static	v_pre	 pres_an[] = { pre_an, NULL };
 static	v_pre	 pres_bd[] = { pre_display, pre_bd, NULL };
 static	v_pre	 pres_bl[] = { pre_bl, NULL };
@@ -544,7 +544,7 @@ check_text(struct mdoc *mdoc, int line, int pos, const char *p)
 
 
 static int
-check_parent(PRE_ARGS, int tok, enum mdoc_type t)
+check_parent(PRE_ARGS, enum mdoct tok, enum mdoc_type t)
 {
 
 	assert(n->parent);
@@ -618,8 +618,12 @@ pre_bl(PRE_ARGS)
 		case (MDOC_Inset):
 			/* FALLTHROUGH */
 		case (MDOC_Column):
-			if (type >= 0) 
-				return(mdoc_nerr(mdoc, n, EMULTILIST));
+			if (type >= 0) {
+				if ( ! mdoc_nwarn(mdoc, n, EMULTILIST))
+					return(0);
+				mdoc_argn_free(n->args, pos);
+				break;
+			}
 			type = n->args->argv[pos].arg;
 			break;
 		case (MDOC_Compact):
@@ -1306,8 +1310,9 @@ post_sh_head(POST_ARGS)
 	 * non-CUSTOM has a conventional order to be followed.
 	 */
 
-	if (SEC_NAME != sec && SEC_NONE == mdoc->lastnamed)
-		return(mdoc_nerr(mdoc, mdoc->last, ESECNAME));
+	if (SEC_NAME != sec && SEC_NONE == mdoc->lastnamed &&
+	    ! mdoc_nwarn(mdoc, mdoc->last, ESECNAME))
+		return(0);
 	if (SEC_CUSTOM == sec)
 		return(1);
 	if (sec == mdoc->lastnamed)

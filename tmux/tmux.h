@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.213 2010/03/22 19:18:46 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.215 2010/04/04 19:02:09 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1330,6 +1330,7 @@ void	environ_set(struct environ *, const char *, const char *);
 void	environ_put(struct environ *, const char *);
 void	environ_unset(struct environ *, const char *);
 void	environ_update(const char *, struct environ *, struct environ *);
+void	environ_push(struct environ *);
 
 /* tty.c */
 void	tty_raw(struct tty *, const char *);
@@ -1828,7 +1829,6 @@ void		 window_pane_alternate_off(
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);
-void		 window_pane_parse(struct window_pane *);
 void		 window_pane_key(struct window_pane *, struct client *, int);
 void		 window_pane_mouse(struct window_pane *,
 		     struct client *, struct mouse_event *);
