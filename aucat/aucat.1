@@ -1,4 +1,4 @@
-.\"	$OpenBSD: aucat.1,v 1.65 2010/04/03 17:59:17 ratchov Exp $
+.\"	$OpenBSD: aucat.1,v 1.67 2010/04/07 06:47:52 jmc Exp $
 .\"
 .\" Copyright (c) 2006 Alexandre Ratchov <alex@caoua.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: April 3 2010 $
+.Dd $Mdocdate: April 7 2010 $
 .Dt AUCAT 1
 .Os
 .Sh NAME
@@ -33,6 +33,7 @@
 .Op Fl i Ar file
 .Op Fl m Ar mode
 .Op Fl o Ar file
+.Op Fl q Ar device
 .Op Fl r Ar rate
 .Op Fl s Ar name
 .Op Fl t Ar mode
@@ -57,7 +58,7 @@ which does not convert on the fly and supports playback of .au files.
 The options are as follows:
 .Bl -tag -width Ds
 .It Fl b Ar nframes
-The buffer size in frames.
+The buffer size of the audio device in frames.
 A frame consists of one sample for each channel in the stream.
 This is the number of frames that will be buffered before being played
 and thus controls the playback latency.
@@ -105,15 +106,20 @@ but other names can be used with the
 .Fl s
 option.
 .It Fl m Ar mode
-Set the server mode.
+Set the stream mode.
 Valid modes are
 .Ar play ,
 .Ar rec ,
 and
-.Ar duplex ,
-for play-only, record-only, and full-duplex, respectively.
+.Ar mon ,
+corresponding to playback, recording and monitoring.
+A monitoring stream is a fake recording stream corresponding to
+the mix of all playback streams.
+Multiple modes can be specified, separated by commas,
+but the same stream cannot be used for both recording and monitoring.
 The default is
-.Ar duplex .
+.Ar play , Ns Ar rec
+(i.e. full-duplex).
 .It Fl n
 Loopback mode.
 Instead of using an audio device, send input streams
@@ -125,6 +131,11 @@ Add this file to the list of files in which to store recorded samples.
 If the option argument is
 .Sq -
 then standard output will be used.
+.It Fl q Ar device
+The
+.Xr sndio 7
+MIDI device to use for controlling stream volumes or
+to start multiple streams synchronously.
 .It Fl r Ar rate
 Sample rate in Hertz of the playback or record stream.
 The default is 44100Hz.
@@ -142,14 +153,15 @@ part of the
 .Xr sndio 7
 device name string.
 .It Fl t Ar mode
-Select the way sub-devices are controlled by MMC (MIDI Machine Control) messages.
+Select the way sub-devices are controlled by MIDI Machine Control (MMC)
+messages.
 If the mode is
 .Va off
 (the default), then streams are not affected by MMC messages.
 If the mode is
 .Va slave ,
 then streams are started synchronously by MMC start messages;
-additionally, the server clock is exposed as MTC (MIDI Time Code)
+additionally, the server clock is exposed as MIDI Time Code (MTC)
 messages allowing MTC-capable software or hardware to be synchronized
 to audio streams.
 .It Fl U Ar unit
@@ -199,8 +211,9 @@ If the policy is
 .Dq error
 then the stream is closed permanently.
 .Pp
-If a sub-device is created with
-.Fl t ,
+If a sub-device is created with the
+.Fl t
+option,
 the
 .Dq ignore
 action is disabled for any stream connected to it
@@ -209,9 +222,10 @@ to ensure proper synchronization.
 The audio block size in frames.
 This is the number of frames between audio clock ticks,
 i.e. the clock resolution.
-If a sub-device is created with
-.Fl t ,
-and MTC (Midi Time Code) is used for synchronization, the clock
+If a sub-device is created with the
+.Fl t
+option,
+and MTC is used for synchronization, the clock
 resolution must be 96, 100 or 120 ticks per second for maximum
 accuracy.
 For instance, 120 ticks per second at 48000Hz corresponds
@@ -275,7 +289,7 @@ File formats are specified using the
 .Fl h
 option.
 The following file formats are supported:
-.Bl -tag -width s32lexxx -offset -indent
+.Bl -tag -width s32lexxx -offset indent
 .It raw
 Headerless file.
 This format is recommended since it has no limitations.
@@ -296,7 +310,7 @@ Encodings are specified using the
 option.
 The following encodings are supported:
 .Pp
-.Bl -tag -width s32lexxx -offset -indent -compact
+.Bl -tag -width s32lexxx -offset indent -compact
 .It s8
 signed 8-bit
 .It u8
@@ -408,16 +422,10 @@ the same MIDI controller message is sent out; it can be used
 for instance for monitoring or as feedback for motorized
 faders.
 .Pp
-Clients connected to sub-devices created with
+Clients connected to sub-devices created with the
 .Fl t
-are controlled by the following MMC (MIDI Machine Control) messages:
-.Bl -tag -width relocateXXX -offset -indent
-.It stop
-Put the sub-device in stopped mode (the default).
-In this mode, any stream attempting to start playback or recording
-is paused.
-Streams that are already started are not affected until they stop
-and try to start again.
+option are controlled by the following MMC messages:
+.Bl -tag -width relocateXXX -offset indent
 .It relocate
 Gives
 .Nm
@@ -436,11 +444,17 @@ In this mode, the sub-device waits for all streams to become ready
 to start, and then starts them synchronously.
 Once started, new streams can be created, but they will be blocked
 until the next stop-to-start transition.
+.It stop
+Put the sub-device in stopped mode (the default).
+In this mode, any stream attempting to start playback or recording
+is paused.
+Streams that are already started are not affected until they stop
+and try to start again.
 .El
 .Pp
-Sub-devices created with
+Sub-devices created with the
 .Fl t
-will export the server clock using MTC (MIDI Time Code), allowing non-audio
+option export the server clock using MTC, allowing non-audio
 software or hardware to be synchronized to the audio stream.
 The following sample rates
 .Pq Fl r
@@ -448,7 +462,7 @@ and block sizes
 .Pq Fl z
 are recommended for maximum accuracy:
 .Pp
-.Bl -bullet -offset -indent -compact
+.Bl -bullet -offset indent -compact
 .It
 44100Hz, 441 frames
 .It
@@ -475,6 +489,54 @@ behave normally, while streams connected to
 wait for the MMC start signal and start synchronously.
 Regardless of which device a stream is connected to,
 its playback volume knob is exposed.
+.Pp
+If
+.Nm
+is used to play and record audio files, it offers
+similar MIDI control.
+.Nm
+can open a
+.Xr sndio 7
+MIDI device allowing MIDI hardware or software
+to control playback and recording in real time.
+.Pp
+A MIDI channel is assigned to each stream, and the volume
+is changed using the standard volume controller (number 7).
+Streams created with the
+.Fl t
+option are controlled by the following MMC messages:
+.Bl -tag -width relocateXXX -offset indent
+.It relocate
+Streams are relocated to the requested time postion
+relative to the beginning of the stream, at which playback
+and recording must start.
+If the requested position is beyond the end of file,
+the stream is temporarly disabled until a valid postion is requested.
+.It start
+Start all streams synchronously.
+By default, streams are created in a stopped state.
+.It stop
+Playback or recording is stopped, and
+the stream is rewound back to the starting position.
+.El
+.Pp
+For instance, the following command will play a file on the
+.Va aucat:0.mmc
+audio device, and give full control to MIDI software or hardware
+connected to the
+.Va midithru:0
+MIDI device:
+.Bd -literal -offset indent
+$ aucat -f aucat:0.mmc -t slave -q midithru:0 -i file.wav
+.Ed
+.Pp
+At this stage,
+.Nm
+will start, stop and relocate automatically following all user
+actions in the MIDI sequencer.
+Note that the sequencer must use
+.Va aucat:0
+as the MTC source, i.e. the audio server, not the audio player.
 .Sh LEGACY MODE
 If neither
 .Fl i

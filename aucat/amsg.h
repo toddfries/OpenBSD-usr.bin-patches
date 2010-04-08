@@ -1,4 +1,4 @@
-/*	$OpenBSD: amsg.h,v 1.14 2010/04/03 17:59:17 ratchov Exp $	*/
+/*	$OpenBSD: amsg.h,v 1.16 2010/04/06 20:19:42 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -87,9 +87,10 @@ struct amsg {
 #define AMSG_REC	0x2			/* audio recording */
 #define AMSG_MIDIIN	0x4			/* MIDI thru input */
 #define AMSG_MIDIOUT	0x8			/* MIDI thru output */
-#define AMSG_MIXER	0x10			/* MIDI mixer */
+#define AMSG_MON	0x10			/* audio monitoring */
+#define AMSG_RECMASK	(AMSG_REC | AMSG_MON)	/* can record ? */
 			uint16_t proto;		/* protocol type */
-#define AMSG_VERSION	1
+#define AMSG_VERSION	2
 			uint8_t version;	/* protocol version */
 			uint8_t reserved1[5];	/* for future use */
 			char opt[12];		/* profile name */
