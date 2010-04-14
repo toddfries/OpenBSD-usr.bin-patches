@@ -658,12 +658,28 @@ mix_badd(struct abuf *ibuf, struct abuf *obuf)
 	odata += ostart;
 	scount = (icount < ocount) ? icount : ocount;
 	for (i = scount; i > 0; i--) {
+		short *s_idata = idata;
 		for (j = icnt; j > 0; j--) {
 			*odata += (*idata * vol) >> ADATA_SHIFT;
 			idata++;
 			odata++;
 		}
-		odata += onext;
+		/*
+		 * if playing a mono sample into a stereo device,
+		 * dup left into right.
+		 * doesn't deal with outputs > 1
+		 */
+		if (obuf->cmin == 0 && ibuf->cmin == 0 &&
+		    obuf->cmax == 1 && ibuf->cmax == 0) {
+			idata = s_idata;
+			for (j = icnt; j > 0; j--) {
+				*odata += (*idata * vol) >> ADATA_SHIFT;
+				idata++;
+				odata++;
+			}
+		} else {
+			odata += onext;
+		}
 	}
 	abuf_rdiscard(ibuf, scount);
 	ibuf->r.mix.done += scount;
