@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.95 2010/02/27 00:58:56 nicm Exp $ */
+/* $OpenBSD: netcat.c,v 1.97 2010/04/20 07:28:28 nicm Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  *
@@ -323,11 +323,11 @@ main(int argc, char *argv[])
 			 */
 			if (uflag) {
 				int rv, plen;
-				char buf[8192];
+				char buf[16384];
 				struct sockaddr_storage z;
 
 				len = sizeof(z);
-				plen = jflag ? 8192 : 1024;
+				plen = jflag ? 16384 : 2048;
 				rv = recvfrom(s, buf, plen, MSG_PEEK,
 				    (struct sockaddr *)&z, &len);
 				if (rv < 0)
@@ -619,12 +619,12 @@ void
 readwrite(int nfd)
 {
 	struct pollfd pfd[2];
-	unsigned char buf[8192];
+	unsigned char buf[16384];
 	int n, wfd = fileno(stdin);
 	int lfd = fileno(stdout);
 	int plen;
 
-	plen = jflag ? 8192 : 1024;
+	plen = jflag ? 16384 : 2048;
 
 	/* Setup Network FD */
 	pfd[0].fd = nfd;
@@ -766,10 +766,9 @@ build_ports(char *p)
 		hi = strtonum(p, 1, PORT_MAX, &errstr);
 		if (errstr)
 			errx(1, "port number %s: %s", errstr, p);
-		portlist[0] = calloc(1, PORT_MAX_LEN);
+		portlist[0] = strdup(p);
 		if (portlist[0] == NULL)
 			err(1, NULL);
-		portlist[0] = p;
 	}
 }
 

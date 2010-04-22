@@ -1,4 +1,4 @@
-/*	$OpenBSD: sensors.c,v 1.19 2010/04/15 04:57:29 yuo Exp $	*/
+/*	$OpenBSD: sensors.c,v 1.23 2010/04/21 19:40:59 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2007 Deanna Phillips <deanna@openbsd.org>
@@ -43,7 +43,8 @@ struct sensinfo {
 #define sn_status sn_sensor.status
 #define sn_value sn_sensor.value
 
-char *devnames[MAXSENSORDEVICES];
+#define SYSTAT_MAXSENSORDEVICES 1024
+char *devnames[SYSTAT_MAXSENSORDEVICES];
 
 #define ADD_ALLOC 100
 static size_t sensor_cnt = 0;
@@ -134,13 +135,15 @@ read_sn(void)
 
 	sensor_cnt = 0;
 
-	for (dev = 0; dev < MAXSENSORDEVICES; dev++) {
+	for (dev = 0; dev < SYSTAT_MAXSENSORDEVICES; dev++) {
 		mib[2] = dev;
 		sdlen = sizeof(struct sensordev);
 		if (sysctl(mib, 3, &sensordev, &sdlen, NULL, 0) == -1) {
-			if (errno != ENOENT)
-				error("sysctl: %s", strerror(errno));
-			continue;
+			if (errno == ENOENT)
+				break;
+			if (errno == ENXIO)
+				continue;
+			error("sysctl: %s", strerror(errno));
 		}
 
 		if (devnames[dev] && strcmp(devnames[dev], sensordev.xname)) {
@@ -263,6 +266,12 @@ showsensor(struct sensinfo *s)
 		break;
 	case SENSOR_HUMIDITY:
 		tbprintf("%3.2f%%", s->sn_value / 1000.0);
+		break;
+	case SENSOR_FREQ:
+		tbprintf("%11lld Hz", s->sn_value);
+		break;
+	case SENSOR_ANGLE:
+		tbprintf("%3.4f degrees", s->sn_value / 1000000.0);
 		break;
 	default:
 		tbprintf("%10lld", s->sn_value);
