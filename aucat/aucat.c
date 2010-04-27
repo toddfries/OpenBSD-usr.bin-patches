@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.86 2010/04/22 17:43:30 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.88 2010/04/24 14:33:46 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -547,21 +547,22 @@ aucat_main(int argc, char **argv)
 		dopar = ipar;
 		dipar = opar;
 	}
-	if (!l_flag && SLIST_EMPTY(&ifiles) &&
-	    SLIST_EMPTY(&ofiles) && argc > 0) {
-		/*
-		 * Legacy mode: if no -i or -o options are provided, and
-		 * there are arguments then assume the arguments are files
-		 * to play.
-		 */
-		for (c = 0; c < argc; c++)
-			if (legacy_play(devpath, argv[c]) != 0) {
-				errx(1, "%s: could not play\n", argv[c]);
-			}
-		exit(0);
-	} else if (argc > 0) {
-		aucat_usage();
-		exit(1);
+	if (!l_flag && SLIST_EMPTY(&ifiles) && SLIST_EMPTY(&ofiles)) {
+		if (argc > 0) {
+			/*
+			 * Legacy mode: if no -i or -o options are provided, and
+			 * there are arguments then assume the arguments are files
+			 * to play.
+			 */
+			for (c = 0; c < argc; c++)
+				if (legacy_play(devpath, argv[c]) != 0) {
+					errx(1, "%s: could not play\n", argv[c]);
+				}
+			exit(0);
+		} else {
+			aucat_usage();
+			exit(1);
+		}
 	}
 
 	if (!l_flag && (!SLIST_EMPTY(&sfiles) || unit >= 0))
@@ -707,8 +708,8 @@ aucat_main(int argc, char **argv)
 		if (quit_flag) {
 			break;
 		}
-		if ((APROC_OK(dev_mix) && LIST_EMPTY(&dev_mix->obuflist)) ||
-		    (APROC_OK(dev_sub) && LIST_EMPTY(&dev_sub->ibuflist))) {
+		if ((APROC_OK(dev_mix) && LIST_EMPTY(&dev_mix->outs)) ||
+		    (APROC_OK(dev_sub) && LIST_EMPTY(&dev_sub->ins))) {
 			fprintf(stderr, "device disappeared, terminating\n");
 			break;
 		}
