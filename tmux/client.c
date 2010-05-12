@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.35 2009/12/03 22:50:09 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.39 2010/05/12 15:05:39 jsing Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -172,35 +172,12 @@ client_update_event(void)
 __dead void
 client_main(void)
 {
-	struct event		ev_sigcont, ev_sigterm, ev_sigwinch;
-	struct sigaction	sigact;
-
 	logfile("client");
 
 	/* Note: event_init() has already been called. */
 
 	/* Set up signals. */
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_IGN;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-
-	signal_set(&ev_sigcont, SIGCONT, client_signal, NULL);
-	signal_add(&ev_sigcont, NULL);
-	signal_set(&ev_sigterm, SIGTERM, client_signal, NULL);
-	signal_add(&ev_sigterm, NULL);
-	signal_set(&ev_sigwinch, SIGWINCH, client_signal, NULL);
-	signal_add(&ev_sigwinch, NULL);
+	set_signals(client_signal);
 
 	/*
 	 * imsg_read in the first client poll loop (before the terminal has
@@ -229,6 +206,11 @@ client_signal(int sig, unused short events, unused void *data)
 	struct sigaction	sigact;
 
 	switch (sig) {
+	case SIGHUP:
+		client_exitmsg = "lost tty";
+		client_exitval = 1;
+		client_write_server(MSG_EXITING, NULL, 0);
+		break;
 	case SIGTERM:
 		client_exitmsg = "terminated";
 		client_exitval = 1;

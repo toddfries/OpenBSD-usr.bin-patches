@@ -1,4 +1,4 @@
-/*	$Id: mdoc.c,v 1.42 2010/04/27 21:53:27 schwarze Exp $ */
+/*	$Id: mdoc.c,v 1.45 2010/05/08 01:57:33 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -80,6 +80,7 @@ const	char *const __mdoc_merrnames[MERRMAX] = {
 	"no description found for library", /* ELIB */
 	"bad child for parent context", /* EBADCHILD */
 	"list arguments preceding type", /* ENOTYPE */
+	"deprecated comment style", /* EBADCOMMENT */
 };
 
 const	char *const __mdoc_macronames[MDOC_MAX] = {		 
@@ -146,8 +147,8 @@ static	struct mdoc_node *node_alloc(struct mdoc *, int, int,
 				enum mdoct, enum mdoc_type);
 static	int		  node_append(struct mdoc *, 
 				struct mdoc_node *);
-static	int		  parsetext(struct mdoc *, int, char *);
-static	int		  parsemacro(struct mdoc *, int, char *);
+static	int		  mdoc_ptext(struct mdoc *, int, char *);
+static	int		  mdoc_pmacro(struct mdoc *, int, char *);
 static	int		  macrowarn(struct mdoc *, int, const char *);
 static	int		  pstring(struct mdoc *, int, int, 
 				const char *, size_t);
@@ -276,7 +277,7 @@ mdoc_endparse(struct mdoc *m)
 
 /*
  * Main parse routine.  Parses a single line -- really just hands off to
- * the macro (parsemacro()) or text parser (parsetext()).
+ * the macro (mdoc_pmacro()) or text parser (mdoc_ptext()).
  */
 int
 mdoc_parseln(struct mdoc *m, int ln, char *buf)
@@ -285,8 +286,8 @@ mdoc_parseln(struct mdoc *m, int ln, char *buf)
 	if (MDOC_HALT & m->flags)
 		return(0);
 
-	return('.' == *buf ? parsemacro(m, ln, buf) :
-			parsetext(m, ln, buf));
+	return('.' == *buf ? mdoc_pmacro(m, ln, buf) :
+			mdoc_ptext(m, ln, buf));
 }
 
 
@@ -625,10 +626,15 @@ mdoc_node_delete(struct mdoc *m, struct mdoc_node *p)
  * control character.
  */
 static int
-parsetext(struct mdoc *m, int line, char *buf)
+mdoc_ptext(struct mdoc *m, int line, char *buf)
 {
 	int		 i, j;
 	char		 sv;
+
+	/* Ignore bogus comments. */
+
+	if ('\\' == buf[0] && '.' == buf[1] && '\"' == buf[2])
+		return(mdoc_pwarn(m, line, 0, EBADCOMMENT));
 
 	if (SEC_NONE == m->lastnamed)
 		return(mdoc_perr(m, line, 0, ETEXTPROL));
@@ -737,7 +743,7 @@ macrowarn(struct mdoc *m, int ln, const char *buf)
  * character.
  */
 int
-parsemacro(struct mdoc *m, int ln, char *buf)
+mdoc_pmacro(struct mdoc *m, int ln, char *buf)
 {
 	int		  i, j, c;
 	char		  mac[5];
@@ -810,14 +816,17 @@ parsemacro(struct mdoc *m, int ln, char *buf)
 
 	/*
 	 * Mark the end of a sentence, but be careful not to insert
-	 * markers into reference blocks.
+	 * markers into reference blocks and after ellipses in
+	 * function definitions.
 	 */
 	n = m->last;
 	if (n->child)
 		n = n->child;
 	while (n->next)
 		n = n->next;
-	if (MDOC_TEXT == n->type && m->last->parent->tok != MDOC_Rs) {
+	if (MDOC_TEXT == n->type &&
+	    MDOC_Fn != n->parent->tok &&
+	    MDOC_Rs != m->last->parent->tok) {
 		t = n->string;
 		while (t[0] && t[1])
 			t++;
