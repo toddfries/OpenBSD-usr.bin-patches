@@ -1,4 +1,4 @@
-/*	$Id: mandoc.c,v 1.8 2010/04/07 23:15:05 schwarze Exp $ */
+/*	$Id: mandoc.c,v 1.11 2010/05/15 15:37:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -296,3 +296,43 @@ mandoc_a2time(int flags, const char *p)
 	return(0);
 }
 
+
+int
+mandoc_eos(const char *p, size_t sz)
+{
+
+	if (0 == sz)
+		return(0);
+
+	/*
+	 * End-of-sentence recognition must include situations where
+	 * some symbols, such as `)', allow prior EOS punctuation to
+	 * propogate outward.
+	 */
+
+	for ( ; sz; sz--) {
+		switch (p[(int)sz - 1]) {
+		case ('\"'):
+			/* FALLTHROUGH */
+		case ('\''):
+			/* FALLTHROUGH */
+		case (']'):
+			/* FALLTHROUGH */
+		case (')'):
+			break;
+		case ('.'):
+			/* Escaped periods. */
+			if (sz > 1 && '\\' == p[(int)sz - 2])
+				return(0);
+			/* FALLTHROUGH */
+		case ('!'):
+			/* FALLTHROUGH */
+		case ('?'):
+			return(1);
+		default:
+			return(0);
+		}
+	}
+
+	return(0);
+}

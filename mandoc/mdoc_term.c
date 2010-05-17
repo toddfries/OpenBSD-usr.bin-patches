@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.76 2010/05/08 02:10:09 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.80 2010/05/15 21:09:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,7 @@ static	int	  arg_hasattr(int, const struct mdoc_node *);
 static	int	  arg_getattrs(const int *, int *, size_t,
 			const struct mdoc_node *);
 static	int	  arg_getattr(int, const struct mdoc_node *);
+static	int	  arg_disptype(const struct mdoc_node *);
 static	int	  arg_listtype(const struct mdoc_node *);
 static	void	  print_bvspace(struct termp *,
 			const struct mdoc_node *,
@@ -131,7 +133,6 @@ static	int	  termp_ud_pre(DECL_ARGS);
 static	int	  termp_vt_pre(DECL_ARGS);
 static	int	  termp_xr_pre(DECL_ARGS);
 static	int	  termp_xx_pre(DECL_ARGS);
-static	int	  termp_eos_pre(DECL_ARGS);
 
 static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_ap_pre, NULL }, /* Ap */
@@ -255,7 +256,6 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_sp_pre, NULL }, /* br */
 	{ termp_sp_pre, NULL }, /* sp */ 
 	{ termp_under_pre, termp____post }, /* %U */ 
-	{ termp_eos_pre, NULL }, /* eos */
 };
 
 
@@ -269,7 +269,7 @@ terminal_mdoc(void *arg, const struct mdoc *mdoc)
 	p = (struct termp *)arg;
 
 	p->overstep = 0;
-	p->maxrmargin = 78;
+	p->maxrmargin = p->defrmargin;
 	p->tabwidth = 5;
 
 	if (NULL == p->symtab)
@@ -333,6 +333,9 @@ print_mdoc_node(DECL_ARGS)
 	if (MDOC_TEXT != n->type)
 		if (termacts[n->tok].post)
 			(*termacts[n->tok].post)(p, &npair, m, n);
+
+	if (MDOC_EOS & n->flags)
+		p->flags |= TERMP_SENTENCE;
 
 	p->offset = offset;
 	p->rmargin = rmargin;
@@ -419,7 +422,7 @@ print_mdoc_head(DECL_ARGS)
 		strlcat(buf, ")", BUFSIZ);
 	}
 
-	snprintf(title, BUFSIZ, "%s(%d)", m->title, m->msec);
+	snprintf(title, BUFSIZ, "%s(%s)", m->title, m->msec);
 
 	p->offset = 0;
 	p->rmargin = (p->maxrmargin - strlen(buf) + 1) / 2;
@@ -473,6 +476,35 @@ a2width(const struct mdoc_argv *arg, int pos)
 		SCALE_HS_INIT(&su, strlen(arg->value[pos]));
 
 	return(term_hspan(&su));
+}
+
+
+static int
+arg_disptype(const struct mdoc_node *n)
+{
+	int		 i, len;
+
+	assert(MDOC_BLOCK == n->type);
+
+	len = (int)(n->args ? n->args->argc : 0);
+
+	for (i = 0; i < len; i++)
+		switch (n->args->argv[i].arg) {
+		case (MDOC_Centred):
+			/* FALLTHROUGH */
+		case (MDOC_Ragged):
+			/* FALLTHROUGH */
+		case (MDOC_Filled):
+			/* FALLTHROUGH */
+		case (MDOC_Unfilled):
+			/* FALLTHROUGH */
+		case (MDOC_Literal):
+			return(n->args->argv[i].arg);
+		default:
+			break;
+		}
+
+	return(-1);
 }
 
 
@@ -1050,7 +1082,7 @@ static int
 termp_nm_pre(DECL_ARGS)
 {
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (SEC_SYNOPSIS == n->sec && MDOC_LINE & n->flags)
 		term_newln(p);
 
 	term_fontpush(p, TERMFONT_BOLD);
@@ -1125,7 +1157,7 @@ termp_an_post(DECL_ARGS)
 		return;
 	}
 
-	if (arg_getattr(MDOC_Split, n) > -1) {
+	if (arg_hasattr(MDOC_Split, n)) {
 		p->flags &= ~TERMP_NOSPLIT;
 		p->flags |= TERMP_SPLIT;
 	} else {
@@ -1349,7 +1381,7 @@ static void
 termp_fd_post(DECL_ARGS)
 {
 
-	if (n->sec != SEC_SYNOPSIS)
+	if (n->sec != SEC_SYNOPSIS || ! (MDOC_LINE & n->flags))
 		return;
 
 	term_newln(p);
@@ -1436,7 +1468,7 @@ static void
 termp_lb_post(DECL_ARGS)
 {
 
-	if (SEC_LIBRARY == n->sec)
+	if (SEC_LIBRARY == n->sec && MDOC_LINE & n->flags)
 		term_newln(p);
 }
 
@@ -1505,7 +1537,7 @@ static int
 termp_ft_pre(DECL_ARGS)
 {
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (SEC_SYNOPSIS == n->sec && MDOC_LINE & n->flags)
 		if (n->prev && MDOC_Fo == n->prev->tok)
 			term_vspace(p);
 
@@ -1519,7 +1551,7 @@ static void
 termp_ft_post(DECL_ARGS)
 {
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (SEC_SYNOPSIS == n->sec && MDOC_LINE & n->flags)
 		term_newln(p);
 }
 
@@ -1560,7 +1592,7 @@ static void
 termp_fn_post(DECL_ARGS)
 {
 
-	if (n->sec == SEC_SYNOPSIS && n->next)
+	if (n->sec == SEC_SYNOPSIS && n->next && MDOC_LINE & n->flags)
 		term_vspace(p);
 }
 
@@ -1598,6 +1630,7 @@ termp_bd_pre(DECL_ARGS)
 {
 	size_t			 tabwidth;
 	int	         	 i, type;
+	size_t			 rm, rmax;
 	const struct mdoc_node	*nn;
 
 	if (MDOC_BLOCK == n->type) {
@@ -1608,26 +1641,11 @@ termp_bd_pre(DECL_ARGS)
 
 	nn = n->parent;
 
-	for (type = -1, i = 0; i < (int)nn->args->argc; i++) {
-		switch (nn->args->argv[i].arg) {
-		case (MDOC_Centred):
-			/* FALLTHROUGH */
-		case (MDOC_Ragged):
-			/* FALLTHROUGH */
-		case (MDOC_Filled):
-			/* FALLTHROUGH */
-		case (MDOC_Unfilled):
-			/* FALLTHROUGH */
-		case (MDOC_Literal):
-			type = nn->args->argv[i].arg;
-			break;
-		case (MDOC_Offset):
-			p->offset += a2offs(&nn->args->argv[i]);
-			break;
-		default:
-			break;
-		}
-	}
+	type = arg_disptype(nn);
+	assert(-1 != type);
+
+	if (-1 != (i = arg_getattr(MDOC_Offset, nn)))
+		p->offset += a2offs(&nn->args->argv[i]);
 
 	/*
 	 * If -ragged or -filled are specified, the block does nothing
@@ -1637,12 +1655,15 @@ termp_bd_pre(DECL_ARGS)
 	 * lines are allowed.
 	 */
 	
-	assert(type > -1);
 	if (MDOC_Literal != type && MDOC_Unfilled != type)
 		return(1);
 
 	tabwidth = p->tabwidth;
 	p->tabwidth = 8;
+	rm = p->rmargin;
+	rmax = p->maxrmargin;
+	p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
+
 	for (nn = n->child; nn; nn = nn->next) {
 		p->flags |= TERMP_NOSPACE;
 		print_mdoc_node(p, pair, m, nn);
@@ -1653,6 +1674,8 @@ termp_bd_pre(DECL_ARGS)
 	}
 	p->tabwidth = tabwidth;
 
+	p->rmargin = rm;
+	p->maxrmargin = rmax;
 	return(0);
 }
 
@@ -1661,11 +1684,26 @@ termp_bd_pre(DECL_ARGS)
 static void
 termp_bd_post(DECL_ARGS)
 {
+	int		 type;
+	size_t		 rm, rmax;
 
 	if (MDOC_BODY != n->type) 
 		return;
+
+	type = arg_disptype(n->parent);
+	assert(-1 != type);
+
+	rm = p->rmargin;
+	rmax = p->maxrmargin;
+
+	if (MDOC_Literal == type || MDOC_Unfilled == type)
+		p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
+
 	p->flags |= TERMP_NOSPACE;
 	term_newln(p);
+
+	p->rmargin = rm;
+	p->maxrmargin = rmax;
 }
 
 
@@ -1855,7 +1893,7 @@ termp_in_post(DECL_ARGS)
 	term_word(p, ">");
 	term_fontpop(p);
 
-	if (SEC_SYNOPSIS != n->sec)
+	if (SEC_SYNOPSIS != n->sec && ! (MDOC_LINE & n->flags))
 		return;
 
 	term_newln(p);
@@ -2127,17 +2165,5 @@ termp_under_pre(DECL_ARGS)
 {
 
 	term_fontpush(p, TERMFONT_UNDER);
-	return(1);
-}
-
-
-/* ARGSUSED */
-static int
-termp_eos_pre(DECL_ARGS)
-{
-	const char ascii_eos[2] = { ASCII_EOS, 0 };
-
-	term_word(p, ascii_eos);
-	p->flags |= TERMP_NOSPACE;
 	return(1);
 }

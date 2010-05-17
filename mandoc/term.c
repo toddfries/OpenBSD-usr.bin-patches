@@ -1,4 +1,4 @@
-/*	$Id: term.c,v 1.30 2010/04/23 00:23:47 schwarze Exp $ */
+/*	$Id: term.c,v 1.33 2010/05/17 02:25:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -30,7 +30,7 @@
 #include "mdoc.h"
 #include "main.h"
 
-static	struct termp	 *term_alloc(enum termenc);
+static	struct termp	 *term_alloc(enum termenc, size_t);
 static	void		  term_free(struct termp *);
 static	void		  spec(struct termp *, const char *, size_t);
 static	void		  res(struct termp *, const char *, size_t);
@@ -41,10 +41,10 @@ static	void		  encode(struct termp *, const char *, size_t);
 
 
 void *
-ascii_alloc(void)
+ascii_alloc(size_t width)
 {
 
-	return(term_alloc(TERMENC_ASCII));
+	return(term_alloc(TERMENC_ASCII, width));
 }
 
 
@@ -70,7 +70,7 @@ term_free(struct termp *p)
 
 
 static struct termp *
-term_alloc(enum termenc enc)
+term_alloc(enum termenc enc, size_t width)
 {
 	struct termp *p;
 
@@ -81,6 +81,10 @@ term_alloc(enum termenc enc)
 	}
 	p->tabwidth = 5;
 	p->enc = enc;
+	/* Enforce some lower boundary. */
+	if (width < 60)
+		width = 60;
+	p->defrmargin = width - 2;
 	return(p);
 }
 
@@ -126,7 +130,7 @@ term_flushln(struct termp *p)
 	int		 i;     /* current input position in p->buf */
 	size_t		 vis;   /* current visual position on output */
 	size_t		 vbl;   /* number of blanks to prepend to output */
-	size_t		 vend;  /* end of word visual position on output */
+	size_t		 vend;	/* end of word visual position on output */
 	size_t		 bp;    /* visual right border position */
 	int		 j;     /* temporary loop index */
 	int		 jhy;	/* last hyphen before line overflow */
@@ -150,23 +154,18 @@ term_flushln(struct termp *p)
 
 	bp = TERMP_NOBREAK & p->flags ? mmax : maxvis;
 
+	/*
+	 * Indent the first line of a paragraph.
+	 */
+	vbl = p->flags & TERMP_NOLPAD ? 0 : p->offset;
+
 	/* 
 	 * FIXME: if bp is zero, we still output the first word before
 	 * breaking the line.
 	 */
 
-	vis = i = 0;
+	vis = vend = i = 0;
 	while (i < (int)p->col) {
-
-		/*
-		 * Choose the number of blanks to prepend: no blank at the
-		 * beginning of a line, one between words -- but do not
-		 * actually write them yet.
-		 */
-		vbl = (size_t)(ASCII_EOS == p->buf[i] ? 2 :
-				(0 == vis ? 0 : 1));
-		vis += vbl;
-		vend = vis;
 
 		/*
 		 * Handle literal tab characters.
@@ -174,10 +173,7 @@ term_flushln(struct termp *p)
 		for (j = i; j < (int)p->col; j++) {
 			if ('\t' != p->buf[j])
 				break;
-			/* Collapse tab with inter-word spacing. */
-			if (vis > 0 && j == i)
-				vend = vis - 1;
-			vend = (vend/p->tabwidth+1)*p->tabwidth;
+			vend = (vis/p->tabwidth+1)*p->tabwidth;
 			vbl += vend - vis;
 			vis = vend;
 		}
@@ -193,9 +189,9 @@ term_flushln(struct termp *p)
 		for (jhy = 0; j < (int)p->col; j++) {
 			if ((j && ' ' == p->buf[j]) || '\t' == p->buf[j])
 				break;
-			else if (8 == p->buf[j])
+			if (8 == p->buf[j])
 				vend--;
-			else if (ASCII_EOS != p->buf[j]) {
+			else {
 				if (vend > vis && vend < bp &&
 				    '-' == p->buf[j])
 					jhy = j;
@@ -204,28 +200,10 @@ term_flushln(struct termp *p)
 		}
 
 		/*
-		 * Skip empty words.  This happens due to the ASCII_EOS
-		 * after the end of the final sentence of a paragraph.
-		 */
-		if (vend == vis && j == (int)p->col)
-			break;
-
-		/*
-		 * Usually, indent the first line of each paragraph.
-		 */
-		if (0 == i && ! (p->flags & TERMP_NOLPAD)) {
-			p->viscol += p->offset;
-			/* LINTED */
-			for (j = 0; j < (int)p->offset; j++)
-				putchar(' ');
-		}
-
-		/*
 		 * Find out whether we would exceed the right margin.
-		 * If so, break to the next line.  (TODO: hyphenate)
-		 * Otherwise, write the chosen number of blanks now.
+		 * If so, break to the next line.
 		 */
-		if (vend > bp && 0 == jhy && vis > vbl) {
+		if (vend > bp && 0 == jhy && vis > 0) {
 			vend -= vis;
 			putchar('\n');
 			if (TERMP_NOBREAK & p->flags) {
@@ -234,18 +212,15 @@ term_flushln(struct termp *p)
 					putchar(' ');
 				vend += p->rmargin - p->offset;
 			} else {
-				p->viscol = p->offset;
-				for (j = 0; j < (int)p->offset; j++)
-					putchar(' ');
+				p->viscol = 0;
+				vbl = p->offset;
 			}
+
 			/* Remove the p->overstep width. */
+
 			bp += (int)/* LINTED */
 				p->overstep;
 			p->overstep = 0;
-		} else {
-			p->viscol += vbl;
-			for (j = 0; j < (int)vbl; j++)
-				putchar(' ');
 		}
 
 		/*
@@ -254,24 +229,39 @@ term_flushln(struct termp *p)
 		while (i < (int)p->col && '\t' == p->buf[i])
 			i++;
 
-		/*
-		 * Finally, write out the word.
-		 */
+		/* Write out the [remaining] word. */
 		for ( ; i < (int)p->col; i++) {
 			if (vend > bp && jhy > 0 && i > jhy)
 				break;
 			if ('\t' == p->buf[i])
 				break;
 			if (' ' == p->buf[i]) {
-				i++;
+				while (' ' == p->buf[i]) {
+					vbl++;
+					i++;
+				}
 				break;
 			}
-			if (ASCII_NBRSP == p->buf[i])
-				putchar(' ');
-			else if (ASCII_EOS != p->buf[i])
-				putchar(p->buf[i]);
+			if (ASCII_NBRSP == p->buf[i]) {
+				vbl++;
+				continue;
+			}
+
+			/*
+			 * Now we definitely know there will be
+			 * printable characters to output,
+			 * so write preceding white space now.
+			 */
+			if (vbl) {
+				for (j = 0; j < (int)vbl; j++)
+					putchar(' ');
+				p->viscol += vbl;
+				vbl = 0;
+			}
+			putchar(p->buf[i]);
+			p->viscol += 1;
 		}
-		p->viscol += vend - vis;
+		vend += vbl;
 		vis = vend;
 	}
 
@@ -487,11 +477,16 @@ term_word(struct termp *p, const char *word)
 			break;
 		}
 
-	if ( ! (TERMP_NOSPACE & p->flags))
+	if ( ! (TERMP_NOSPACE & p->flags)) {
 		bufferc(p, ' ');
+		if (TERMP_SENTENCE & p->flags)
+			bufferc(p, ' ');
+	}
 
 	if ( ! (p->flags & TERMP_NONOSPACE))
 		p->flags &= ~TERMP_NOSPACE;
+
+	p->flags &= ~TERMP_SENTENCE;
 
 	/* FIXME: use strcspn. */
 
@@ -533,6 +528,10 @@ term_word(struct termp *p, const char *word)
 			p->flags |= TERMP_NOSPACE;
 	}
 
+	/* 
+	 * Note that we don't process the pipe: the parser sees it as
+	 * punctuation, but we don't in terms of typography.
+	 */
 	if (sv[0] && 0 == sv[1])
 		switch (sv[0]) {
 		case('('):

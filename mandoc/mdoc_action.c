@@ -1,4 +1,4 @@
-/*	$Id: mdoc_action.c,v 1.30 2010/04/07 23:15:05 schwarze Exp $ */
+/*	$Id: mdoc_action.c,v 1.35 2010/05/15 18:25:51 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -40,7 +40,7 @@ struct	actions {
 
 static	int	  concat(struct mdoc *, char *,
 			const struct mdoc_node *, size_t);
-static	inline int order_rs(int);
+static	inline int order_rs(enum mdoct);
 
 static	int	  post_ar(POST_ARGS);
 static	int	  post_at(POST_ARGS);
@@ -188,12 +188,11 @@ static	const struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* br */
 	{ NULL, NULL }, /* sp */
 	{ NULL, NULL }, /* %U */
-	{ NULL, NULL }, /* eos */
 };
 
 #define	RSORD_MAX 14
 
-static	const int rsord[RSORD_MAX] = {
+static	const enum mdoct rsord[RSORD_MAX] = {
 	MDOC__A,
 	MDOC__T,
 	MDOC__B,
@@ -363,9 +362,10 @@ post_st(POST_ARGS)
 
 	assert(MDOC_TEXT == n->child->type);
 	p = mdoc_a2st(n->child->string);
-	assert(p);
-	free(n->child->string);
-	n->child->string = mandoc_strdup(p);
+	if (p != NULL) {
+		free(n->child->string);
+		n->child->string = mandoc_strdup(p);
+	}
 	return(1);
 }
 
@@ -378,15 +378,27 @@ post_st(POST_ARGS)
 static int
 post_at(POST_ARGS)
 {
-	struct mdoc_node	*nn;
-	const char		*p;
+	struct mdoc_node *nn;
+	const char	 *p, *q;
+	char		 *buf;
+	size_t		  sz;
 
 	if (n->child) {
 		assert(MDOC_TEXT == n->child->type);
 		p = mdoc_a2att(n->child->string);
-		assert(p);
-		free(n->child->string);
-		n->child->string = mandoc_strdup(p);
+		if (p) {
+			free(n->child->string);
+			n->child->string = mandoc_strdup(p);
+		} else {
+			p = "AT&T UNIX ";
+			q = n->child->string;
+			sz = strlen(p) + strlen(q) + 1;
+			buf = mandoc_malloc(sz);
+			strlcpy(buf, p, sz);
+			strlcat(buf, q, sz);
+			free(n->child->string);
+			n->child->string = buf;
+		}
 		return(1);
 	}
 
@@ -416,7 +428,7 @@ post_sh(POST_ARGS)
 
 	if ( ! concat(m, buf, n->child, BUFSIZ))
 		return(0);
-	sec = mdoc_atosec(buf);
+	sec = mdoc_str2sec(buf);
 	/*
 	 * The first section should always make us move into a non-new
 	 * state.
@@ -430,17 +442,14 @@ post_sh(POST_ARGS)
 	case (SEC_RETURN_VALUES):
 		/* FALLTHROUGH */
 	case (SEC_ERRORS):
-		switch (m->meta.msec) {
-		case (2):
-			/* FALLTHROUGH */
-		case (3):
-			/* FALLTHROUGH */
-		case (9):
+		assert(m->meta.msec);
+		if (*m->meta.msec == '2')
 			break;
-		default:
-			return(mdoc_nwarn(m, n, EBADSEC));
-		}
-		break;
+		if (*m->meta.msec == '3')
+			break;
+		if (*m->meta.msec == '9')
+			break;
+		return(mdoc_nwarn(m, n, EWRONGMSEC));
 	default:
 		break;
 	}
@@ -457,8 +466,6 @@ post_dt(POST_ARGS)
 {
 	struct mdoc_node *nn;
 	const char	 *cp;
-	char		 *ep;
-	long		  lval;
 
 	if (m->meta.title)
 		free(m->meta.title);
@@ -468,16 +475,16 @@ post_dt(POST_ARGS)
 		free(m->meta.arch);
 
 	m->meta.title = m->meta.vol = m->meta.arch = NULL;
-	m->meta.msec = 0;
-
 	/* Handles: `.Dt' 
 	 *   --> title = unknown, volume = local, msec = 0, arch = NULL
 	 */
 
 	if (NULL == (nn = n->child)) {
 		/* XXX: make these macro values. */
+		/* FIXME: warn about missing values. */
 		m->meta.title = mandoc_strdup("unknown");
 		m->meta.vol = mandoc_strdup("local");
+		m->meta.msec = mandoc_strdup("1");
 		return(post_prol(m, n));
 	}
 
@@ -488,8 +495,10 @@ post_dt(POST_ARGS)
 	m->meta.title = mandoc_strdup(nn->string);
 
 	if (NULL == (nn = nn->next)) {
+		/* FIXME: warn about missing msec. */
 		/* XXX: make this a macro value. */
 		m->meta.vol = mandoc_strdup("local");
+		m->meta.msec = mandoc_strdup("1");
 		return(post_prol(m, n));
 	}
 
@@ -502,13 +511,13 @@ post_dt(POST_ARGS)
 
 	cp = mdoc_a2msec(nn->string);
 	if (cp) {
-		/* FIXME: where is strtonum!? */
 		m->meta.vol = mandoc_strdup(cp);
-		lval = strtol(nn->string, &ep, 10);
-		if (nn->string[0] != '\0' && *ep == '\0')
-			m->meta.msec = (int)lval;
-	} else 
+		m->meta.msec = mandoc_strdup(nn->string);
+	} else if (mdoc_nwarn(m, n, EBADMSEC)) {
 		m->meta.vol = mandoc_strdup(nn->string);
+		m->meta.msec = mandoc_strdup(nn->string);
+	} else
+		return(0);
 
 	if (NULL == (nn = nn->next))
 		return(post_prol(m, n));
@@ -525,6 +534,7 @@ post_dt(POST_ARGS)
 		free(m->meta.vol);
 		m->meta.vol = mandoc_strdup(cp);
 	} else {
+		/* FIXME: warn about bad arch. */
 		cp = mdoc_a2arch(nn->string);
 		if (NULL == cp) {
 			free(m->meta.vol);
@@ -942,11 +952,11 @@ post_display(POST_ARGS)
 
 
 static inline int
-order_rs(int t)
+order_rs(enum mdoct t)
 {
 	int		i;
 
-	for (i = 0; i < RSORD_MAX; i++)
+	for (i = 0; i < (int)RSORD_MAX; i++)
 		if (rsord[i] == t)
 			return(i);
 

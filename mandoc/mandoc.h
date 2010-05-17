@@ -1,6 +1,6 @@
-/*	$Id: chars.h,v 1.3 2010/05/14 19:52:43 schwarze Exp $ */
+/*	$Id: mandoc.h,v 1.1 2010/05/16 01:46:39 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,23 +14,29 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef CHARS_H
-#define CHARS_H
-
-#define ASCII_NBRSP	 31  /* non-breaking space */
+#ifndef MANDOC_H
+#define MANDOC_H
 
 __BEGIN_DECLS
 
-enum	chars {
-	CHARS_ASCII,
-	CHARS_HTML
+enum	mandocerr {
+	MANDOCERR_OK,
+	MANDOCERR_SCOPEEXIT, /* scope open on exit */
+	MANDOCERR_NOSCOPE, /* request scope close w/none open */
+#define	MANDOCERR_WARNING	MANDOCERR_SCOPEEXIT
+
+	MANDOCERR_ARGSLOST, /* line arguments will be lost */
+#define	MANDOCERR_ERROR		MANDOCERR_ARGSLOST
+
+	MANDOCERR_MEM, /* memory exhausted */
+#define	MANDOCERR_FATAL		MANDOCERR_MEM
+
+	MANDOCERR_MAX
 };
 
-void		 *chars_init(enum chars);
-const char	 *chars_a2ascii(void *, const char *, size_t, size_t *);
-const char	 *chars_a2res(void *, const char *, size_t, size_t *);
-void		  chars_free(void *);
+typedef	int	(*mandocmsg)(enum mandocerr, 
+			void *, int, int, const char *);
 
 __END_DECLS
 
-#endif /*!CHARS_H*/
+#endif /*!MANDOC_H*/

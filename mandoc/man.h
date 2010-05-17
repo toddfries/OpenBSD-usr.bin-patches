@@ -1,4 +1,4 @@
-/*	$Id: man.h,v 1.15 2010/04/25 16:32:19 schwarze Exp $ */
+/*	$Id: man.h,v 1.19 2010/05/16 00:54:03 schwarze Exp $ */
 /*
  * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -55,12 +55,6 @@ enum	mant {
 	MAN_Sp,
 	MAN_Vb,
 	MAN_Ve,
-	MAN_de,
-	MAN_dei,
-	MAN_am,
-	MAN_ami,
-	MAN_ig,
-	MAN_dot,
 	MAN_if,
 	MAN_ie,
 	MAN_el,
@@ -77,7 +71,7 @@ enum	man_type {
 };
 
 struct	man_meta {
-	int		 msec;
+	char		*msec;
 	time_t		 date;
 	char		*vol;
 	char		*title;
@@ -96,7 +90,8 @@ struct	man_node {
 	int		 flags;
 #define	MAN_VALID	(1 << 0)
 #define	MAN_ACTED	(1 << 1)
-#define	MAN_USE 	(1 << 2)
+#define	MAN_EOS		(1 << 2)
+#define	MAN_USE 	(1 << 3)
 	enum man_type	 type;
 	char		*string;
 	struct man_node	*head;
@@ -104,7 +99,6 @@ struct	man_node {
 };
 
 #define	MAN_IGN_MACRO	 (1 << 0)
-#define	MAN_IGN_CHARS	 (1 << 1)
 #define	MAN_IGN_ESCAPE	 (1 << 2)
 
 extern	const char *const *man_macronames;

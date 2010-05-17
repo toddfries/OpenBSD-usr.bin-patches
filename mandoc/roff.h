@@ -1,6 +1,6 @@
-/*	$Id: chars.h,v 1.3 2010/05/14 19:52:43 schwarze Exp $ */
+/*	$Id: roff.h,v 1.1 2010/05/16 00:54:03 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,23 +14,25 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef CHARS_H
-#define CHARS_H
+#ifndef ROFF_H
+#define ROFF_H
 
-#define ASCII_NBRSP	 31  /* non-breaking space */
+enum	rofferr {
+	ROFF_CONT, /* re-process line with libmdoc or libman */
+	ROFF_IGN, /* ignore line */
+	ROFF_ERR, /* badness */
+};
 
 __BEGIN_DECLS
 
-enum	chars {
-	CHARS_ASCII,
-	CHARS_HTML
-};
+struct	roff;
 
-void		 *chars_init(enum chars);
-const char	 *chars_a2ascii(void *, const char *, size_t, size_t *);
-const char	 *chars_a2res(void *, const char *, size_t, size_t *);
-void		  chars_free(void *);
+void	 	  roff_free(struct roff *);
+struct	roff	 *roff_alloc(mandocmsg, void *);
+void		  roff_reset(struct roff *);
+enum	rofferr	  roff_parseln(struct roff *, int, char **, size_t *);
+int		  roff_endparse(struct roff *);
 
 __END_DECLS
 
-#endif /*!CHARS_H*/
+#endif /*!ROFF_H*/

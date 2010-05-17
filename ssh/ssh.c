@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.336 2010/04/10 00:00:16 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.338 2010/05/16 12:55:51 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -314,6 +314,8 @@ main(int ac, char **av)
 				fatal("Multiplexing command already specified");
 			if (strcmp(optarg, "check") == 0)
 				muxclient_command = SSHMUX_COMMAND_ALIVE_CHECK;
+			else if (strcmp(optarg, "forward") == 0)
+				muxclient_command = SSHMUX_COMMAND_FORWARD;
 			else if (strcmp(optarg, "exit") == 0)
 				muxclient_command = SSHMUX_COMMAND_TERMINATE;
 			else
@@ -858,9 +860,10 @@ ssh_confirm_remote_forward(int type, u_int32_t seq, void *ctxt)
 	    type == SSH2_MSG_REQUEST_SUCCESS ? "success" : "failure",
 	    rfwd->listen_port, rfwd->connect_host, rfwd->connect_port);
 	if (type == SSH2_MSG_REQUEST_SUCCESS && rfwd->listen_port == 0) {
+		rfwd->allocated_port = packet_get_int();
 		logit("Allocated port %u for remote forward to %s:%d",
-			packet_get_int(),
-			rfwd->connect_host, rfwd->connect_port);
+		    rfwd->allocated_port,
+		    rfwd->connect_host, rfwd->connect_port);
 	}
 	
 	if (type == SSH2_MSG_REQUEST_FAILURE) {
@@ -1156,11 +1159,14 @@ ssh_session(void)
 
 /* request pty/x11/agent/tcpfwd/shell for channel */
 static void
-ssh_session2_setup(int id, void *arg)
+ssh_session2_setup(int id, int success, void *arg)
 {
 	extern char **environ;
 	const char *display;
 	int interactive = tty_flag;
+
+	if (!success)
+		return; /* No need for error message, channels code sens one */
 
 	display = getenv("DISPLAY");
 	if (options.forward_x11 && display != NULL) {
