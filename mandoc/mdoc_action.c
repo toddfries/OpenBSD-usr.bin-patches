@@ -1,4 +1,4 @@
-/*	$Id: mdoc_action.c,v 1.35 2010/05/15 18:25:51 schwarze Exp $ */
+/*	$Id: mdoc_action.c,v 1.38 2010/05/24 02:24:05 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -24,11 +24,12 @@
 #include <string.h>
 #include <time.h>
 
+#include "mandoc.h"
 #include "libmdoc.h"
 #include "libmandoc.h"
 
 #define	POST_ARGS struct mdoc *m, struct mdoc_node *n
-#define	PRE_ARGS  struct mdoc *m, const struct mdoc_node *n
+#define	PRE_ARGS  struct mdoc *m, struct mdoc_node *n
 
 #define	NUMSIZ	  32
 #define	DATESIZ	  32
@@ -211,7 +212,7 @@ static	const enum mdoct rsord[RSORD_MAX] = {
 
 
 int
-mdoc_action_pre(struct mdoc *m, const struct mdoc_node *n)
+mdoc_action_pre(struct mdoc *m, struct mdoc_node *n)
 {
 
 	switch (n->type) {
@@ -265,12 +266,21 @@ concat(struct mdoc *m, char *p, const struct mdoc_node *n, size_t sz)
 	p[0] = '\0';
 	for ( ; n; n = n->next) {
 		assert(MDOC_TEXT == n->type);
-		if (strlcat(p, n->string, sz) >= sz)
-			return(mdoc_nerr(m, n, ETOOLONG));
+		/*
+		 * XXX: yes, these can technically be resized, but it's
+		 * highly unlikely that we're going to get here, so let
+		 * it slip for now.
+		 */
+		if (strlcat(p, n->string, sz) >= sz) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
 		if (NULL == n->next)
 			continue;
-		if (strlcat(p, " ", sz) >= sz)
-			return(mdoc_nerr(m, n, ETOOLONG));
+		if (strlcat(p, " ", sz) >= sz) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
 	}
 
 	return(1);
@@ -284,14 +294,16 @@ concat(struct mdoc *m, char *p, const struct mdoc_node *n, size_t sz)
 static int
 post_std(POST_ARGS)
 {
-	struct mdoc_node	*nn;
+	struct mdoc_node *nn;
 
 	if (n->child)
+		return(1);
+	if (NULL == m->meta.name)
 		return(1);
 	
 	nn = n;
 	m->next = MDOC_NEXT_CHILD;
-	assert(m->meta.name);
+
 	if ( ! mdoc_word_alloc(m, n->line, n->pos, m->meta.name))
 		return(0);
 	m->last = nn;
@@ -449,7 +461,7 @@ post_sh(POST_ARGS)
 			break;
 		if (*m->meta.msec == '9')
 			break;
-		return(mdoc_nwarn(m, n, EWRONGMSEC));
+		return(mdoc_nmsg(m, n, MANDOCERR_SECMSEC));
 	default:
 		break;
 	}
@@ -513,7 +525,7 @@ post_dt(POST_ARGS)
 	if (cp) {
 		m->meta.vol = mandoc_strdup(cp);
 		m->meta.msec = mandoc_strdup(nn->string);
-	} else if (mdoc_nwarn(m, n, EBADMSEC)) {
+	} else if (mdoc_nmsg(m, n, MANDOCERR_BADMSEC)) {
 		m->meta.vol = mandoc_strdup(nn->string);
 		m->meta.msec = mandoc_strdup(nn->string);
 	} else
@@ -570,19 +582,32 @@ post_os(POST_ARGS)
 	if ( ! concat(m, buf, n->child, BUFSIZ))
 		return(0);
 
+	/* XXX: yes, these can all be dynamically-adjusted buffers, but
+	 * it's really not worth the extra hackery.
+	 */
+
 	if ('\0' == buf[0]) {
 #ifdef OSNAME
-		if (strlcat(buf, OSNAME, BUFSIZ) >= BUFSIZ)
-			return(mdoc_nerr(m, n, EUTSNAME));
+		if (strlcat(buf, OSNAME, BUFSIZ) >= BUFSIZ) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
 #else /*!OSNAME */
 		if (-1 == uname(&utsname))
-			return(mdoc_nerr(m, n, EUTSNAME));
-		if (strlcat(buf, utsname.sysname, BUFSIZ) >= BUFSIZ)
-			return(mdoc_nerr(m, n, ETOOLONG));
-		if (strlcat(buf, " ", 64) >= BUFSIZ)
-			return(mdoc_nerr(m, n, ETOOLONG));
-		if (strlcat(buf, utsname.release, BUFSIZ) >= BUFSIZ)
-			return(mdoc_nerr(m, n, ETOOLONG));
+			return(mdoc_nmsg(m, n, MANDOCERR_UTSNAME));
+
+		if (strlcat(buf, utsname.sysname, BUFSIZ) >= BUFSIZ) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
+		if (strlcat(buf, " ", 64) >= BUFSIZ) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
+		if (strlcat(buf, utsname.release, BUFSIZ) >= BUFSIZ) {
+			mdoc_nmsg(m, n, MANDOCERR_MEM);
+			return(0);
+		}
 #endif /*!OSNAME*/
 	}
 
@@ -608,16 +633,19 @@ post_bl_tagwidth(POST_ARGS)
 	/* Defaults to ten ens. */
 
 	sz = 10; /* XXX: make this a macro value. */
-	nn = n->body->child;
+
+	for (nn = n->body->child; nn; nn = nn->next) {
+		if (MDOC_It == nn->tok)
+			break;
+	}
 
 	if (nn) {
 		assert(MDOC_BLOCK == nn->type);
-		assert(MDOC_It == nn->tok);
 		nn = nn->head->child;
 		if (MDOC_TEXT != nn->type) {
 			sz = mdoc_macro2len(nn->tok);
 			if (sz == 0) {
-				if ( ! mdoc_nwarn(m, n, ENOWIDTH))
+				if ( ! mdoc_nmsg(m, n, MANDOCERR_NOWIDTHARG))
 					return(0);
 				sz = 10;
 			}
@@ -680,12 +708,11 @@ post_bl_width(POST_ARGS)
 	 */
 
 	if (0 == strcmp(p, "Ds"))
-		/* XXX: make into a macro. */
 		width = 6;
 	else if (MDOC_MAX == (tok = mdoc_hash_find(p)))
 		return(1);
 	else if (0 == (width = mdoc_macro2len(tok))) 
-		return(mdoc_nwarn(m, n, ENOWIDTH));
+		return(mdoc_nmsg(m, n, MANDOCERR_BADWIDTH));
 
 	/* The value already exists: free and reallocate it. */
 
@@ -844,7 +871,7 @@ post_dd(POST_ARGS)
 		(MTIME_MDOCDATE | MTIME_CANONICAL, buf);
 
 	if (0 == m->meta.date) {
-		if ( ! mdoc_nwarn(m, n, EBADDATE))
+		if ( ! mdoc_nmsg(m, n, MANDOCERR_BADDATE))
 			return(0);
 		m->meta.date = time(NULL);
 	}
@@ -914,8 +941,63 @@ pre_offset(PRE_ARGS)
 static int
 pre_bl(PRE_ARGS)
 {
+	int		 pos;
 
-	return(MDOC_BLOCK == n->type ? pre_offset(m, n) : 1);
+	if (MDOC_BLOCK != n->type) {
+		assert(n->parent);
+		assert(MDOC_BLOCK == n->parent->type);
+		assert(MDOC_Bl == n->parent->tok);
+		assert(LIST__NONE != n->parent->data.list);
+		n->data.list = n->parent->data.list;
+		return(1);
+	}
+
+	assert(LIST__NONE == n->data.list);
+
+	for (pos = 0; pos < (int)n->args->argc; pos++) {
+		switch (n->args->argv[pos].arg) {
+		case (MDOC_Bullet):
+			n->data.list = LIST_bullet;
+			break;
+		case (MDOC_Dash):
+			n->data.list = LIST_dash;
+			break;
+		case (MDOC_Enum):
+			n->data.list = LIST_enum;
+			break;
+		case (MDOC_Hyphen):
+			n->data.list = LIST_hyphen;
+			break;
+		case (MDOC_Item):
+			n->data.list = LIST_item;
+			break;
+		case (MDOC_Tag):
+			n->data.list = LIST_tag;
+			break;
+		case (MDOC_Diag):
+			n->data.list = LIST_diag;
+			break;
+		case (MDOC_Hang):
+			n->data.list = LIST_hang;
+			break;
+		case (MDOC_Ohang):
+			n->data.list = LIST_ohang;
+			break;
+		case (MDOC_Inset):
+			n->data.list = LIST_inset;
+			break;
+		case (MDOC_Column):
+			n->data.list = LIST_column;
+			break;
+		default:
+			break;
+		}
+		if (LIST__NONE != n->data.list)
+			break;
+	}
+
+	assert(LIST__NONE != n->data.list);
+	return(pre_offset(m, n));
 }
 
 

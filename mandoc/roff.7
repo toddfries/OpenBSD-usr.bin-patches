@@ -1,4 +1,4 @@
-.\"	$Id: roff.7,v 1.1 2010/05/20 00:58:02 schwarze Exp $
+.\"	$Id: roff.7,v 1.3 2010/05/25 00:02:34 schwarze Exp $
 .\"
 .\" Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 20 2010 $
+.Dd $Mdocdate: May 25 2010 $
 .Dt ROFF 7
 .Os
 .Sh NAME
@@ -90,6 +90,12 @@ The syntax of this macro is the same as that of
 .Sx \&ig ,
 except that a leading argument must be specified.
 It is ignored, as are its children.
+.Ss \&ds
+Define a string.
+This macro is intended to have two arguments,
+the name of the string to define and its content.
+Currently, it is ignored including its arguments,
+and the number of arguments is not checked.
 .Ss \&de1
 The syntax of this macro is the same as that of
 .Sx \&ig ,
@@ -120,7 +126,15 @@ which may be separated by any intervening input (or not exist at all).
 Its syntax is equivalent to
 .Sx \&if .
 .Ss \&if
-Begins a conditional that always evaluates to false.
+Begins a conditional.
+Right now, the conditional evaluates to true
+if and only if it starts with the letter
+.Sy n ,
+indicating processing in
+.Xr nroff 1
+style as opposed to
+.Xr troff 1
+style.
 If a conditional is false, its children are not processed, but are
 syntactically interpreted to preserve the integrity of the input
 document.
@@ -235,6 +249,18 @@ the subsequent invocation of
 .Sx \&if
 will first signify the end of comment, then be invoked as a macro.
 This behaviour really shouldn't be counted upon.
+.Ss \&rm
+Remove a request, macro or string.
+This macro is intended to have one argument,
+the name of the request, macro or string to be undefined.
+Currently, it is ignored including its arguments,
+and the number of arguments is not checked.
+.Ss \&tr
+Output character translation.
+This macro is intended to have one argument,
+consisting of an even number of characters.
+Currently, it is ignored including its arguments,
+and the number of arguments is not checked.
 .Sh COMPATIBILITY
 This section documents compatibility between mandoc and other other
 troff implementations, at this time limited to GNU troff

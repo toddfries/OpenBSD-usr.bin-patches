@@ -1,4 +1,4 @@
-/*	$Id: man_term.c,v 1.35 2010/05/20 00:58:02 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.38 2010/05/24 01:36:22 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "out.h"
 #include "man.h"
 #include "term.h"
@@ -138,6 +139,7 @@ static	const struct termact termacts[MAN_MAX] = {
  	{ pre_sp, NULL, MAN_NOTEXT }, /* Sp */
  	{ pre_nf, NULL, 0 }, /* Vb */
  	{ pre_fi, NULL, 0 }, /* Ve */
+	{ pre_ign, NULL, 0 }, /* AT */
 };
 
 
@@ -866,6 +868,8 @@ print_man_foot(struct termp *p, const struct man_meta *meta)
 
 	time2a(meta->date, buf, DATESIZ);
 
+	term_vspace(p);
+	term_vspace(p);
 	term_vspace(p);
 
 	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;

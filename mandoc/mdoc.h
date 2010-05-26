@@ -1,4 +1,4 @@
-/*	$Id: mdoc.h,v 1.24 2010/05/20 00:58:02 schwarze Exp $ */
+/*	$Id: mdoc.h,v 1.26 2010/05/24 00:00:10 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -247,6 +247,21 @@ struct 	mdoc_arg {
 	unsigned int	  refcnt;
 };
 
+enum	mdoc_list {
+	LIST__NONE = 0,
+	LIST_bullet,
+	LIST_column,
+	LIST_dash,
+	LIST_diag,
+	LIST_enum,
+	LIST_hang,
+	LIST_hyphen,
+	LIST_inset,
+	LIST_item,
+	LIST_ohang,
+	LIST_tag
+};
+
 /* Node in AST. */
 struct	mdoc_node {
 	struct mdoc_node *parent; /* parent AST node */
@@ -270,18 +285,15 @@ struct	mdoc_node {
 	struct mdoc_node *body;		/* BLOCK */
 	struct mdoc_node *tail;		/* BLOCK */
 	char		 *string;	/* TEXT */
+
+	union {
+		enum mdoc_list list; /* for `Bl' nodes */
+	} data;
 };
 
 #define	MDOC_IGN_SCOPE	 (1 << 0) /* Ignore scope violations. */
 #define	MDOC_IGN_ESCAPE	 (1 << 1) /* Ignore bad escape sequences. */
 #define	MDOC_IGN_MACRO	 (1 << 2) /* Ignore unknown macros. */
-
-/* Call-backs for parse messages. */
-
-struct	mdoc_cb {
-	int	(*mdoc_err)(void *, int, int, const char *);
-	int	(*mdoc_warn)(void *, int, int, const char *);
-};
 
 /* See mdoc.3 for documentation. */
 
@@ -295,7 +307,7 @@ struct	mdoc;
 /* See mdoc.3 for documentation. */
 
 void	 	  mdoc_free(struct mdoc *);
-struct	mdoc	 *mdoc_alloc(void *, int, const struct mdoc_cb *);
+struct	mdoc	 *mdoc_alloc(void *, int, mandocmsg);
 void		  mdoc_reset(struct mdoc *);
 int	 	  mdoc_parseln(struct mdoc *, int, char *, int);
 const struct mdoc_node *mdoc_node(const struct mdoc *);
