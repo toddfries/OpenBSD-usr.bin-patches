@@ -1,4 +1,4 @@
-/*	$Id: libmandoc.h,v 1.3 2009/12/23 22:30:17 schwarze Exp $ */
+/*	$Id: libmandoc.h,v 1.5 2010/05/26 02:39:58 schwarze Exp $ */
 /*
  * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -29,6 +29,8 @@ time_t		 mandoc_a2time(int, const char *);
 #define		 MTIME_REDUCED		(1 << 1)
 #define		 MTIME_MDOCDATE		(1 << 2)
 #define		 MTIME_ISO_8601		(1 << 3)
+int		 mandoc_eos(const char *, size_t);
+int		 mandoc_hyph(const char *, const char *);
 
 __END_DECLS
 

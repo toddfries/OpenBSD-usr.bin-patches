@@ -1,4 +1,4 @@
-/*	$Id: libman.h,v 1.16 2010/04/25 16:32:19 schwarze Exp $ */
+/*	$Id: libman.h,v 1.21 2010/05/24 02:27:31 schwarze Exp $ */
 /*
  * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -26,9 +26,8 @@ enum	man_next {
 
 struct	man {
 	void		*data;
-	struct man_cb	 cb;
+	mandocmsg	 msg;
 	int		 pflags; /* parse flags (see man.h) */
-	int		 svflags; /* flags saved during roff blocks */
 	int		 flags; /* parse flags */
 #define	MAN_HALT	(1 << 0) /* badness happened: die */
 #define	MAN_ELINE	(1 << 1) /* Next-line element scope. */
@@ -36,38 +35,10 @@ struct	man {
 #define	MAN_ILINE	(1 << 3) /* Ignored in next-line scope. */
 #define	MAN_LITERAL	(1 << 4) /* Literal input. */
 #define	MAN_BPLINE	(1 << 5)
-#define	MAN_EL_USE	(1 << 6) /* Following .el will be used. */
 	enum man_next	 next;
-	enum man_next	 svnext;
 	struct man_node	*last;
 	struct man_node	*first;
 	struct man_meta	 meta;
-};
-
-enum	merr {
-	WNPRINT = 0,
-	WMSEC,
-	WDATE,
-	WLNSCOPE,
-	WLNSCOPE2,
-	WTSPACE,
-	WTQUOTE,
-	WNODATA,
-	WNOTITLE,
-	WESCAPE,
-	WNUMFMT,
-	WHEADARGS,
-	WBODYARGS,
-	WNHEADARGS,
-	WMACROFORM,
-	WEXITSCOPE,
-	WNOSCOPE,
-	WOLITERAL,
-	WNLITERAL,
-	WROFFNEST,
-	WROFFSCOPE,
-	WTITLECASE,
-	WERRMAX
 };
 
 #define	MACRO_PROT_ARGS	  struct man *m, enum mant tok, int line, \
@@ -87,15 +58,10 @@ extern	const struct man_macro *const man_macros;
 
 __BEGIN_DECLS
 
-#define		  man_perr(m, l, p, t) \
-		  man_err((m), (l), (p), 1, (t))
-#define		  man_pwarn(m, l, p, t) \
-		  man_err((m), (l), (p), 0, (t))
-#define		  man_nerr(m, n, t) \
-		  man_err((m), (n)->line, (n)->pos, 1, (t))
-#define		  man_nwarn(m, n, t) \
-		  man_err((m), (n)->line, (n)->pos, 0, (t))
-
+#define		  man_pmsg(m, l, p, t) \
+		  (*(m)->msg)((t), (m)->data, (l), (p), NULL)
+#define		  man_nmsg(m, n, t) \
+		  (*(m)->msg)((t), (m)->data, (n)->line, (n)->pos, NULL)
 int		  man_word_alloc(struct man *, int, int, const char *);
 int		  man_block_alloc(struct man *, int, int, enum mant);
 int		  man_head_alloc(struct man *, int, int, enum mant);
@@ -110,16 +76,14 @@ int		  man_args(struct man *, int, int *, char *, char **);
 #define	ARGS_EOLN	(0)
 #define	ARGS_WORD	(1)
 #define	ARGS_QWORD	(1)
-int		  man_err(struct man *, int, int, int, enum merr);
-int		  man_vwarn(struct man *, int, int, const char *, ...);
-int		  man_verr(struct man *, int, int, const char *, ...);
+int		  man_vmsg(struct man *, enum mandocerr,
+			int, int, const char *, ...);
 int		  man_valid_post(struct man *);
 int		  man_valid_pre(struct man *, const struct man_node *);
 int		  man_action_post(struct man *);
 int		  man_action_pre(struct man *, struct man_node *);
 int		  man_unscope(struct man *, 
-			const struct man_node *, enum merr);
-int		  man_brace_close(struct man *, int, int);
+			const struct man_node *, enum mandocerr);
 
 __END_DECLS
 

@@ -1,4 +1,4 @@
-/*	$Id: mdoc_hash.c,v 1.8 2010/04/02 12:39:47 schwarze Exp $ */
+/*	$Id: mdoc_hash.c,v 1.10 2010/05/23 22:45:00 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "libmdoc.h"
 
 static	u_char		 table[27 * 13];
@@ -39,7 +40,7 @@ mdoc_hash_init(void)
 
 	memset(table, UCHAR_MAX, sizeof(table));
 
-	for (i = 0; i < MDOC_MAX; i++) {
+	for (i = 0; i < (int)MDOC_MAX; i++) {
 		p = mdoc_macronames[i];
 
 		if (isalpha((u_char)p[1]))

@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.55 2010/04/28 18:19:16 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.57 2010/05/31 19:51:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -26,11 +26,11 @@
 struct screen *window_copy_init(struct window_pane *);
 void	window_copy_free(struct window_pane *);
 void	window_copy_resize(struct window_pane *, u_int, u_int);
-void	window_copy_key(struct window_pane *, struct client *, int);
+void	window_copy_key(struct window_pane *, struct session *, int);
 int	window_copy_key_input(struct window_pane *, int);
 int	window_copy_key_numeric_prefix(struct window_pane *, int);
 void	window_copy_mouse(
-	    struct window_pane *, struct client *, struct mouse_event *);
+	    struct window_pane *, struct session *, struct mouse_event *);
 
 void	window_copy_redraw_lines(struct window_pane *, u_int, u_int);
 void	window_copy_redraw_screen(struct window_pane *);
@@ -52,7 +52,7 @@ void	window_copy_goto_line(struct window_pane *, const char *);
 void	window_copy_update_cursor(struct window_pane *, u_int, u_int);
 void	window_copy_start_selection(struct window_pane *);
 int	window_copy_update_selection(struct window_pane *);
-void	window_copy_copy_selection(struct window_pane *, struct client *);
+void	window_copy_copy_selection(struct window_pane *, struct session *);
 void	window_copy_clear_selection(struct window_pane *);
 void	window_copy_copy_line(
 	    struct window_pane *, char **, size_t *, u_int, u_int, u_int);
@@ -340,8 +340,6 @@ window_copy_resize(struct window_pane *wp, u_int sx, u_int sy)
 		data->cy = sy - 1;
 	if (data->cx > sx)
 		data->cx = sx;
-	if (data->oy > screen_hsize(data->backing))
-		data->oy = screen_hsize(data->backing);
 
 	window_copy_clear_selection(wp);
 
@@ -353,7 +351,7 @@ window_copy_resize(struct window_pane *wp, u_int sx, u_int sy)
 }
 
 void
-window_copy_key(struct window_pane *wp, struct client *c, int key)
+window_copy_key(struct window_pane *wp, struct session *sess, int key)
 {
 	const char			*word_separators;
 	struct window_copy_mode_data	*data = wp->modedata;
@@ -503,8 +501,8 @@ window_copy_key(struct window_pane *wp, struct client *c, int key)
 		window_copy_redraw_screen(wp);
 		break;
 	case MODEKEYCOPY_COPYSELECTION:
-		if (c != NULL && c->session != NULL) {
-			window_copy_copy_selection(wp, c);
+		if (sess != NULL) {
+			window_copy_copy_selection(wp, sess);
 			window_pane_reset_mode(wp);
 			return;
 		}
@@ -758,21 +756,65 @@ window_copy_key_numeric_prefix(struct window_pane *wp, int key)
 /* ARGSUSED */
 void
 window_copy_mouse(
-    struct window_pane *wp, unused struct client *c, struct mouse_event *m)
+    struct window_pane *wp, unused struct session *sess, struct mouse_event *m)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
+	u_int				 i;
 
-	if ((m->b & 3) == 3)
-		return;
+	/*
+	 * xterm mouse mode is fairly silly. Buttons are in the bottom two
+	 * bits: 0 button 1; 1 button 2; 2 button 3; 3 buttons released.
+	 *
+	 * Bit 3 is shift; bit 4 is meta; bit 5 control.
+	 *
+	 * Bit 6 is added for mouse buttons 4 and 5.
+	 */
+
 	if (m->x >= screen_size_x(s))
 		return;
 	if (m->y >= screen_size_y(s))
 		return;
 
-	window_copy_update_cursor(wp, m->x, m->y);
-	if (window_copy_update_selection(wp))
+	/* If mouse wheel (buttons 4 and 5), scroll. */
+	if ((m->b & 64) == 64) {
+		if ((m->b & 3) == 0) {
+			for (i = 0; i < 5; i++)
+				window_copy_cursor_up(wp, 0);
+		} else if ((m->b & 3) == 1) {
+			for (i = 0; i < 5; i++)
+				window_copy_cursor_down(wp, 0);
+		}
+		return;
+	}
+
+	/*
+	 * If already reading motion, move the cursor while buttons are still
+	 * pressed, or stop the selection on their release.
+	 */
+	if (s->mode & MODE_MOUSEMOTION) {
+		if ((m->b & 3) != 3) {
+			window_copy_update_cursor(wp, m->x, m->y);
+			if (window_copy_update_selection(wp))
+				window_copy_redraw_screen(wp);
+		} else {
+			s->mode &= ~MODE_MOUSEMOTION;
+			if (sess != NULL) {
+				window_copy_copy_selection(wp, sess);
+				window_pane_reset_mode(wp);
+			}
+		}
+		return;
+	}
+
+	/* Otherwise i other buttons pressed, start selection and motion. */
+	if ((m->b & 3) != 3) {
+		s->mode |= MODE_MOUSEMOTION;
+
+		window_copy_update_cursor(wp, m->x, m->y);
+		window_copy_start_selection(wp);
 		window_copy_redraw_screen(wp);
+	}
 }
 
 void
@@ -1169,7 +1211,7 @@ window_copy_update_selection(struct window_pane *wp)
 }
 
 void
-window_copy_copy_selection(struct window_pane *wp, struct client *c)
+window_copy_copy_selection(struct window_pane *wp, struct session *sess)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
@@ -1264,8 +1306,8 @@ window_copy_copy_selection(struct window_pane *wp, struct client *c)
 	off--;	/* remove final \n */
 
 	/* Add the buffer to the stack. */
-	limit = options_get_number(&c->session->options, "buffer-limit");
-	paste_add(&c->session->buffers, buf, off, limit);
+	limit = options_get_number(&sess->options, "buffer-limit");
+	paste_add(&sess->buffers, buf, off, limit);
 }
 
 void

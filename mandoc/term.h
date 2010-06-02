@@ -1,4 +1,4 @@
-/*	$Id: term.h,v 1.16 2010/04/23 00:23:47 schwarze Exp $ */
+/*	$Id: term.h,v 1.19 2010/05/15 21:09:53 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -29,7 +29,10 @@ enum	termfont {
 	TERMFONT_UNDER
 };
 
+#define	TERM_MAXMARGIN	  100000 /* FIXME */
+
 struct	termp {
+	size_t		  defrmargin;	/* Right margin of the device.. */
 	size_t		  rmargin;	/* Current right margin. */
 	size_t		  maxrmargin;	/* Max right margin. */
 	size_t		  maxcols;	/* Max size of buf. */
@@ -39,6 +42,7 @@ struct	termp {
 	size_t		  viscol;	/* Chars on current line. */
 	int		  overstep;	/* See termp_flushln(). */
 	int		  flags;
+#define	TERMP_SENTENCE	 (1 << 1)	/* Space before a sentence. */
 #define	TERMP_NOSPACE	 (1 << 2)	/* No space before words. */
 #define	TERMP_NOLPAD	 (1 << 3)	/* See term_flushln(). */
 #define	TERMP_NOBREAK	 (1 << 4)	/* See term_flushln(). */

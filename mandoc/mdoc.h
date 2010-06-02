@@ -1,4 +1,4 @@
-/*	$Id: mdoc.h,v 1.19 2010/04/02 12:39:47 schwarze Exp $ */
+/*	$Id: mdoc.h,v 1.26 2010/05/24 00:00:10 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -149,7 +149,6 @@ enum	mdoct {
 	MDOC_br,
 	MDOC_sp,
 	MDOC__U,
-	MDOC_eos,
 	MDOC_MAX
 };
 
@@ -203,10 +202,10 @@ enum	mdoc_sec {
 	SEC_SYNOPSIS,
 	SEC_DESCRIPTION,
 	SEC_IMPLEMENTATION,
-	SEC_EXIT_STATUS,
 	SEC_RETURN_VALUES,
 	SEC_ENVIRONMENT, 
 	SEC_FILES,
+	SEC_EXIT_STATUS,
 	SEC_EXAMPLES,
 	SEC_DIAGNOSTICS,
 	SEC_COMPATIBILITY,
@@ -218,12 +217,13 @@ enum	mdoc_sec {
 	SEC_CAVEATS,
 	SEC_BUGS,
 	SEC_SECURITY,
-	SEC_CUSTOM		/* User-defined. */
+	SEC_CUSTOM,		/* User-defined. */
+	SEC__MAX
 };
 
 /* Information from prologue. */
 struct	mdoc_meta {
-	int		  msec;
+	char		 *msec;
 	char		 *vol;
 	char		 *arch;
 	time_t		  date;
@@ -247,41 +247,53 @@ struct 	mdoc_arg {
 	unsigned int	  refcnt;
 };
 
+enum	mdoc_list {
+	LIST__NONE = 0,
+	LIST_bullet,
+	LIST_column,
+	LIST_dash,
+	LIST_diag,
+	LIST_enum,
+	LIST_hang,
+	LIST_hyphen,
+	LIST_inset,
+	LIST_item,
+	LIST_ohang,
+	LIST_tag
+};
+
 /* Node in AST. */
 struct	mdoc_node {
-	struct mdoc_node *parent;
-	struct mdoc_node *child;
-	struct mdoc_node *next;
-	struct mdoc_node *prev;
-	int		  nchild;
-	int		  line;
-	int		  pos;
-	enum mdoct	  tok;
+	struct mdoc_node *parent; /* parent AST node */
+	struct mdoc_node *child; /* first child AST node */
+	struct mdoc_node *next; /* sibling AST node */
+	struct mdoc_node *prev; /* prior sibling AST node */
+	int		  nchild; /* number children */
+	int		  line; /* parse line */
+	int		  pos; /* parse column */
+	enum mdoct	  tok; /* tok or MDOC__MAX if none */
 	int		  flags;
-#define	MDOC_VALID	 (1 << 0)
-#define	MDOC_ACTED	 (1 << 1)
-	enum mdoc_type	  type;
-	enum mdoc_sec	  sec;
-
+#define	MDOC_VALID	 (1 << 0) /* has been validated */
+#define	MDOC_ACTED	 (1 << 1) /* has been acted upon */
+#define	MDOC_EOS	 (1 << 2) /* at sentence boundary */
+#define	MDOC_LINE	 (1 << 3) /* first macro/text on line */
+	enum mdoc_type	  type; /* AST node type */
+	enum mdoc_sec	  sec; /* current named section */
 	struct mdoc_arg	 *args; 	/* BLOCK/ELEM */
 	struct mdoc_node *pending;	/* BLOCK */
 	struct mdoc_node *head;		/* BLOCK */
 	struct mdoc_node *body;		/* BLOCK */
 	struct mdoc_node *tail;		/* BLOCK */
 	char		 *string;	/* TEXT */
+
+	union {
+		enum mdoc_list list; /* for `Bl' nodes */
+	} data;
 };
 
 #define	MDOC_IGN_SCOPE	 (1 << 0) /* Ignore scope violations. */
 #define	MDOC_IGN_ESCAPE	 (1 << 1) /* Ignore bad escape sequences. */
 #define	MDOC_IGN_MACRO	 (1 << 2) /* Ignore unknown macros. */
-#define	MDOC_IGN_CHARS	 (1 << 3) /* Ignore disallowed chars. */
-
-/* Call-backs for parse messages. */
-
-struct	mdoc_cb {
-	int	(*mdoc_err)(void *, int, int, const char *);
-	int	(*mdoc_warn)(void *, int, int, const char *);
-};
 
 /* See mdoc.3 for documentation. */
 
@@ -295,9 +307,9 @@ struct	mdoc;
 /* See mdoc.3 for documentation. */
 
 void	 	  mdoc_free(struct mdoc *);
-struct	mdoc	 *mdoc_alloc(void *, int, const struct mdoc_cb *);
+struct	mdoc	 *mdoc_alloc(void *, int, mandocmsg);
 void		  mdoc_reset(struct mdoc *);
-int	 	  mdoc_parseln(struct mdoc *, int, char *buf);
+int	 	  mdoc_parseln(struct mdoc *, int, char *, int);
 const struct mdoc_node *mdoc_node(const struct mdoc *);
 const struct mdoc_meta *mdoc_meta(const struct mdoc *);
 int		  mdoc_endparse(struct mdoc *);

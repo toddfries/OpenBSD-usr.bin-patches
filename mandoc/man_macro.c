@@ -1,4 +1,4 @@
-/*	$Id: man_macro.c,v 1.15 2010/04/25 16:32:19 schwarze Exp $ */
+/*	$Id: man_macro.c,v 1.19 2010/05/23 22:45:00 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "libman.h"
 
 enum	rew {
@@ -28,10 +29,8 @@ enum	rew {
 };
 
 static	int		 blk_close(MACRO_PROT_ARGS);
-static	int		 blk_dotted(MACRO_PROT_ARGS);
 static	int		 blk_exp(MACRO_PROT_ARGS);
 static	int		 blk_imp(MACRO_PROT_ARGS);
-static	int		 blk_cond(MACRO_PROT_ARGS);
 static	int		 in_line_eoln(MACRO_PROT_ARGS);
 
 static	int		 rew_scope(enum man_type, 
@@ -41,7 +40,7 @@ static	enum rew	 rew_dohalt(enum mant, enum man_type,
 static	enum rew	 rew_block(enum mant, enum man_type, 
 				const struct man_node *);
 static	int		 rew_warn(struct man *, 
-				struct man_node *, enum merr);
+				struct man_node *, enum mandocerr);
 
 const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, MAN_NSCOPED }, /* br */
@@ -79,15 +78,7 @@ const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, MAN_NSCOPED }, /* Sp */
 	{ in_line_eoln, 0 }, /* Vb */
 	{ in_line_eoln, 0 }, /* Ve */
-	{ blk_exp, MAN_EXPLICIT | MAN_NOCLOSE}, /* de */
-	{ blk_exp, MAN_EXPLICIT | MAN_NOCLOSE}, /* dei */
-	{ blk_exp, MAN_EXPLICIT | MAN_NOCLOSE}, /* am */
-	{ blk_exp, MAN_EXPLICIT | MAN_NOCLOSE}, /* ami */
-	{ blk_exp, MAN_EXPLICIT | MAN_NOCLOSE}, /* ig */
-	{ blk_dotted, 0 }, /* . */
-	{ blk_cond, 0 }, /* if */
-	{ blk_cond, 0 }, /* ie */
-	{ blk_cond, 0 }, /* el */
+	{ in_line_eoln, 0 }, /* AT */
 };
 
 const	struct man_macro * const man_macros = __man_macros;
@@ -97,27 +88,26 @@ const	struct man_macro * const man_macros = __man_macros;
  * Warn when "n" is an explicit non-roff macro.
  */
 static int
-rew_warn(struct man *m, struct man_node *n, enum merr er)
+rew_warn(struct man *m, struct man_node *n, enum mandocerr er)
 {
 
-	if (er == WERRMAX || MAN_BLOCK != n->type)
+	if (er == MANDOCERR_MAX || MAN_BLOCK != n->type)
 		return(1);
 	if (MAN_VALID & n->flags)
 		return(1);
 	if ( ! (MAN_EXPLICIT & man_macros[n->tok].flags))
 		return(1);
-	if (MAN_NOCLOSE & man_macros[n->tok].flags)
-		return(1);
-	return(man_nwarn(m, n, er));
+	return(man_nmsg(m, n, er));
 }
 
 
 /*
- * Rewind scope.  If a code "er" != WERRMAX has been provided, it will
- * be used if an explicit block scope is being closed out.
+ * Rewind scope.  If a code "er" != MANDOCERR_MAX has been provided, it
+ * will be used if an explicit block scope is being closed out.
  */
 int
-man_unscope(struct man *m, const struct man_node *n, enum merr er)
+man_unscope(struct man *m, const struct man_node *n, 
+		enum mandocerr er)
 {
 
 	assert(n);
@@ -185,24 +175,6 @@ rew_dohalt(enum mant tok, enum man_type type, const struct man_node *n)
 
 	/* First: rewind to ourselves. */
 	if (type == n->type && tok == n->tok)
-		return(REW_REWIND);
-
-	/*
-	 * If we're a roff macro, then we can close out anything that
-	 * stands between us and our parent context.
-	 */
-	if (MAN_NOCLOSE & man_macros[tok].flags)
-		return(REW_NOHALT);
-
-	/* 
-	 * Don't clobber roff macros: this is a bit complicated.  If the
-	 * current macro is a roff macro, halt immediately and don't
-	 * rewind.  If it's not, and the parent is, then close out the
-	 * current scope and halt at the parent.
-	 */
-	if (MAN_NOCLOSE & man_macros[n->tok].flags)
-		return(REW_HALT);
-	if (MAN_NOCLOSE & man_macros[n->parent->tok].flags)
 		return(REW_REWIND);
 
 	/* 
@@ -273,100 +245,8 @@ rew_scope(enum man_type type, struct man *m, enum mant tok)
 	 * instruction that's mowing over explicit scopes.
 	 */
 	assert(n);
-	if (MAN_NOCLOSE & man_macros[tok].flags)
-		return(man_unscope(m, n, WROFFSCOPE));
 
-	return(man_unscope(m, n, WERRMAX));
-}
-
-
-/*
- * Closure for brace blocks (if, ie, el).
- */
-int
-man_brace_close(struct man *m, int line, int ppos)
-{
-	struct man_node	*nif;
-
-	nif = m->last->parent;
-	while (nif &&
-	    MAN_if != nif->tok &&
-	    MAN_ie != nif->tok &&
-	    MAN_el != nif->tok)
-		nif = nif->parent;
-
-	if (NULL == nif)
-		return(man_pwarn(m, line, ppos, WNOSCOPE));
-
-	if (MAN_ie != nif->tok || MAN_USE & nif->flags)
-		m->flags &= ~MAN_EL_USE;
-	else
-		m->flags |= MAN_EL_USE;
-
-	if (MAN_USE & nif->flags) {
-		if (nif->prev) {
-			nif->prev->next = nif->child;
-			nif->child->prev = nif->prev;
-			nif->prev = NULL;
-		} else {
-			nif->parent->child = nif->child;
-		}
-		nif->parent->nchild += nif->nchild - 1;
-		while (nif->child) {
-			nif->child->parent = nif->parent;
-			nif->child = nif->child->next;
-		}
-		nif->nchild = 0;
-		nif->parent = NULL;
-	}
-	man_node_delete(m, nif);
-	return(1);
-}
-
-
-/*
- * Closure for dotted macros (de, dei, am, ami, ign).  This must handle
- * any of these as the parent node, so it needs special handling.
- * Beyond this, it's the same as blk_close().
- */
-/* ARGSUSED */
-int
-blk_dotted(MACRO_PROT_ARGS)
-{
-	enum mant	 ntok;
-	struct man_node	*nn;
-
-	/* Check for any of the following parents... */
-
-	for (nn = m->last->parent; nn; nn = nn->parent)
-		if (nn->tok == MAN_de || nn->tok == MAN_dei ||
-				nn->tok == MAN_am ||
-				nn->tok == MAN_ami ||
-				nn->tok == MAN_ig) {
-			ntok = nn->tok;
-			break;
-		}
-
-	if (NULL == nn) {
-		if ( ! man_pwarn(m, line, ppos, WNOSCOPE))
-			return(0);
-		return(1);
-	}
-
-	if ( ! rew_scope(MAN_BODY, m, ntok))
-		return(0);
-	if ( ! rew_scope(MAN_BLOCK, m, ntok))
-		return(0);
-
-	/*
-	 * Restore flags set when we got here and also stipulate that we
-	 * don't post-process the line when exiting the macro op
-	 * function in man_pmacro().  See blk_exp().
-	 */
-
-	m->flags = m->svflags | MAN_ILINE;
-	m->next = m->svnext;
-	return(1);
+	return(man_unscope(m, n, MANDOCERR_MAX));
 }
 
 
@@ -394,7 +274,7 @@ blk_close(MACRO_PROT_ARGS)
 			break;
 
 	if (NULL == nn)
-		if ( ! man_pwarn(m, line, ppos, WNOSCOPE))
+		if ( ! man_pmsg(m, line, ppos, MANDOCERR_NOSCOPE))
 			return(0);
 
 	if ( ! rew_scope(MAN_BODY, m, ntok))
@@ -418,23 +298,10 @@ blk_exp(MACRO_PROT_ARGS)
 	 * anywhere.
 	 */
 
-	if ( ! (MAN_NOCLOSE & man_macros[tok].flags)) {
-		if ( ! rew_scope(MAN_BODY, m, tok))
-			return(0);
-		if ( ! rew_scope(MAN_BLOCK, m, tok))
-			return(0);
-	} else {
-		/*
-		 * Save our state and next-scope indicator; we restore
-		 * it when exiting from the roff instruction block.  See
-		 * blk_dotted().
-		 */
-		m->svflags = m->flags;
-		m->svnext = m->next;
-		
-		/* Make sure we drop any line modes. */
-		m->flags = 0;
-	}
+	if ( ! rew_scope(MAN_BODY, m, tok))
+		return(0);
+	if ( ! rew_scope(MAN_BLOCK, m, tok))
+		return(0);
 
 	if ( ! man_block_alloc(m, line, ppos, tok))
 		return(0);
@@ -527,50 +394,6 @@ blk_imp(MACRO_PROT_ARGS)
 }
 
 
-/*
- * Parse a conditional roff instruction.
- */
-int
-blk_cond(MACRO_PROT_ARGS)
-{ 
-	char		*p = buf + *pos;
-	int		 use;
-
-	if (MAN_el == tok)
-		use = m->flags & MAN_EL_USE;
-	else {
-		use = 'n' == *p++;
-		/* XXX skip the rest of the condition for now */
-		while (*p && !isblank(*p))
-			p++;
-	}
-	m->flags &= ~MAN_EL_USE;
-
-	/* advance to the code controlled by the condition */
-	while (*p && isblank(*p))
-		p++;
-	if ('\0' == *p)
-		return(1);
-
-	/* single-line body */
-	if (strncmp("\\{", p, 2)) {
-		if (use && ! man_parseln(m, line, p))
-			return(0);
-	        if (MAN_ie == tok && !use)
-                        m->flags |= MAN_EL_USE;
-		return(1);
-        }
-
-	/* multi-line body */
-	if ( ! man_block_alloc(m, line, ppos, tok))
-		return(0);
-	if (use)
-		m->last->flags |= MAN_USE;
-	p += 2;
-	return(*p ? man_parseln(m, line, p) : 1);
-}
-
-
 int
 in_line_eoln(MACRO_PROT_ARGS)
 {
@@ -653,6 +476,6 @@ int
 man_macroend(struct man *m)
 {
 
-	return(man_unscope(m, m->first, WEXITSCOPE));
+	return(man_unscope(m, m->first, MANDOCERR_SCOPEEXIT));
 }
 

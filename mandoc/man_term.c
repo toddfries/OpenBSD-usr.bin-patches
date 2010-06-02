@@ -1,4 +1,4 @@
-/*	$Id: man_term.c,v 1.28 2010/04/25 16:32:19 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.38 2010/05/24 01:36:22 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "out.h"
 #include "man.h"
 #include "term.h"
@@ -138,15 +139,7 @@ static	const struct termact termacts[MAN_MAX] = {
  	{ pre_sp, NULL, MAN_NOTEXT }, /* Sp */
  	{ pre_nf, NULL, 0 }, /* Vb */
  	{ pre_fi, NULL, 0 }, /* Ve */
- 	{ pre_ign, NULL, MAN_NOTEXT }, /* de */
- 	{ pre_ign, NULL, MAN_NOTEXT }, /* dei */
- 	{ pre_ign, NULL, MAN_NOTEXT }, /* am */
- 	{ pre_ign, NULL, MAN_NOTEXT }, /* ami */
- 	{ pre_ign, NULL, MAN_NOTEXT }, /* ig */
- 	{ NULL, NULL, 0 }, /* . */
- 	{ NULL, NULL, 0 }, /* if */
- 	{ NULL, NULL, 0 }, /* ie */
- 	{ NULL, NULL, 0 }, /* el */
+	{ pre_ign, NULL, 0 }, /* AT */
 };
 
 
@@ -161,8 +154,14 @@ terminal_man(void *arg, const struct man *man)
 
 	p = (struct termp *)arg;
 
+	/*
+	 * XXX
+	 * Hardcode the -man output width for now;
+	 * it is not yet externally configurable, anyway.
+	 */
+	p->defrmargin = 65;
+	p->maxrmargin = p->defrmargin;
 	p->overstep = 0;
-	p->maxrmargin = 65;
 
 	if (NULL == p->symtab)
 		switch (p->enc) {
@@ -259,7 +258,6 @@ static int
 pre_fi(DECL_ARGS)
 {
 
-	p->rmargin = p->maxrmargin = 65;
 	mt->fl &= ~MANT_LITERAL;
 	return(1);
 }
@@ -270,10 +268,7 @@ static int
 pre_nf(DECL_ARGS)
 {
 
-	p->rmargin = p->maxrmargin = 78;
-	term_newln(p);
 	mt->fl |= MANT_LITERAL;
-
 	return(MAN_Vb != n->tok);
 }
 
@@ -372,7 +367,7 @@ pre_sp(DECL_ARGS)
 
 	if (0 == len)
 		term_newln(p);
-	for (i = 0; i < len; i++)
+	for (i = 0; i <= len; i++)
 		term_vspace(p);
 
 	return(0);
@@ -487,7 +482,6 @@ pre_IP(DECL_ARGS)
 		break;
 	case (MAN_HEAD):
 		p->flags |= TERMP_NOBREAK;
-		p->flags |= TERMP_TWOSPACE;
 		break;
 	case (MAN_BLOCK):
 		print_bvspace(p, n);
@@ -548,7 +542,6 @@ post_IP(DECL_ARGS)
 	case (MAN_HEAD):
 		term_flushln(p);
 		p->flags &= ~TERMP_NOBREAK;
-		p->flags &= ~TERMP_TWOSPACE;
 		p->rmargin = p->maxrmargin;
 		break;
 	case (MAN_BODY):
@@ -713,6 +706,9 @@ pre_SH(DECL_ARGS)
 		if (n->prev && MAN_SH == n->prev->tok)
 			if (NULL == n->prev->body->child)
 				break;
+		/* If the first macro, no vspae. */
+		if (NULL == n->prev)
+			break;
 		term_vspace(p);
 		break;
 	case (MAN_HEAD):
@@ -803,6 +799,7 @@ post_RS(DECL_ARGS)
 static void
 print_man_node(DECL_ARGS)
 {
+	size_t		 rm, rmax;
 	int		 c;
 
 	c = 1;
@@ -819,8 +816,13 @@ print_man_node(DECL_ARGS)
 		/* FIXME: this means that macro lines are munged!  */
 
 		if (MANT_LITERAL & mt->fl) {
+			rm = p->rmargin;
+			rmax = p->maxrmargin;
+			p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
 			p->flags |= TERMP_NOSPACE;
 			term_flushln(p);
+			p->rmargin = rm;
+			p->maxrmargin = rmax;
 		}
 		break;
 	default:
@@ -840,6 +842,9 @@ print_man_node(DECL_ARGS)
 		if ( ! (MAN_NOTEXT & termacts[n->tok].flags))
 			term_fontrepl(p, TERMFONT_NONE);
 	}
+
+	if (MAN_EOS & n->flags)
+		p->flags |= TERMP_SENTENCE;
 }
 
 
@@ -863,6 +868,8 @@ print_man_foot(struct termp *p, const struct man_meta *meta)
 
 	time2a(meta->date, buf, DATESIZ);
 
+	term_vspace(p);
+	term_vspace(p);
 	term_vspace(p);
 
 	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
@@ -891,6 +898,12 @@ print_man_head(struct termp *p, const struct man_meta *m)
 	char		buf[BUFSIZ], title[BUFSIZ];
 	size_t		buflen, titlen;
 
+	/*
+	 * Note that old groff would spit out some spaces before the
+	 * header.  We discontinue this strange behaviour, but at one
+	 * point we did so here.
+	 */
+
 	p->rmargin = p->maxrmargin;
 
 	p->offset = 0;
@@ -900,7 +913,7 @@ print_man_head(struct termp *p, const struct man_meta *m)
 		strlcpy(buf, m->vol, BUFSIZ);
 	buflen = strlen(buf);
 
-	snprintf(title, BUFSIZ, "%s(%d)", m->title, m->msec);
+	snprintf(title, BUFSIZ, "%s(%s)", m->title, m->msec);
 	titlen = strlen(title);
 
 	p->offset = 0;
@@ -932,4 +945,13 @@ print_man_head(struct termp *p, const struct man_meta *m)
 	p->rmargin = p->maxrmargin;
 	p->offset = 0;
 	p->flags &= ~TERMP_NOSPACE;
+
+	/* 
+	 * Groff likes to have some leading spaces before content.  Well
+	 * that's fine by me.
+	 */
+
+	term_vspace(p);
+	term_vspace(p);
+	term_vspace(p);
 }

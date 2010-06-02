@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.165 2010/04/25 20:28:13 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.173 2010/05/31 19:51:29 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: April 25 2010 $
+.Dd $Mdocdate: May 31 2010 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -131,10 +131,6 @@ commands which are executed in sequence when the server is first started.
 If a command in the configuration file fails,
 .Nm
 will report an error and exit without executing further commands.
-.It Fl l
-Behave as a login shell.
-This flag currently has no effect and is for compatibility with other shells
-when using tmux as a login shell.
 .It Fl L Ar socket-name
 .Nm
 stores the server socket in a directory under
@@ -155,6 +151,10 @@ If the socket is accidentally removed, the
 signal may be sent to the
 .Nm
 server process to recreate it.
+.It Fl l
+Behave as a login shell.
+This flag currently has no effect and is for compatibility with other shells
+when using tmux as a login shell.
 .It Fl q
 Set the
 .Ic quiet
@@ -213,32 +213,108 @@ prefix key,
 .Ql C-b
 (Ctrl-b) by default, followed by a command key.
 .Pp
-Some of the default key bindings are:
+The default command key bindings are:
 .Pp
-.Bl -tag -width Ds -offset indent -compact
+.Bl -tag -width "XXXXXXXXXX" -offset indent -compact
+.It C-b
+Send the prefix key (C-b) through to the application.
+.It C-o
+Rotate the panes in the current window forwards.
+.It C-z
+Suspend the
+.Nm
+client.
+.It !
+Break the current pane out of the window.
+.It \&"
+Split the current pane into two, top and bottom.
+.It #
+List all paste buffers.
+.It %
+Split the current pane into two, left and right.
+.It &
+Kill the current window.
+.It '
+Prompt for a window index to select.
+.It ,
+Rename the current window.
+.It -
+Delete the most recently copied buffer of text.
+.It .
+Prompt for an index to move the current window.
+.It 0 to 9
+Select windows 0 to 9.
+.It :
+Enter the
+.Nm
+command prompt.
+.It \&?
+List all key bindings.
+.It D
+Choose a client to detach.
+.It [
+Enter copy mode to copy text or view the history.
+.It ]
+Paste the most recently copied buffer of text.
 .It c
 Create a new window.
 .It d
 Detach the current client.
+.It f
+Prompt to search for text in open windows.
+.It i
+Display some information about the current window.
 .It l
 Move to the previously selected window.
 .It n
 Change to the next window.
+.It o
+Select the next pane in the current window.
 .It p
 Change to the previous window.
-.It &
-Kill the current window.
-.It ,
-Rename the current window.
-.It \&?
-List all key bindings.
+.It q
+Briefly display pane indexes.
+.It r
+Force redraw of the attached client.
+.It s
+Select a new session for the attached client interactively.
+.It t
+Show the time.
+.It w
+Choose the current window interactively.
+.It x
+Kill the current pane.
+.It {
+Swap the current pane with the previous pane.
+.It }
+Swap the current pane with the next pane.
+.It ~
+Show previous messages from
+.Nm ,
+if any.
+.It Page Up
+Enter copy mode and scroll one page up.
+.It Up, Down
+.It Left, Right
+Change to the pane above, below, to the left, or to the right of the current
+pane.
+.It M-1 to M-5
+Arrange panes in one of the five preset layouts: even-horizontal,
+even-vertical, main-horizontal, main-vertical, or tiled.
+.It M-n
+Move to the next window with a bell or activity marker.
+.It M-o
+Rotate the panes in the current window backwards.
+.It M-p
+Move to the previous window with a bell or activity marker.
+.It C-Up, C-Down
+.It C-Left, C-Right
+Resize the current pane in steps of one cell.
+.It M-Up, M-Down
+.It M-Left, M-Right
+Resize the current pane in steps of five cells.
 .El
 .Pp
-A complete list may be obtained with the
-.Ic list-keys
-command (bound to
-.Ql \&?
-by default).
 Key bindings may be changed with the
 .Ic bind-key
 and
@@ -1265,7 +1341,7 @@ or
 keys, quotation marks are necessary, for example:
 .Bd -literal -offset indent
 bind-key '"' split-window
-bind-key "'" select-prompt
+bind-key "'" new-window
 .Ed
 .Pp
 Commands related to key bindings are as follows:
@@ -1589,7 +1665,7 @@ This has no effect as a session option; it must be set as a global option.
 Set status line message attributes, where
 .Ar attributes
 is either
-.Ic default
+.Ic none
 or a comma-delimited list of one or more of:
 .Ic bright
 (or
@@ -2002,10 +2078,8 @@ Key bindings default to emacs.
 .Op Ic on | off
 .Xc
 Mouse state in modes.
-If on,
-.Nm
-will respond to mouse clicks by moving the cursor in copy mode or selecting an
-option in choice mode.
+If on, the mouse may be used to copy a selection by dragging in copy mode, or
+to select an option in choice mode.
 .Pp
 .It Xo Ic monitor-activity
 .Op Ic on | off
@@ -2072,6 +2146,16 @@ See the
 option for details of special character sequences available.
 The default is
 .Ql #I:#W#F .
+.Pp
+.It Ic window-status-alert-attr Ar attributes
+Set status line attributes for windows which have an alert (bell, activity
+or content).
+.Pp
+.It Ic window-status-alert-bg Ar colour
+Set status line background colour for windows with an alert.
+.Pp
+.It Ic window-status-alert-fg Ar colour
+Set status line foreground colour for windows with an alert.
 .Pp
 .It Ic window-status-current-attr Ar attributes
 Set status line attributes for the currently active window.
@@ -2316,10 +2400,6 @@ The format of
 is as for
 .Ic status-left ,
 with the exception that #() are not handled.
-.It Ic select-prompt Op Fl t Ar target-client
-Open a prompt inside
-.Ar target-client
-allowing a window index to be entered interactively.
 .El
 .Sh BUFFERS
 .Nm
@@ -2381,6 +2461,7 @@ Load the contents of the specified paste buffer from
 .It Xo Ic paste-buffer
 .Op Fl dr
 .Op Fl b Ar buffer-index
+.Op Fl s Ar separator
 .Op Fl t Ar target-pane
 .Xc
 .D1 (alias: Ic pasteb )
@@ -2390,10 +2471,13 @@ With
 .Fl d ,
 also delete the paste buffer from the stack.
 When output, any linefeed (LF) characters in the paste buffer are replaced with
-carriage returns (CR).
-This translation may be disabled with the
-.Fl r
+a separator, by default carriage return (CR).
+A custom separator may be specified using the
+.Fl s
 flag.
+The
+.Fl r
+flag means to do no replacement (equivalent to a separator of LF).
 .It Xo Ic save-buffer
 .Op Fl a
 .Op Fl b Ar buffer-index

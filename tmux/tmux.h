@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.216 2010/04/06 21:35:44 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.223 2010/05/31 19:51:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,6 +30,7 @@
 #include <bitstring.h>
 #include <event.h>
 #include <getopt.h>
+#include <imsg.h>
 #include <limits.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -38,7 +39,6 @@
 #include <termios.h>
 
 #include "array.h"
-#include "imsg.h"
 
 extern char    *__progname;
 extern char   **environ;
@@ -541,7 +541,8 @@ struct mode_key_table {
 #define MODE_KCURSOR 0x4
 #define MODE_KKEYPAD 0x8	/* set = application, clear = number */
 #define MODE_MOUSE 0x10
-#define MODE_WRAP 0x20		/* whether lines wrap */
+#define MODE_MOUSEMOTION 0x20
+#define MODE_WRAP 0x40		/* whether lines wrap */
 
 /*
  * A single UTF-8 character.
@@ -760,16 +761,16 @@ struct input_ctx {
  * Window mode. Windows can be in several modes and this is used to call the
  * right function to handle input and output.
  */
-struct client;
+struct session;
 struct window;
 struct mouse_event;
 struct window_mode {
 	struct screen *(*init)(struct window_pane *);
 	void	(*free)(struct window_pane *);
 	void	(*resize)(struct window_pane *, u_int, u_int);
-	void	(*key)(struct window_pane *, struct client *, int);
+	void	(*key)(struct window_pane *, struct session *, int);
 	void	(*mouse)(struct window_pane *,
-		    struct client *, struct mouse_event *);
+		    struct session *, struct mouse_event *);
 	void	(*timer)(struct window_pane *);
 };
 
@@ -1086,7 +1087,7 @@ struct client {
 
 #define CLIENT_TERMINAL 0x1
 #define CLIENT_PREFIX 0x2
-#define CLIENT_MOUSE 0x4
+/* 0x4 unused */
 #define CLIENT_REDRAW 0x8
 #define CLIENT_STATUS 0x10
 #define CLIENT_REPEAT 0x20	/* allow command to repeat within repeat time */
@@ -1253,6 +1254,7 @@ extern struct options global_options;
 extern struct options global_s_options;
 extern struct options global_w_options;
 extern struct environ global_environ;
+extern struct event_base *ev_base;
 extern char	*cfg_file;
 extern int	 debug_level;
 extern int	 be_quiet;
@@ -1494,7 +1496,6 @@ extern const struct cmd_entry cmd_run_shell_entry;
 extern const struct cmd_entry cmd_save_buffer_entry;
 extern const struct cmd_entry cmd_select_layout_entry;
 extern const struct cmd_entry cmd_select_pane_entry;
-extern const struct cmd_entry cmd_select_prompt_entry;
 extern const struct cmd_entry cmd_select_window_entry;
 extern const struct cmd_entry cmd_send_keys_entry;
 extern const struct cmd_entry cmd_send_prefix_entry;
@@ -1583,8 +1584,6 @@ const char *key_string_lookup_key(int);
 extern struct clients clients;
 extern struct clients dead_clients;
 int	 server_start(char *);
-void	 server_signal_set(void);
-void	 server_signal_clear(void);
 void	 server_update_socket(void);
 
 /* server-client.c */
@@ -1830,9 +1829,9 @@ void		 window_pane_alternate_off(
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);
-void		 window_pane_key(struct window_pane *, struct client *, int);
+void		 window_pane_key(struct window_pane *, struct session *, int);
 void		 window_pane_mouse(struct window_pane *,
-		     struct client *, struct mouse_event *);
+		     struct session *, struct mouse_event *);
 int		 window_pane_visible(struct window_pane *);
 char		*window_pane_search(
 		     struct window_pane *, const char *, u_int *);
@@ -1899,6 +1898,10 @@ void		 window_choose_ready(struct window_pane *,
 /* names.c */
 void		 queue_window_name(struct window *);
 char		*default_window_name(struct window *);
+
+/* signal.c */
+void set_signals(void(*handler)(int, short, unused void *));
+void clear_signals(void);
 
 /* session.c */
 extern struct sessions sessions;

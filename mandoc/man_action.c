@@ -1,6 +1,6 @@
-/*	$Id: man_action.c,v 1.15 2010/04/25 16:32:19 schwarze Exp $ */
+/*	$Id: man_action.c,v 1.22 2010/05/24 13:42:58 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "libman.h"
 #include "libmandoc.h"
 
@@ -27,9 +28,10 @@ struct	actions {
 };
 
 static	int	  post_TH(struct man *);
-static	int	  post_de(struct man *);
 static	int	  post_fi(struct man *);
 static	int	  post_nf(struct man *);
+static	int	  post_AT(struct man *);
+static	int	  post_UC(struct man *);
 
 const	struct actions man_actions[MAN_MAX] = {
 	{ NULL }, /* br */
@@ -62,20 +64,12 @@ const	struct actions man_actions[MAN_MAX] = {
 	{ NULL }, /* RE */
 	{ NULL }, /* RS */
 	{ NULL }, /* DT */
-	{ NULL }, /* UC */
+	{ post_UC }, /* UC */
 	{ NULL }, /* PD */
 	{ NULL }, /* Sp */
 	{ post_nf }, /* Vb */
 	{ post_fi }, /* Ve */
-	{ post_de }, /* de */
-	{ post_de }, /* dei */
-	{ post_de }, /* am */
-	{ post_de }, /* ami */
-	{ post_de }, /* ig */
-	{ NULL }, /* . */
-	{ NULL }, /* if */
-	{ NULL }, /* ie */
-	{ NULL }, /* el */
+	{ post_AT }, /* AT */
 };
 
 
@@ -107,24 +101,9 @@ post_fi(struct man *m)
 {
 
 	if ( ! (MAN_LITERAL & m->flags))
-		if ( ! man_nwarn(m, m->last, WNLITERAL))
+		if ( ! man_nmsg(m, m->last, MANDOCERR_NOSCOPE))
 			return(0);
 	m->flags &= ~MAN_LITERAL;
-	return(1);
-}
-
-
-static int
-post_de(struct man *m)
-{
-
-	/*
-	 * XXX: for the time being, we indiscriminately remove roff
-	 * instructions from the parse stream.
-	 */
-	if (MAN_BLOCK == m->last->type)
-		man_node_delete(m, m->last);
-
 	return(1);
 }
 
@@ -134,7 +113,7 @@ post_nf(struct man *m)
 {
 
 	if (MAN_LITERAL & m->flags)
-		if ( ! man_nwarn(m, m->last, WOLITERAL))
+		if ( ! man_nmsg(m, m->last, MANDOCERR_SCOPEREP))
 			return(0);
 	m->flags |= MAN_LITERAL;
 	return(1);
@@ -145,8 +124,6 @@ static int
 post_TH(struct man *m)
 {
 	struct man_node	*n;
-	char		*ep;
-	long		 lval;
 
 	if (m->meta.title)
 		free(m->meta.title);
@@ -154,9 +131,11 @@ post_TH(struct man *m)
 		free(m->meta.vol);
 	if (m->meta.source)
 		free(m->meta.source);
+	if (m->meta.msec)
+		free(m->meta.msec);
 
-	m->meta.title = m->meta.vol = m->meta.source = NULL;
-	m->meta.msec = 0;
+	m->meta.title = m->meta.vol = 
+		m->meta.msec = m->meta.source = NULL;
 	m->meta.date = 0;
 
 	/* ->TITLE<- MSEC DATE SOURCE VOL */
@@ -169,12 +148,7 @@ post_TH(struct man *m)
 
 	n = n->next;
 	assert(n);
-
-	lval = strtol(n->string, &ep, 10);
-	if (n->string[0] != '\0' && *ep == '\0')
-		m->meta.msec = (int)lval;
-	else if ( ! man_nwarn(m, n, WMSEC))
-		return(0);
+	m->meta.msec = mandoc_strdup(n->string);
 
 	/* TITLE MSEC ->DATE<- SOURCE VOL */
 
@@ -182,9 +156,8 @@ post_TH(struct man *m)
 	if (n) {
 		m->meta.date = mandoc_a2time
 			(MTIME_ISO_8601, n->string);
-
 		if (0 == m->meta.date) {
-			if ( ! man_nwarn(m, n, WDATE))
+			if ( ! man_nmsg(m, n, MANDOCERR_BADDATE))
 				return(0);
 			m->meta.date = time(NULL);
 		}
@@ -206,5 +179,90 @@ post_TH(struct man *m)
 	 * meta-data.
 	 */
 	man_node_delete(m, m->last);
+	return(1);
+}
+
+
+static int
+post_AT(struct man *m)
+{
+	static const char * const unix_versions[] = {
+	    "7th Edition",
+	    "System III",
+	    "System V",
+	    "System V Release 2",
+	};
+
+	const char	*p, *s;
+	struct man_node	*n, *nn;
+
+	n = m->last->child;
+
+	if (NULL == n || MAN_TEXT != n->type)
+		p = unix_versions[0];
+	else {
+		s = n->string;
+		if (0 == strcmp(s, "3"))
+			p = unix_versions[0];
+		else if (0 == strcmp(s, "4"))
+			p = unix_versions[1];
+		else if (0 == strcmp(s, "5")) {
+			nn = n->next;
+			if (nn && MAN_TEXT == nn->type && nn->string[0])
+				p = unix_versions[3];
+			else
+				p = unix_versions[2];
+		} else
+			p = unix_versions[0];
+	}
+
+	if (m->meta.source)
+		free(m->meta.source);
+
+	m->meta.source = mandoc_strdup(p);
+
+	return(1);
+}
+
+
+static int
+post_UC(struct man *m)
+{
+	static const char * const bsd_versions[] = {
+	    "3rd Berkeley Distribution",
+	    "4th Berkeley Distribution",
+	    "4.2 Berkeley Distribution",
+	    "4.3 Berkeley Distribution",
+	    "4.4 Berkeley Distribution",
+	};
+
+	const char	*p, *s;
+	struct man_node	*n;
+
+	n = m->last->child;
+
+	if (NULL == n || MAN_TEXT != n->type)
+		p = bsd_versions[0];
+	else {
+		s = n->string;
+		if (0 == strcmp(s, "3"))
+			p = bsd_versions[0];
+		else if (0 == strcmp(s, "4"))
+			p = bsd_versions[1];
+		else if (0 == strcmp(s, "5"))
+			p = bsd_versions[2];
+		else if (0 == strcmp(s, "6"))
+			p = bsd_versions[3];
+		else if (0 == strcmp(s, "7"))
+			p = bsd_versions[4];
+		else
+			p = bsd_versions[0];
+	}
+
+	if (m->meta.source)
+		free(m->meta.source);
+
+	m->meta.source = mandoc_strdup(p);
+
 	return(1);
 }
