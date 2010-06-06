@@ -1,4 +1,4 @@
-/*	$OpenBSD: headers.c,v 1.16 2010/05/27 06:17:04 ratchov Exp $	*/
+/*	$OpenBSD: headers.c,v 1.18 2010/06/05 16:54:19 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -186,7 +186,11 @@ wav_readhdr(int fd, struct aparams *par, off_t *startpos, off_t *datasz, short *
 		return 0;
 	}
 	rsize = letoh32(riff.size);
-	while (pos + sizeof(struct wavchunk) <= rsize) {
+	for (;;) {
+		if (pos + sizeof(struct wavchunk) > rsize) {
+			warnx("missing data chunk");
+			return 0;
+		}
 		if (read(fd, &chunk, sizeof(chunk)) != sizeof(chunk)) {
 			warn("wav_readhdr: chunk");
 			return 0;
@@ -197,7 +201,7 @@ wav_readhdr(int fd, struct aparams *par, off_t *startpos, off_t *datasz, short *
 				return 0;
 			fmt_done = 1;
 		} else if (memcmp(chunk.id, wav_id_data, 4) == 0) {
-			*startpos = pos;
+			*startpos = pos + sizeof(riff) + sizeof(chunk);
 			*datasz = csize;
 			break;
 		} else {
