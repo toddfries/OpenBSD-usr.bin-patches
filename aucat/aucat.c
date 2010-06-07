@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.92 2010/06/04 06:15:28 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.94 2010/06/05 16:00:52 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -242,7 +242,7 @@ struct cfdev {
 	struct cfmidlist mids;		/* midi ports to subscribe */
 	struct aparams ipar;		/* input (read) parameters */
 	struct aparams opar;		/* output (write) parameters */
-	unsigned hold;		/* open immediately */
+	unsigned hold;			/* open immediately */
 	unsigned bufsz;			/* par.bufsz for sio device */
 	unsigned round;			/* par.round for sio device */
 	unsigned mode;			/* bitmap of MODE_XXX */
@@ -723,7 +723,7 @@ aucat_main(int argc, char **argv)
 		} else {
 			d = dev_new_sio(cd->path, cd->mode,
 			    &cd->ipar, &cd->opar, cd->bufsz, cd->round,
-			    cd->hold, l_flag);
+			    cd->hold);
 		}
 		if (d == NULL)
 			errx(1, "%s: can't open device", cd->path);

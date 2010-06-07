@@ -1,4 +1,4 @@
-/* $OpenBSD: key-string.c,v 1.16 2010/05/03 09:38:03 mcbride Exp $ */
+/* $OpenBSD: key-string.c,v 1.18 2010/06/06 19:00:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -149,29 +149,28 @@ key_string_lookup_string(const char *string)
 		key = (u_char) string[0];
 		if (key < 32 || key > 126)
 			return (KEYC_NONE);
-
-		/* Convert the standard control keys. */
-		if (modifiers & KEYC_CTRL) {
-			if (key >= 97 && key <= 122)
-				key -= 96;
-			else if (key >= 64 && key <= 95)
-				key -= 64;
-			else if (key == 32)
-				key = 0;
-			else if (key == 63)
-				key = KEYC_BSPACE;
-			else
-				return (KEYC_NONE);
-			modifiers &= ~KEYC_CTRL;
-		}
-
-		return (key | modifiers);
+	} else {
+		/* Otherwise look the key up in the table. */
+		key = key_string_search_table(string);
+		if (key == KEYC_NONE)
+			return (KEYC_NONE);
 	}
 
-	/* Otherwise look the key up in the table. */
-	key = key_string_search_table(string);
-	if (key == KEYC_NONE)
-		return (KEYC_NONE);
+	/* Convert the standard control keys. */
+	if (key < KEYC_BASE && (modifiers & KEYC_CTRL)) {
+		if (key >= 97 && key <= 122)
+			key -= 96;
+		else if (key >= 64 && key <= 95)
+			key -= 64;
+		else if (key == 32)
+			key = 0;
+		else if (key == 63)
+			key = KEYC_BSPACE;
+		else
+			return (KEYC_NONE);
+		modifiers &= ~KEYC_CTRL;
+	}
+
 	return (key | modifiers);
 }
 
@@ -185,6 +184,15 @@ key_string_lookup_key(int key)
 
 	*out = '\0';
 
+	/*
+	 * Special case: display C-@ as C-Space. Could do this below in
+	 * the (key >= 0 && key <= 32), but this way we let it be found
+	 * in key_string_table, for the unlikely chance that we might
+	 * change its name.
+	 */
+	if ((key & KEYC_MASK_KEY) == 0)
+	    key = ' ' | KEYC_CTRL | (key & KEYC_MASK_MOD);
+
 	/* Fill in the modifiers. */
 	if (key & KEYC_CTRL)
 		strlcat(out, "C-", sizeof out);
@@ -192,7 +200,7 @@ key_string_lookup_key(int key)
 		strlcat(out, "M-", sizeof out);
 	if (key & KEYC_SHIFT)
 		strlcat(out, "S-", sizeof out);
-	key &= ~(KEYC_CTRL|KEYC_ESCAPE|KEYC_SHIFT);
+	key &= KEYC_MASK_KEY;
 
 	/* Try the key against the string table. */
 	for (i = 0; i < nitems(key_string_table); i++) {

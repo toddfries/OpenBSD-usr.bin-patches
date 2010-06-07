@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.57 2010/05/31 19:51:29 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.59 2010/06/06 19:00:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -367,7 +367,7 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 	if (data->inputtype == WINDOW_COPY_JUMPFORWARD
 	    || data->inputtype == WINDOW_COPY_JUMPBACK) {
 		/* Ignore keys with modifiers. */
-		if ((key & 0xff00) == 0) {
+		if ((key & KEYC_MASK_MOD) == 0) {
 			data->jumpchar = key;
 			if (data->inputtype == WINDOW_COPY_JUMPFORWARD) {
 				for (; np != 0; np--)
@@ -627,7 +627,7 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 		*data->inputstr = '\0';
 		goto input_on;
 	case MODEKEYCOPY_STARTNUMBERPREFIX:
-		key &= 0xff;
+		key &= KEYC_MASK_KEY;
 		if (key >= '0' && key <= '9') {
 			data->inputtype = WINDOW_COPY_NUMERICPREFIX;
 			data->numprefix = 0;
@@ -741,7 +741,7 @@ window_copy_key_numeric_prefix(struct window_pane *wp, int key)
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
 
-	key &= 0xff;
+	key &= KEYC_MASK_KEY;
 	if (key < '0' || key > '9')
 		return 1;
 
@@ -1427,7 +1427,17 @@ void
 window_copy_cursor_start_of_line(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
+	struct screen			*back_s = data->backing;
+	struct grid			*gd = back_s->grid;
+	u_int				 py;
 
+	if (data->cx == 0) {
+		py = screen_hsize(back_s) + data->cy - data->oy;
+		while (py > 0 && gd->linedata[py-1].flags & GRID_LINE_WRAPPED) {
+			window_copy_cursor_up(wp, 0);
+			py = screen_hsize(back_s) + data->cy - data->oy;
+		}
+	}
 	window_copy_update_cursor(wp, 0, data->cy);
 	if (window_copy_update_selection(wp))
 		window_copy_redraw_lines(wp, data->cy, 1);

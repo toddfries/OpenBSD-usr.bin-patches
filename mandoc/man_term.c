@@ -1,4 +1,4 @@
-/*	$Id: man_term.c,v 1.38 2010/05/24 01:36:22 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.40 2010/06/06 18:08:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
  *
@@ -154,14 +154,9 @@ terminal_man(void *arg, const struct man *man)
 
 	p = (struct termp *)arg;
 
-	/*
-	 * XXX
-	 * Hardcode the -man output width for now;
-	 * it is not yet externally configurable, anyway.
-	 */
-	p->defrmargin = 65;
-	p->maxrmargin = p->defrmargin;
 	p->overstep = 0;
+	p->maxrmargin = p->defrmargin;
+	p->tabwidth = 5;
 
 	if (NULL == p->symtab)
 		switch (p->enc) {
@@ -866,7 +861,10 @@ print_man_foot(struct termp *p, const struct man_meta *meta)
 
 	term_fontrepl(p, TERMFONT_NONE);
 
-	time2a(meta->date, buf, DATESIZ);
+	if (meta->rawdate)
+		strlcpy(buf, meta->rawdate, DATESIZ);
+	else
+		time2a(meta->date, buf, DATESIZ);
 
 	term_vspace(p);
 	term_vspace(p);
