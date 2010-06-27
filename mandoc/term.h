@@ -1,6 +1,6 @@
-/*	$Id: term.h,v 1.20 2010/06/10 22:50:10 schwarze Exp $ */
+/*	$Id: term.h,v 1.23 2010/06/27 01:24:02 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -50,6 +50,8 @@ struct	termp_ps {
 	size_t		  psmargsz;	/* margin buf size */
 	size_t		  psmargcur;	/* current pos in margin buf */
 	size_t	 	  pspage;	/* current page */
+	char		  last;		/* character buffer */
+	enum termfont	  lastf;	/* last set font */
 };
 
 struct	termp {
@@ -76,6 +78,8 @@ struct	termp {
 #define	TERMP_NOSPLIT	 (1 << 11)	/* See termp_an_pre/post(). */
 #define	TERMP_SPLIT	 (1 << 12)	/* See termp_an_pre/post(). */
 #define	TERMP_ANPREC	 (1 << 13)	/* See termp_an_pre(). */
+#define	TERMP_KEEP	 (1 << 14)	/* Keep words together. */
+#define	TERMP_PREKEEP	 (1 << 15)	/* ...starting with the next one. */
 	char		 *buf;		/* Output buffer. */
 	enum termenc	  enc;		/* Type of encoding. */
 	void		 *symtab;	/* Encoded-symbol table. */
@@ -89,6 +93,7 @@ struct	termp {
 	void		(*end)(struct termp *);
 	void		(*endline)(struct termp *);
 	void		(*advance)(struct termp *, size_t);
+	size_t		(*width)(const struct termp *, char);
 	const void	 *argf;		/* arg for headf/footf */
 	union {
 		struct termp_ps ps;
@@ -105,8 +110,12 @@ void		  term_begin(struct termp *, term_margin,
 			term_margin, const void *);
 void		  term_end(struct termp *);
 
-size_t		  term_hspan(const struct roffsu *);
-size_t		  term_vspan(const struct roffsu *);
+size_t		  term_hspan(const struct termp *, 
+			const struct roffsu *);
+size_t		  term_vspan(const struct termp *,
+			const struct roffsu *);
+size_t		  term_strlen(const struct termp *, const char *);
+size_t		  term_len(const struct termp *, size_t);
 
 enum termfont	  term_fonttop(struct termp *);
 const void	 *term_fontq(struct termp *);
