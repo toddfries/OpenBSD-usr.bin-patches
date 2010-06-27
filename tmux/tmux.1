@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.178 2010/06/21 21:44:09 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.180 2010/06/27 02:56:59 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 21 2010 $
+.Dd $Mdocdate: June 27 2010 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1557,6 +1557,11 @@ Available window options are listed under
 .Pp
 Available server options are:
 .Bl -tag -width Ds
+.It Ic detach-on-destroy
+If on (the default), the client is detached when the session it is attached to
+is destroyed.
+If off, the client is switched to the most recently active of the remaining
+sessions.
 .It Ic escape-time
 Set the time in milliseconds for which
 .Nm
@@ -1621,7 +1626,8 @@ is used as a login shell.
 .It Ic default-path Ar path
 Set the default working directory for processes created from keys, or
 interactively from the prompt.
-The default is the current working directory when the server is started.
+The default is empty, which means to use the working directory of the shell
+from which the server was started if it is available or the user's home if not.
 .It Ic default-terminal Ar terminal
 Set the default terminal for new windows created in this session - the
 default value of the

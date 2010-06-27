@@ -1,6 +1,6 @@
-/*	$Id: term.c,v 1.37 2010/06/10 22:50:10 schwarze Exp $ */
+/*	$Id: term.c,v 1.40 2010/06/27 01:24:02 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -83,9 +83,7 @@ term_alloc(enum termenc enc)
 		exit(EXIT_FAILURE);
 	}
 
-	p->tabwidth = 5;
 	p->enc = enc;
-	p->defrmargin = 78;
 	return(p);
 }
 
@@ -480,9 +478,14 @@ term_word(struct termp *p, const char *word)
 		}
 
 	if ( ! (TERMP_NOSPACE & p->flags)) {
-		bufferc(p, ' ');
-		if (TERMP_SENTENCE & p->flags)
+		if ( ! (TERMP_KEEP & p->flags)) {
+			if (TERMP_PREKEEP & p->flags)
+				p->flags |= TERMP_KEEP;
 			bufferc(p, ' ');
+			if (TERMP_SENTENCE & p->flags)
+				bufferc(p, ' ');
+		} else
+			bufferc(p, ASCII_NBRSP);
 	}
 
 	if ( ! (p->flags & TERMP_NONOSPACE))
@@ -599,10 +602,7 @@ encode(struct termp *p, const char *word, size_t sz)
 	 * character by character.
 	 */
 
-	if (TERMTYPE_PS == p->type) {
-		buffera(p, word, sz);
-		return;
-	} else if (TERMFONT_NONE == (f = term_fonttop(p))) {
+	if (TERMFONT_NONE == (f = term_fonttop(p))) {
 		buffera(p, word, sz);
 		return;
 	}
@@ -625,7 +625,27 @@ encode(struct termp *p, const char *word, size_t sz)
 
 
 size_t
-term_vspan(const struct roffsu *su)
+term_len(const struct termp *p, size_t sz)
+{
+
+	return((*p->width)(p, ' ') * sz);
+}
+
+
+size_t
+term_strlen(const struct termp *p, const char *cp)
+{
+	size_t		 sz;
+
+	for (sz = 0; *cp; cp++)
+		sz += (*p->width)(p, *cp);
+
+	return(sz);
+}
+
+
+size_t
+term_vspan(const struct termp *p, const struct roffsu *su)
 {
 	double		 r;
 
@@ -661,7 +681,7 @@ term_vspan(const struct roffsu *su)
 
 
 size_t
-term_hspan(const struct roffsu *su)
+term_hspan(const struct termp *p, const struct roffsu *su)
 {
 	double		 r;
 

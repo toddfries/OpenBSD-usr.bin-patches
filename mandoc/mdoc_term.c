@@ -1,6 +1,6 @@
-/*	$Id: mdoc_term.c,v 1.87 2010/06/10 22:50:10 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.90 2010/06/27 01:24:02 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -48,15 +48,12 @@ struct	termact {
 	void	(*post)(DECL_ARGS);
 };
 
-static	size_t	  a2width(const struct mdoc_argv *, int);
-static	size_t	  a2height(const struct mdoc_node *);
-static	size_t	  a2offs(const struct mdoc_argv *);
+static	size_t	  a2width(const struct termp *, const char *);
+static	size_t	  a2height(const struct termp *, const char *);
+static	size_t	  a2offs(const struct termp *, const char *);
 
 static	int	  arg_hasattr(int, const struct mdoc_node *);
-static	int	  arg_getattrs(const int *, int *, size_t,
-			const struct mdoc_node *);
 static	int	  arg_getattr(int, const struct mdoc_node *);
-static	int	  arg_disptype(const struct mdoc_node *);
 static	void	  print_bvspace(struct termp *,
 			const struct mdoc_node *,
 			const struct mdoc_node *);
@@ -71,6 +68,7 @@ static	void	  termp____post(DECL_ARGS);
 static	void	  termp_an_post(DECL_ARGS);
 static	void	  termp_aq_post(DECL_ARGS);
 static	void	  termp_bd_post(DECL_ARGS);
+static	void	  termp_bk_post(DECL_ARGS);
 static	void	  termp_bl_post(DECL_ARGS);
 static	void	  termp_bq_post(DECL_ARGS);
 static	void	  termp_brq_post(DECL_ARGS);
@@ -95,6 +93,7 @@ static	int	  termp_ap_pre(DECL_ARGS);
 static	int	  termp_aq_pre(DECL_ARGS);
 static	int	  termp_bd_pre(DECL_ARGS);
 static	int	  termp_bf_pre(DECL_ARGS);
+static	int	  termp_bk_pre(DECL_ARGS);
 static	int	  termp_bl_pre(DECL_ARGS);
 static	int	  termp_bold_pre(DECL_ARGS);
 static	int	  termp_bq_pre(DECL_ARGS);
@@ -234,7 +233,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ NULL, NULL }, /* Fc */ 
 	{ termp_op_pre, termp_op_post }, /* Oo */
 	{ NULL, NULL }, /* Oc */
-	{ NULL, NULL }, /* Bk */
+	{ termp_bk_pre, termp_bk_post }, /* Bk */
 	{ NULL, NULL }, /* Ek */
 	{ termp_bt_pre, NULL }, /* Bt */
 	{ NULL, NULL }, /* Hf */
@@ -270,7 +269,7 @@ terminal_mdoc(void *arg, const struct mdoc *mdoc)
 
 	p->overstep = 0;
 	p->maxrmargin = p->defrmargin;
-	p->tabwidth = 5;
+	p->tabwidth = term_len(p, 5);
 
 	if (NULL == p->symtab)
 		switch (p->enc) {
@@ -368,14 +367,15 @@ print_mdoc_foot(struct termp *p, const void *arg)
 	term_vspace(p);
 
 	p->offset = 0;
-	p->rmargin = (p->maxrmargin - strlen(buf) + 1) / 2;
+	p->rmargin = (p->maxrmargin - 
+			term_strlen(p, buf) + term_len(p, 1)) / 2;
 	p->flags |= TERMP_NOSPACE | TERMP_NOBREAK;
 
 	term_word(p, os);
 	term_flushln(p);
 
 	p->offset = p->rmargin;
-	p->rmargin = p->maxrmargin - strlen(os);
+	p->rmargin = p->maxrmargin - term_strlen(p, os);
 	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 
 	term_word(p, buf);
@@ -431,14 +431,15 @@ print_mdoc_head(struct termp *p, const void *arg)
 	snprintf(title, BUFSIZ, "%s(%s)", m->title, m->msec);
 
 	p->offset = 0;
-	p->rmargin = (p->maxrmargin - strlen(buf) + 1) / 2;
+	p->rmargin = (p->maxrmargin - 
+			term_strlen(p, buf) + term_len(p, 1)) / 2;
 	p->flags |= TERMP_NOBREAK | TERMP_NOSPACE;
 
 	term_word(p, title);
 	term_flushln(p);
 
 	p->offset = p->rmargin;
-	p->rmargin = p->maxrmargin - strlen(title);
+	p->rmargin = p->maxrmargin - term_strlen(p, title);
 	p->flags |= TERMP_NOLPAD | TERMP_NOSPACE;
 
 	term_word(p, buf);
@@ -459,78 +460,48 @@ print_mdoc_head(struct termp *p, const void *arg)
 
 
 static size_t
-a2height(const struct mdoc_node *n)
+a2height(const struct termp *p, const char *v)
 {
 	struct roffsu	 su;
 
-	assert(MDOC_TEXT == n->type);
-	assert(n->string);
-	if ( ! a2roffsu(n->string, &su, SCALE_VS))
-		SCALE_VS_INIT(&su, strlen(n->string));
+	assert(v);
+	if ( ! a2roffsu(v, &su, SCALE_VS))
+		SCALE_VS_INIT(&su, term_len(p, 1));
 
-	return(term_vspan(&su));
+	return(term_vspan(p, &su));
 }
 
 
 static size_t
-a2width(const struct mdoc_argv *arg, int pos)
+a2width(const struct termp *p, const char *v)
 {
 	struct roffsu	 su;
 
-	assert(arg->value[pos]);
-	if ( ! a2roffsu(arg->value[pos], &su, SCALE_MAX))
-		SCALE_HS_INIT(&su, strlen(arg->value[pos]));
+	assert(v);
+	if ( ! a2roffsu(v, &su, SCALE_MAX))
+		SCALE_HS_INIT(&su, term_strlen(p, v));
 
-	return(term_hspan(&su));
-}
-
-
-static int
-arg_disptype(const struct mdoc_node *n)
-{
-	int		 i, len;
-
-	assert(MDOC_BLOCK == n->type);
-
-	len = (int)(n->args ? n->args->argc : 0);
-
-	for (i = 0; i < len; i++)
-		switch (n->args->argv[i].arg) {
-		case (MDOC_Centred):
-			/* FALLTHROUGH */
-		case (MDOC_Ragged):
-			/* FALLTHROUGH */
-		case (MDOC_Filled):
-			/* FALLTHROUGH */
-		case (MDOC_Unfilled):
-			/* FALLTHROUGH */
-		case (MDOC_Literal):
-			return(n->args->argv[i].arg);
-		default:
-			break;
-		}
-
-	return(-1);
+	return(term_hspan(p, &su));
 }
 
 
 static size_t
-a2offs(const struct mdoc_argv *arg)
+a2offs(const struct termp *p, const char *v)
 {
 	struct roffsu	 su;
 
-	if ('\0' == arg->value[0][0])
+	if ('\0' == *v)
 		return(0);
-	else if (0 == strcmp(arg->value[0], "left"))
+	else if (0 == strcmp(v, "left"))
 		return(0);
-	else if (0 == strcmp(arg->value[0], "indent"))
-		return(INDENT + 1);
-	else if (0 == strcmp(arg->value[0], "indent-two"))
-		return((INDENT + 1) * 2);
-	else if ( ! a2roffsu(arg->value[0], &su, SCALE_MAX))
-		SCALE_HS_INIT(&su, strlen(arg->value[0]));
+	else if (0 == strcmp(v, "indent"))
+		return(term_len(p, INDENT + 1));
+	else if (0 == strcmp(v, "indent-two"))
+		return(term_len(p, (INDENT + 1) * 2));
+	else if ( ! a2roffsu(v, &su, SCALE_MAX))
+		SCALE_HS_INIT(&su, term_strlen(p, v));
 
-	return(term_hspan(&su));
+	return(term_hspan(p, &su));
 }
 
 
@@ -548,39 +519,21 @@ arg_hasattr(int arg, const struct mdoc_node *n)
 
 /*
  * Get the index of an argument in a node's argument list or -1 if it
- * does not exist.  See arg_getattrs().
+ * does not exist.
  */
 static int
 arg_getattr(int v, const struct mdoc_node *n)
 {
-	int		 val;
-
-	return(arg_getattrs(&v, &val, 1, n) ? val : -1);
-}
-
-
-/*
- * Walk through the argument list for a node and fill an array "vals"
- * with the positions of the argument structures listed in "keys".
- * Return the number of elements that were written into "vals", which
- * can be zero.
- */
-static int
-arg_getattrs(const int *keys, int *vals, 
-		size_t sz, const struct mdoc_node *n)
-{
-	int		 i, j, k;
+	int		 i;
 
 	if (NULL == n->args)
 		return(0);
 
-	for (k = i = 0; i < (int)n->args->argc; i++) 
-		for (j = 0; j < (int)sz; j++)
-			if (n->args->argv[i].arg == keys[j]) {
-				vals[j] = i;
-				k++;
-			}
-	return(k);
+	for (i = 0; i < (int)n->args->argc; i++) 
+		if (n->args->argv[i].arg == v)
+			return(i);
+
+	return(-1);
 }
 
 
@@ -597,7 +550,10 @@ print_bvspace(struct termp *p,
 	const struct mdoc_node	*nn;
 
 	term_newln(p);
-	if (arg_hasattr(MDOC_Compact, bl))
+
+	if (MDOC_Bd == bl->tok && bl->data.Bd.comp)
+		return;
+	if (MDOC_Bl == bl->tok && bl->data.Bl.comp)
 		return;
 
 	/* Do not vspace directly after Ss/Sh. */
@@ -616,13 +572,13 @@ print_bvspace(struct termp *p,
 
 	/* A `-column' does not assert vspace within the list. */
 
-	if (MDOC_Bl == bl->tok && LIST_column == bl->data.list)
+	if (MDOC_Bl == bl->tok && LIST_column == bl->data.Bl.type)
 		if (n->prev && MDOC_It == n->prev->tok)
 			return;
 
 	/* A `-diag' without body does not vspace. */
 
-	if (MDOC_Bl == bl->tok && LIST_diag == bl->data.list)
+	if (MDOC_Bl == bl->tok && LIST_diag == bl->data.Bl.type)
 		if (n->prev && MDOC_It == n->prev->tok) {
 			assert(n->prev->body);
 			if (NULL == n->prev->body->child)
@@ -666,7 +622,7 @@ termp_it_pre(DECL_ARGS)
 {
 	const struct mdoc_node *bl, *nn;
 	char		        buf[7];
-	int		        i, keys[3], vals[3];
+	int		        i, col;
 	size_t		        width, offset, ncols, dcol;
 	enum mdoc_list		type;
 
@@ -676,18 +632,7 @@ termp_it_pre(DECL_ARGS)
 	}
 
 	bl = n->parent->parent->parent;
-
-	/* Get list width, offset, and list type from argument list. */
-
-	keys[0] = MDOC_Width;
-	keys[1] = MDOC_Offset;
-	keys[2] = MDOC_Column;
-
-	vals[0] = vals[1] = vals[2] = -1;
-
-	arg_getattrs(keys, vals, 3, bl);
-
-	type = bl->data.list;
+	type = bl->data.Bl.type;
 
 	/* 
 	 * First calculate width and offset.  This is pretty easy unless
@@ -697,13 +642,16 @@ termp_it_pre(DECL_ARGS)
 
 	width = offset = 0;
 
-	if (vals[1] >= 0) 
-		offset = a2offs(&bl->args->argv[vals[1]]);
+	if (bl->data.Bl.offs)
+		offset = a2offs(p, bl->data.Bl.offs);
 
 	switch (type) {
 	case (LIST_column):
 		if (MDOC_HEAD == n->type)
 			break;
+
+		col = arg_getattr(MDOC_Column, bl);
+
 		/*
 		 * Imitate groff's column handling:
 		 * - For each earlier column, add its width.
@@ -713,9 +661,10 @@ termp_it_pre(DECL_ARGS)
 		 *   column.
 		 * - For more than 5 columns, add only one column.
 		 */
-		ncols = bl->args->argv[vals[2]].sz;
+		ncols = bl->args->argv[col].sz;
 		/* LINTED */
-		dcol = ncols < 5 ? 4 : ncols == 5 ? 3 : 1;
+		dcol = ncols < 5 ? term_len(p, 4) : 
+			ncols == 5 ? term_len(p, 3) : term_len(p, 1);
 
 		/*
 		 * Calculate the offset by applying all prior MDOC_BODY,
@@ -726,8 +675,7 @@ termp_it_pre(DECL_ARGS)
 				nn->prev && i < (int)ncols; 
 				nn = nn->prev, i++)
 			offset += dcol + a2width
-				(&bl->args->argv[vals[2]], i);
-
+				(p, bl->args->argv[col].value[i]);
 
 		/*
 		 * When exceeding the declared number of columns, leave
@@ -742,10 +690,10 @@ termp_it_pre(DECL_ARGS)
 		 * Use the declared column widths, extended as explained
 		 * in the preceding paragraph.
 		 */
-		width = a2width(&bl->args->argv[vals[2]], i) + dcol;
+		width = a2width(p, bl->args->argv[col].value[i]) + dcol;
 		break;
 	default:
-		if (vals[0] < 0) 
+		if (NULL == bl->data.Bl.width)
 			break;
 
 		/* 
@@ -753,7 +701,8 @@ termp_it_pre(DECL_ARGS)
 		 * number for buffering single arguments.  See the above
 		 * handling for column for how this changes.
 		 */
-		width = a2width(&bl->args->argv[vals[0]], 0) + 2;
+		assert(bl->data.Bl.width);
+		width = a2width(p, bl->data.Bl.width) + term_len(p, 2);
 		break;
 	}
 
@@ -769,22 +718,22 @@ termp_it_pre(DECL_ARGS)
 	case (LIST_dash):
 		/* FALLTHROUGH */
 	case (LIST_hyphen):
-		if (width < 4)
-			width = 4;
+		if (width < term_len(p, 4))
+			width = term_len(p, 4);
 		break;
 	case (LIST_enum):
-		if (width < 5)
-			width = 5;
+		if (width < term_len(p, 5))
+			width = term_len(p, 5);
 		break;
 	case (LIST_hang):
 		if (0 == width)
-			width = 8;
+			width = term_len(p, 8);
 		break;
 	case (LIST_column):
 		/* FALLTHROUGH */
 	case (LIST_tag):
 		if (0 == width)
-			width = 10;
+			width = term_len(p, 10);
 		break;
 	default:
 		break;
@@ -1015,7 +964,7 @@ termp_it_post(DECL_ARGS)
 	if (MDOC_BLOCK == n->type)
 		return;
 
-	type = n->parent->parent->parent->data.list;
+	type = n->parent->parent->parent->data.Bl.type;
 
 	switch (type) {
 	case (LIST_item):
@@ -1425,7 +1374,7 @@ termp_sh_pre(DECL_ARGS)
 		term_fontpush(p, TERMFONT_BOLD);
 		break;
 	case (MDOC_BODY):
-		p->offset = INDENT;
+		p->offset = term_len(p, INDENT);
 		break;
 	default:
 		break;
@@ -1510,7 +1459,7 @@ termp_d1_pre(DECL_ARGS)
 	if (MDOC_BLOCK != n->type)
 		return(1);
 	term_newln(p);
-	p->offset += (INDENT + 1);
+	p->offset += term_len(p, (INDENT + 1));
 	return(1);
 }
 
@@ -1628,7 +1577,6 @@ static int
 termp_bd_pre(DECL_ARGS)
 {
 	size_t			 tabwidth;
-	int	         	 i, type;
 	size_t			 rm, rmax;
 	const struct mdoc_node	*nn;
 
@@ -1638,13 +1586,8 @@ termp_bd_pre(DECL_ARGS)
 	} else if (MDOC_HEAD == n->type)
 		return(0);
 
-	nn = n->parent;
-
-	type = arg_disptype(nn);
-	assert(-1 != type);
-
-	if (-1 != (i = arg_getattr(MDOC_Offset, nn)))
-		p->offset += a2offs(&nn->args->argv[i]);
+	if (n->data.Bd.offs)
+		p->offset += a2offs(p, n->data.Bd.offs);
 
 	/*
 	 * If -ragged or -filled are specified, the block does nothing
@@ -1654,11 +1597,12 @@ termp_bd_pre(DECL_ARGS)
 	 * lines are allowed.
 	 */
 	
-	if (MDOC_Literal != type && MDOC_Unfilled != type)
+	if (DISP_literal != n->data.Bd.type && 
+			DISP_unfilled != n->data.Bd.type)
 		return(1);
 
 	tabwidth = p->tabwidth;
-	p->tabwidth = 8;
+	p->tabwidth = term_len(p, 8);
 	rm = p->rmargin;
 	rmax = p->maxrmargin;
 	p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
@@ -1671,8 +1615,8 @@ termp_bd_pre(DECL_ARGS)
 		    NULL == nn->next)
 			term_flushln(p);
 	}
-	p->tabwidth = tabwidth;
 
+	p->tabwidth = tabwidth;
 	p->rmargin = rm;
 	p->maxrmargin = rmax;
 	return(0);
@@ -1683,19 +1627,16 @@ termp_bd_pre(DECL_ARGS)
 static void
 termp_bd_post(DECL_ARGS)
 {
-	int		 type;
 	size_t		 rm, rmax;
 
 	if (MDOC_BODY != n->type) 
 		return;
 
-	type = arg_disptype(n->parent);
-	assert(-1 != type);
-
 	rm = p->rmargin;
 	rmax = p->maxrmargin;
 
-	if (MDOC_Literal == type || MDOC_Unfilled == type)
+	if (DISP_literal == n->data.Bd.type || 
+			DISP_unfilled == n->data.Bd.type)
 		p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
 
 	p->flags |= TERMP_NOSPACE;
@@ -1836,7 +1777,7 @@ termp_ss_pre(DECL_ARGS)
 		break;
 	case (MDOC_HEAD):
 		term_fontpush(p, TERMFONT_BOLD);
-		p->offset = HALFINDENT;
+		p->offset = term_len(p, HALFINDENT);
 		break;
 	default:
 		break;
@@ -1912,7 +1853,7 @@ termp_sp_pre(DECL_ARGS)
 
 	switch (n->tok) {
 	case (MDOC_sp):
-		len = n->child ? a2height(n->child) : 1;
+		len = n->child ? a2height(p, n->child->string) : 1;
 		break;
 	case (MDOC_br):
 		len = 0;
@@ -2157,6 +2098,24 @@ termp_lk_pre(DECL_ARGS)
 	return(0);
 }
 
+
+/* ARGSUSED */
+static int
+termp_bk_pre(DECL_ARGS)
+{
+
+	p->flags |= TERMP_PREKEEP;
+	return(1);
+}
+
+
+/* ARGSUSED */
+static void
+termp_bk_post(DECL_ARGS)
+{
+
+	p->flags &= ~(TERMP_KEEP | TERMP_PREKEEP);
+}
 
 /* ARGSUSED */
 static int

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.79 2010/05/14 19:03:09 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.82 2010/06/27 02:56:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -239,7 +239,7 @@ main(int argc, char **argv)
 	struct env_data		 envdata;
 	struct msg_command_data	 cmddata;
 	char			*s, *shellcmd, *path, *label, *home, *cause;
-	char			 cwd[MAXPATHLEN], **var;
+	char		       **var;
 	void			*buf;
 	size_t			 len;
 	int	 		 opt, flags, quiet = 0, cmdflags = 0;
@@ -339,10 +339,12 @@ main(int argc, char **argv)
 	options_set_number(so, "bell-action", BELL_ANY);
 	options_set_number(so, "buffer-limit", 9);
 	options_set_string(so, "default-command", "%s", "");
+	options_set_string(so, "default-path", "%s", "");
 	options_set_string(so, "default-shell", "%s", getshell());
 	options_set_string(so, "default-terminal", "screen");
-	options_set_number(so, "display-panes-colour", 4);
+	options_set_number(so, "detach-on-destroy", 1);
 	options_set_number(so, "display-panes-active-colour", 1);
+	options_set_number(so, "display-panes-colour", 4);
 	options_set_number(so, "display-panes-time", 1000);
 	options_set_number(so, "display-time", 750);
 	options_set_number(so, "history-limit", 2000);
@@ -434,15 +436,6 @@ main(int argc, char **argv)
 		options_set_number(wo, "utf8", 0);
 	}
 
-	if (getcwd(cwd, sizeof cwd) == NULL) {
-		pw = getpwuid(getuid());
-		if (pw->pw_dir != NULL && *pw->pw_dir != '\0')
-			strlcpy(cwd, pw->pw_dir, sizeof cwd);
-		else
-			strlcpy(cwd, "/", sizeof cwd);
-	}
-	options_set_string(so, "default-path", "%s", cwd);
-
 	if (cfg_file == NULL) {
 		home = getenv("HOME");
 		if (home == NULL || *home == '\0') {
@@ -517,7 +510,7 @@ main(int argc, char **argv)
 			exit(1);
 		}
 		cmdflags &= ~CMD_STARTSERVER;
-		TAILQ_FOREACH(cmd, cmdlist, qentry) {
+		TAILQ_FOREACH(cmd, &cmdlist->list, qentry) {
 			if (cmd->entry->flags & CMD_STARTSERVER)
 				cmdflags |= CMD_STARTSERVER;
 			if (cmd->entry->flags & CMD_SENDENVIRON)
