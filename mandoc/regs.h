@@ -1,4 +1,4 @@
-/*	$Id: roff.h,v 1.3 2010/06/27 21:54:42 schwarze Exp $ */
+/*	$Id: regs.h,v 1.1 2010/06/27 21:58:57 schwarze Exp $ */
 /*
  * Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -14,27 +14,33 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#ifndef ROFF_H
-#define ROFF_H
-
-enum	rofferr {
-	ROFF_CONT, /* continue processing line */
-	ROFF_RERUN, /* re-run roff interpreter with offset */
-	ROFF_IGN, /* ignore current line */
-	ROFF_ERR /* badness: puke and stop */
-};
+#ifndef REGS_H
+#define REGS_H
 
 __BEGIN_DECLS
 
-struct	roff;
+enum	regs {
+	REG_nS = 0,	/* nS */
+	REG__MAX
+};
 
-void	 	  roff_free(struct roff *);
-struct	roff	 *roff_alloc(struct regset *, mandocmsg, void *);
-void		  roff_reset(struct roff *);
-enum	rofferr	  roff_parseln(struct roff *, int, 
-			char **, size_t *, int, int *);
-int		  roff_endparse(struct roff *);
+struct	reg {
+	int		 set; /* whether set or not */
+	union {
+		unsigned u; /* unsigned integer */
+	} v;
+};
+
+/*
+ * Registers are non-scoped state.  These can be manipulated directly in
+ * libroff or indirectly in libman or libmdoc by macros.  These should
+ * be implemented sparingly (we are NOT roffdoc!) and documented fully
+ * in roff.7.
+ */
+struct	regset {
+	struct reg	 regs[REG__MAX];
+};
 
 __END_DECLS
 
-#endif /*!ROFF_H*/
+#endif /*!REGS_H*/

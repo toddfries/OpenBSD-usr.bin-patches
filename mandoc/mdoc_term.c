@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.90 2010/06/27 01:24:02 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.92 2010/06/27 21:54:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -26,6 +26,7 @@
 #include "mandoc.h"
 #include "out.h"
 #include "term.h"
+#include "regs.h"
 #include "mdoc.h"
 #include "chars.h"
 #include "main.h"
@@ -1273,7 +1274,7 @@ synopsis_pre(struct termp *p, const struct mdoc_node *n)
 	 * Obviously, if we're not in a SYNOPSIS or no prior macros
 	 * exist, do nothing.
 	 */
-	if (NULL == n->prev || SEC_SYNOPSIS != n->sec)
+	if (NULL == n->prev || ! (MDOC_SYNPRETTY & n->flags))
 		return;
 
 	/*
@@ -1538,7 +1539,7 @@ termp_fn_pre(DECL_ARGS)
 
 	term_word(p, ")");
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (MDOC_SYNPRETTY & n->flags)
 		term_word(p, ";");
 
 	return(0);
@@ -1815,7 +1816,7 @@ termp_in_pre(DECL_ARGS)
 
 	synopsis_pre(p, n);
 
-	if (SEC_SYNOPSIS == n->sec && MDOC_LINE & n->flags) {
+	if (MDOC_SYNPRETTY & n->flags && MDOC_LINE & n->flags) {
 		term_fontpush(p, TERMFONT_BOLD);
 		term_word(p, "#include");
 		term_word(p, "<");
@@ -1834,13 +1835,13 @@ static void
 termp_in_post(DECL_ARGS)
 {
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (MDOC_SYNPRETTY & n->flags)
 		term_fontpush(p, TERMFONT_BOLD);
 
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, ">");
 
-	if (SEC_SYNOPSIS == n->sec)
+	if (MDOC_SYNPRETTY & n->flags)
 		term_fontpop(p);
 }
 
@@ -1982,7 +1983,7 @@ termp_fo_post(DECL_ARGS)
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, ")");
 
-	if (SEC_SYNOPSIS == n->sec) {
+	if (MDOC_SYNPRETTY & n->flags) {
 		p->flags |= TERMP_NOSPACE;
 		term_word(p, ";");
 	}
@@ -2104,8 +2105,17 @@ static int
 termp_bk_pre(DECL_ARGS)
 {
 
-	p->flags |= TERMP_PREKEEP;
-	return(1);
+	switch (n->type) {
+	case (MDOC_BLOCK):
+		return(1);
+	case (MDOC_HEAD):
+		return(0);
+	case (MDOC_BODY):
+		p->flags |= TERMP_PREKEEP;
+		return(1);
+	default:
+		abort();
+	}
 }
 
 
@@ -2114,7 +2124,8 @@ static void
 termp_bk_post(DECL_ARGS)
 {
 
-	p->flags &= ~(TERMP_KEEP | TERMP_PREKEEP);
+	if (MDOC_BODY == n->type)
+		p->flags &= ~(TERMP_KEEP | TERMP_PREKEEP);
 }
 
 /* ARGSUSED */
