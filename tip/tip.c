@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.c,v 1.39 2010/06/29 05:55:37 nicm Exp $	*/
+/*	$OpenBSD: tip.c,v 1.41 2010/06/29 17:42:35 nicm Exp $	*/
 /*	$NetBSD: tip.c,v 1.13 1997/04/20 00:03:05 mellon Exp $	*/
 
 /*
@@ -34,7 +34,7 @@
  * tip - UNIX link to other systems
  *  tip [-v] [-speed] system-name
  * or
- *  cu phone-number [-s speed] [-l line] [-a acu]
+ *  cu phone-number [-s speed] [-l line]
  */
 
 #include <sys/types.h>
@@ -138,38 +138,17 @@ notnumber:
 	}
 	setbuf(stdout, NULL);
 	loginit();
-
-	/*
-	 * Kludge, their's no easy way to get the initialization
-	 *   in the right order, so force it here
-	 */
-	if ((PH = getenv("PHONES")) == NULL)
-		PH = _PATH_PHONES;
 	vinit();				/* init variables */
 	setparity("none");			/* set the parity table */
 
-	/*
-	 * Hardwired connections require the
-	 *  line speed set before they make any transmissions
-	 *  (this is particularly true of things like a DF03-AC)
-	 */
-	if (HW && ttysetup(number(value(BAUDRATE)))) {
+	if (ttysetup(number(value(BAUDRATE)))) {
 		fprintf(stderr, "%s: bad baud rate %ld\n", __progname,
 		    number(value(BAUDRATE)));
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}
-	if ((p = con())) {
-		printf("\07%s\n[EOT]\n", p);
-		(void)uu_unlock(uucplock);
-		exit(1);
-	}
-	if (!HW && ttysetup(number(value(BAUDRATE)))) {
-		fprintf(stderr, "%s: bad baud rate %ld\n", __progname,
-		    number(value(BAUDRATE)));
-		(void)uu_unlock(uucplock);
-		exit(3);
-	}
+	con();
+
 cucommon:
 	/*
 	 * From here down the code is shared with
@@ -237,6 +216,14 @@ cucommon:
 	}
 	/*NOTREACHED*/
 	exit(0);
+}
+
+void
+con(void)
+{
+	if (CM != NULL)
+		parwrite(FD, CM, size(CM));
+	logent(value(HOST), DV, "call completed");
 }
 
 void

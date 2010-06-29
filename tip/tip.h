@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.h,v 1.34 2010/06/29 05:55:37 nicm Exp $	*/
+/*	$OpenBSD: tip.h,v 1.38 2010/06/29 18:39:18 nicm Exp $	*/
 /*	$NetBSD: tip.h,v 1.7 1997/04/20 00:02:46 mellon Exp $	*/
 
 /*
@@ -64,21 +64,16 @@ char	*EL;			/* chars marking an EOL */
 char	*CM;			/* initial connection message */
 char	*IE;			/* EOT to expect on input */
 char	*OE;			/* EOT to send to complete FT */
-char	*CU;			/* call unit if making a phone call */
-char	*AT;			/* acu type */
 char	*PN;			/* phone number(s) */
 char	*DI;			/* disconnect string */
 char	*PA;			/* parity to be generated */
 
-char	*PH;			/* phone number file */
 char	*RM;			/* remote file name */
 char	*HO;			/* host name */
 
 long	BR;			/* line speed for conversation */
 long	FS;			/* frame size for transfers */
 
-short	DU;			/* this host is dialed up */
-short	HW;			/* this device is hardwired, see hunt.c */
 char	*ES;			/* escape character */
 char	*EX;			/* exceptions */
 char	*FO;			/* force (literal next) char*/
@@ -126,18 +121,6 @@ typedef
 #define TMASK	017
 
 /*
- * Definition of ACU line description
- */
-typedef
-	struct {
-		char	*acu_name;
-		int	(*acu_dialer)(char *, char *);
-		void	(*acu_disconnect)(void);
-		void	(*acu_abort)(void);
-	}
-	acu_t;
-
-/*
  * variable manipulation stuff --
  *   if we defined the value entry in value_t, then we couldn't
  *   initialize it in vars.c, so we cast it as needed to keep lint
@@ -175,52 +158,46 @@ extern int	vflag;		/* verbose during reading of .tiprc file */
 extern int	noesc;		/* no escape `~' char */
 extern value_t	vtable[];	/* variable table */
 
-#ifndef ACULOG
-#define logent(a, b, c, d)
-#define loginit()
-#endif
-
 /*
  * Definition of indices into variable table so
  *  value(DEFINE) turns into a static address.
  */
-
-#define BEAUTIFY	0
-#define BAUDRATE	1
-#define DIALTIMEOUT	2
-#define EOFREAD		3
-#define EOFWRITE	4
-#define EOL		5
-#define ESCAPE		6
-#define EXCEPTIONS	7
-#define FORCE		8
-#define FRAMESIZE	9
-#define HOST		10
-#define LOG		11
-#define PHONES		12
-#define PROMPT		13
-#define RAISE		14
-#define RAISECHAR	15
-#define RECORD		16
-#define REMOTE		17
-#define SCRIPT		18
-#define TABEXPAND	19
-#define VERBOSE		20
-#define SHELL		21
-#define HOME		22
-#define ECHOCHECK	23
-#define DISCONNECT	24
-#define TAND		25
-#define LDELAY		26
-#define CDELAY		27
-#define ETIMEOUT	28
-#define RAWFTP		29
-#define HALFDUPLEX	30
-#define	LECHO		31
-#define	PARITY		32
-#define	HARDWAREFLOW	33
-#define	LINEDISC	34
-#define	DC		35
+enum {
+	BEAUTIFY = 0,
+	BAUDRATE,
+	EOFREAD,
+	EOFWRITE,
+	EOL,
+	ESCAPE,
+	EXCEPTIONS,
+	FORCE,
+	FRAMESIZE,
+	HOST,
+	LOG,
+	PROMPT,
+	RAISE,
+	RAISECHAR,
+	RECORD,
+	REMOTE,
+	SCRIPT,
+	TABEXPAND,
+	VERBOSE,
+	SHELL,
+	HOME,
+	ECHOCHECK,
+	DISCONNECT,
+	TAND,
+	LDELAY,
+	CDELAY,
+	ETIMEOUT,
+	RAWFTP,
+	HALFDUPLEX,
+	LECHO,
+	PARITY,
+	HARDWAREFLOW,
+	LINEDISC,
+	DC
+};
 
 struct termios	term;		/* current mode of terminal */
 struct termios	defterm;	/* initial mode of terminal */
@@ -256,79 +233,63 @@ extern	int disc;		/* current tty discpline */
 
 extern	char *__progname;	/* program name */
 
-char	*con(void);
-char	*ctrl(char);
+/* cmds.c */
 char	*expand(char *);
+void	 chdirectory(int);
+void	 consh(int);
+void	 cu_put(int);
+void	 cu_take(int);
+void	 finish(int);
+void	 genbrk(int);
+void	 getfl(int);
+void	 listvariables(int);
+void	 parwrite(int, char *, size_t);
+void	 pipefile(int);
+void	 pipeout(int);
+void	 sendfile(int);
+void	 setscript(void);
+void	 shell(int);
+void	 suspend(int);
+void	 timeout(int);
+void	 tipabort(char *);
+void	 variable(int);
+
+/* cu.c */
+void	 cumain(int, char **);
+
+/* hunt.c */
+long	 hunt(char *);
+
+/* log.c */
+void	 logent(char *, char *, char *);
+void	 loginit(void);
+
+/* remote.c */
 char	*getremote(char *);
+
+/* tip.c */
+void	 con(void);
+char	*ctrl(char);
 char	*interp(char *);
-int	any(int, char *);
-int	biz22w_dialer(char *, char *);
-int	biz22f_dialer(char *, char *);
-int	biz31w_dialer(char *, char *);
-int	biz31f_dialer(char *, char *);
-int	cour_dialer(char *, char *);
-int	df02_dialer(char *, char *);
-int	df03_dialer(char *, char *);
-int	dn_dialer(char *, char *);
-int	hay_dialer(char *, char *);
-int	prompt(char *, char *, size_t);
-size_t	size(char *);
-int	t3000_dialer(char *, char *);
-int	ttysetup(int);
+int	 any(int, char *);
+int	 prompt(char *, char *, size_t);
+size_t	 size(char *);
+void	 cleanup(int);
+void	 help(int);
+void	 parwrite(int, char *, size_t);
+void	 raw(void);
+void	 setparity(char *);
+int	 ttysetup(int);
+void	 unraw(void);
+
+/* tipout.c */
+void	tipout(void);
+
+/* uucplock.c */
 int	uu_lock(char *);
 int	uu_unlock(char *);
-int	v3451_dialer(char *, char *);
-int	v831_dialer(char *, char *);
-int	ven_dialer(char *, char *);
-int	vstring(char *, char *);
-long	hunt(char *);
-void	biz22_disconnect(void);
-void	biz22_abort(void);
-void	biz31_disconnect(void);
-void	biz31_abort(void);
-void	chdirectory(int);
-void	cleanup(int);
-void	consh(int);
-void	cour_abort(void);
-void	cour_disconnect(void);
-void	cu_put(int);
-void	cu_take(int);
-void	cumain(int, char **);
-void	df_abort(void);
-void	df_disconnect(void);
-void	disconnect(char *);
-void	dn_abort(void);
-void	dn_disconnect(void);
-void	finish(int);
-void	genbrk(int);
-void	getfl(int);
-void	hay_abort(void);
-void	hay_disconnect(void);
-void	help(int);
-void	listvariables(int);
-void	logent(char *, char *, char *, char *);
-void	loginit(void);
-void	parwrite(int, char *, size_t);
-void	pipefile(int);
-void	pipeout(int);
-void	raw(void);
-void	sendfile(int);
-void	setparity(char *);
-void	setscript(void);
-void	shell(int);
-void	suspend(int);
-void	t3000_disconnect(void);
-void	t3000_abort(void);
-void	timeout(int);
-void	tipabort(char *);
-void	tipout(void);
-void	unraw(void);
-void	v3451_abort(void);
-void	v3451_disconnect(void);
-void	v831_disconnect(void);
-void	v831_abort(void);
-void	variable(int);
-void	ven_disconnect(void);
-void	ven_abort(void);
+
+/* value.c */
 void	vinit(void);
 void	vlex(char *);
+int	vstring(char *, char *);
