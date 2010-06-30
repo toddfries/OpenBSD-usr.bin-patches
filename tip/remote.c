@@ -1,4 +1,4 @@
-/*	$OpenBSD: remote.c,v 1.21 2010/06/29 17:42:35 nicm Exp $	*/
+/*	$OpenBSD: remote.c,v 1.25 2010/06/29 23:38:05 nicm Exp $	*/
 /*	$NetBSD: remote.c,v 1.5 1997/04/20 00:02:45 mellon Exp $	*/
 
 /*
@@ -37,20 +37,6 @@
 #include "pathnames.h"
 #include "tip.h"
 
-/*
- * Attributes to be gleened from remote host description
- *   data base.
- */
-static char **caps[] = {
-	&DV, &CM, &EL, &IE, &OE, &PN, &PR, &DI,
-	&ES, &EX, &FO, &RC, &RE, &PA
-};
-
-static char *capstrings[] = {
-	"dv", "cm", "el", "ie", "oe", "pn", "pr",
-	"di", "es", "ex", "fo", "rc", "re", "pa", 0
-};
-
 static char	*db_array[3] = { _PATH_REMOTE, 0, 0 };
 
 #define cgetflag(f)	(cgetcap(bp, f, ':') != NULL)
@@ -60,8 +46,9 @@ static void	getremcap(char *);
 static void
 getremcap(char *host)
 {
-	char **p, ***q, *bp, *rempath;
-	int   stat;
+	char  **p, ***q, *bp, *rempath, *strval;
+	int	stat;
+	long	val;
 
 	rempath = getenv("REMOTE");
 	if (rempath != NULL) {
@@ -75,12 +62,13 @@ getremcap(char *host)
 	}
 
 	if ((stat = cgetent(&bp, db_array, host)) < 0) {
-		if ((DV != NULL) ||
-		    (host[0] == '/' && access(DV = host, R_OK | W_OK) == 0)) {
-			HO = host;
-			if (!BR)
-				BR = DEFBR;
-			FS = DEFFS;
+		if (value(DEVICE) != NULL ||
+		    (host[0] == '/' && access(host, R_OK | W_OK) == 0)) {
+			value(DEVICE) = host;
+			value(HOST) = host;
+			if (!number(value(BAUDRATE)))
+				setnumber(value(BAUDRATE), DEFBR);
+			setnumber(value(FRAMESIZE), DEFFS);
 			return;
 		}
 		switch (stat) {
@@ -101,26 +89,49 @@ getremcap(char *host)
 		exit(3);
 	}
 
-	for (p = capstrings, q = caps; *p != NULL; p++, q++)
-		if (**q == NULL)
-			cgetstr(bp, *p, *q);
-	if (!BR && (cgetnum(bp, "br", &BR) == -1))
-		BR = DEFBR;
-	if (!LD && (cgetnum(bp, "ld", &LD) == -1))
-		LD = TTYDISC;
-	if (cgetnum(bp, "fs", &FS) == -1)
-		FS = DEFFS;
-	if (DV == NULL) {
+	cgetstr(bp, "dv", &value(DEVICE));
+	cgetstr(bp, "cm", &value(CONNECT));
+	cgetstr(bp, "di", &value(DISCONNECT));
+	cgetstr(bp, "el", &value(EOL));
+	cgetstr(bp, "ie", &value(EOFREAD));
+	cgetstr(bp, "oe", &value(EOFWRITE));
+	cgetstr(bp, "ex", &value(EXCEPTIONS));
+	cgetstr(bp, "re", &value(RECORD));
+	cgetstr(bp, "pa", &value(PARITY));
+
+	if (cgetstr(bp, "es", &strval) >= 0 && strval != NULL)
+		vstring("es", strval);
+	if (cgetstr(bp, "fo", &strval) >= 0 && strval != NULL)
+		vstring("fo", strval);
+	if (cgetstr(bp, "pr", &strval) >= 0 && strval != NULL)
+		vstring("pr", strval);
+	if (cgetstr(bp, "rc", &strval) >= 0 && strval != NULL)
+		vstring("rc", strval);
+	
+	if (!number(value(BAUDRATE))) {
+		if (cgetnum(bp, "br", &val) == -1)
+			setnumber(value(BAUDRATE), DEFBR);
+		else
+			setnumber(value(BAUDRATE), val);
+	}
+	if (!number(value(LINEDISC))) {
+		if (cgetnum(bp, "ld", &val) == -1)
+			setnumber(value(LINEDISC), TTYDISC);
+		else
+			setnumber(value(LINEDISC), val);
+	}
+	if (cgetnum(bp, "fs", &val) == -1)
+		setnumber(value(FRAMESIZE), DEFFS);
+	else
+		setnumber(value(FRAMESIZE), val);
+	if (value(DEVICE) == NULL) {
 		fprintf(stderr, "%s: missing device spec\n", host);
 		exit(3);
 	}
 
-	HD = cgetflag("hd");
-	HO = host;
-
-	/*
-	 * see if uppercase mode should be turned on initially
-	 */
+	value(HOST) = host;
+	if (cgetflag("hd"))
+		setboolean(value(HALFDUPLEX), 1);
 	if (cgetflag("ra"))
 		setboolean(value(RAISE), 1);
 	if (cgetflag("ec"))
@@ -149,24 +160,22 @@ getremcap(char *host)
 		setboolean(value(DC), 1);
 	if (cgetflag("hf"))
 		setboolean(value(HARDWAREFLOW), 1);
-	if (RE == NULL)
-		RE = (char *)"tip.record";
-	if (EX == NULL)
-		EX = (char *)"\t\n\b\f";
-	if (ES != NULL)
-		vstring("es", ES);
-	if (FO != NULL)
-		vstring("fo", FO);
-	if (PR != NULL)
-		vstring("pr", PR);
-	if (RC != NULL)
-		vstring("rc", RC);
-	if (cgetnum(bp, "dl", &DL) == -1)
-		DL = 0;
-	if (cgetnum(bp, "cl", &CL) == -1)
-		CL = 0;
-	if (cgetnum(bp, "et", &ET) == -1)
-		ET = 10;
+	if (value(RECORD) == NULL)
+		value(RECORD) = "tip.record";
+	if (value(EXCEPTIONS) == NULL)
+		value(EXCEPTIONS) = "\t\n\b\f";
+	if (cgetnum(bp, "dl", &val) == -1)
+		setnumber(value(LDELAY), 0);
+	else
+		setnumber(value(LDELAY), val);
+	if (cgetnum(bp, "cl", &val) == -1)
+		setnumber(value(CDELAY), 0);
+	else
+		setnumber(value(CDELAY), val);
+	if (cgetnum(bp, "et", &val) == -1)
+		setnumber(value(ETIMEOUT), 0);
+	else
+		setnumber(value(ETIMEOUT), val);
 }
 
 char *
@@ -182,7 +191,7 @@ getremote(char *host)
 			exit(3);
 		}
 		getremcap(host);
-		next = DV;
+		next = value(DEVICE);
 		lookedup++;
 	}
 	/*
@@ -192,12 +201,12 @@ getremote(char *host)
 	if (next == NULL)
 		return (NULL);
 	if ((cp = strchr(next, ',')) == NULL) {
-		DV = next;
+		value(DEVICE) = next;
 		next = NULL;
 	} else {
 		*cp++ = '\0';
-		DV = next;
+		value(DEVICE) = next;
 		next = cp;
 	}
-	return (DV);
+	return (value(DEVICE));
 }
