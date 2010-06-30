@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.c,v 1.41 2010/06/29 17:42:35 nicm Exp $	*/
+/*	$OpenBSD: tip.c,v 1.46 2010/06/30 00:09:27 nicm Exp $	*/
 /*	$NetBSD: tip.c,v 1.13 1997/04/20 00:03:05 mellon Exp $	*/
 
 /*
@@ -43,9 +43,6 @@
 #include "tip.h"
 #include "pathnames.h"
 
-int	disc = TTYDISC;		/* tip normally runs this way */
-char	PNbuf[256];			/* This limits the size of a number */
-
 static void	intprompt(int);
 static void	tipin(void);
 static int	escape(void);
@@ -57,7 +54,7 @@ main(int argc, char *argv[])
 	int i, pair[2];
 
 	/* XXX preserve previous braindamaged behavior */
-	setboolean(value(DC), TRUE);
+	setboolean(value(DC), 1);
 
 	if (strcmp(__progname, "cu") == 0) {
 		cumode = 1;
@@ -89,7 +86,7 @@ main(int argc, char *argv[])
 
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
-			BR = atoi(&argv[1][1]);
+			setnumber(value(BAUDRATE), atoi(&argv[1][1]));
 			break;
 
 		default:
@@ -99,28 +96,6 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if (sys == NULL)
-		goto notnumber;
-	if (isalpha(*sys))
-		goto notnumber;
-	/*
-	 * System name is really a phone number...
-	 * Copy the number then stomp on the original (in case the number
-	 *	is private, we don't want 'ps' or 'w' to find it).
-	 */
-	if (strlen(sys) > sizeof PNbuf - 1) {
-		fprintf(stderr, "%s: phone number too long (max = %d bytes)\n",
-			__progname, (int)sizeof(PNbuf) - 1);
-		exit(1);
-	}
-	strlcpy(PNbuf, sys, sizeof PNbuf - 1);
-	for (p = sys; *p; p++)
-		*p = '\0';
-	PN = PNbuf;
-	(void)snprintf(sbuf, sizeof(sbuf), "tip%ld", BR);
-	sys = sbuf;
-
-notnumber:
 	(void)signal(SIGINT, cleanup);
 	(void)signal(SIGQUIT, cleanup);
 	(void)signal(SIGHUP, cleanup);
@@ -221,9 +196,9 @@ cucommon:
 void
 con(void)
 {
-	if (CM != NULL)
-		parwrite(FD, CM, size(CM));
-	logent(value(HOST), DV, "call completed");
+	if (value(CONNECT) != NULL)
+		parwrite(FD, value(CONNECT), size(value(CONNECT)));
+	logent(value(HOST), value(DEVICE), "call completed");
 }
 
 void

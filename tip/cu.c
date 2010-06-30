@@ -1,4 +1,4 @@
-/*	$OpenBSD: cu.c,v 1.27 2010/06/29 17:42:35 nicm Exp $	*/
+/*	$OpenBSD: cu.c,v 1.31 2010/06/29 23:38:05 nicm Exp $	*/
 /*	$NetBSD: cu.c,v 1.5 1997/02/11 09:24:05 mrg Exp $	*/
 
 /*
@@ -43,14 +43,13 @@ static void	cuusage(void);
 void
 cumain(int argc, char *argv[])
 {
-	int ch, i, parity;
+	int ch, i, parity, baudrate;
 	const char *errstr;
 	static char sbuf[12];
 
 	if (argc < 2)
 		cuusage();
-	DV = NULL;
-	BR = DEFBR;
+	setnumber(value(BAUDRATE), DEFBR);
 	parity = 0;	/* none */
 
 	/*
@@ -83,26 +82,29 @@ getopt:
 	while ((ch = getopt(argc, argv, "l:s:htoe")) != -1) {
 		switch (ch) {
 		case 'l':
-			if (DV != NULL) {
+			if (value(DEVICE) != NULL) {
 				fprintf(stderr,
 				    "%s: cannot specify multiple -l options\n",
 				    __progname);
 				exit(3);
 			}
 			if (strchr(optarg, '/'))
-				DV = optarg;
-			else
-				if (asprintf(&DV, "%s%s", _PATH_DEV, optarg) == -1)
+				value(DEVICE) = optarg;
+			else {
+				if (asprintf(&value(DEVICE),
+				    "%s%s", _PATH_DEV, optarg) == -1)
 					err(3, "asprintf");
+			}
 			break;
 		case 's':
-			BR = (int)strtonum(optarg, 0, INT_MAX, &errstr);
+			baudrate = (int)strtonum(optarg, 0, INT_MAX, &errstr);
 			if (errstr)
 				errx(3, "speed is %s: %s", errstr, optarg);
+			setnumber(value(BAUDRATE), baudrate);
 			break;
 		case 'h':
-			setboolean(value(LECHO), TRUE);
-			HD = TRUE;
+			setboolean(value(LECHO), 1);
+			setboolean(value(HALFDUPLEX), 1);
 			break;
 		case 't':
 			/* Was for a hardwired dial-up connection. */
@@ -129,8 +131,7 @@ getopt:
 
 	switch (argc) {
 	case 1:
-		PN = argv[0];
-		break;
+		/* Was phone number but now ignored. */
 	case 0:
 		break;
 	default:
@@ -148,7 +149,7 @@ getopt:
 	 * The "cu" host name is used to define the
 	 * attributes of the generic dialer.
 	 */
-	(void)snprintf(sbuf, sizeof(sbuf), "cu%ld", BR);
+	(void)snprintf(sbuf, sizeof(sbuf), "cu%ld", number(value(BAUDRATE)));
 	if ((i = hunt(sbuf)) == 0) {
 		printf("all ports busy\n");
 		exit(3);
@@ -172,10 +173,10 @@ getopt:
 		setparity("none");
 		break;
 	}
-	setboolean(value(VERBOSE), FALSE);
-	if (ttysetup(BR)) {
+	setboolean(value(VERBOSE), 0);
+	if (ttysetup(number(value(BAUDRATE)))) {
 		fprintf(stderr, "%s: unsupported speed %ld\n",
-		    __progname, BR);
+		    __progname, number(value(BAUDRATE)));
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}
@@ -185,7 +186,6 @@ getopt:
 static void
 cuusage(void)
 {
-	fprintf(stderr, "usage: cu [-eho] [-l line] "
-	    "[-s speed | -speed] [phone-number]\n");
+	fprintf(stderr, "usage: cu [-eho] [-l line] [-s speed | -speed]\n");
 	exit(8);
 }
