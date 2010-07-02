@@ -1,4 +1,4 @@
-/*	$OpenBSD: cu.c,v 1.31 2010/06/29 23:38:05 nicm Exp $	*/
+/*	$OpenBSD: cu.c,v 1.36 2010/07/02 07:40:03 nicm Exp $	*/
 /*	$NetBSD: cu.c,v 1.5 1997/02/11 09:24:05 mrg Exp $	*/
 
 /*
@@ -32,6 +32,7 @@
 
 #include <err.h>
 #include <paths.h>
+#include <util.h>
 
 #include "tip.h"
 
@@ -46,10 +47,11 @@ cumain(int argc, char *argv[])
 	int ch, i, parity, baudrate;
 	const char *errstr;
 	static char sbuf[12];
+	char *device;
 
 	if (argc < 2)
 		cuusage();
-	setnumber(value(BAUDRATE), DEFBR);
+	vsetnum(BAUDRATE, DEFBR);
 	parity = 0;	/* none */
 
 	/*
@@ -82,29 +84,30 @@ getopt:
 	while ((ch = getopt(argc, argv, "l:s:htoe")) != -1) {
 		switch (ch) {
 		case 'l':
-			if (value(DEVICE) != NULL) {
+			if (vgetstr(DEVICE) != NULL) {
 				fprintf(stderr,
 				    "%s: cannot specify multiple -l options\n",
 				    __progname);
 				exit(3);
 			}
 			if (strchr(optarg, '/'))
-				value(DEVICE) = optarg;
+				vsetstr(DEVICE, optarg);
 			else {
-				if (asprintf(&value(DEVICE),
+				if (asprintf(&device,
 				    "%s%s", _PATH_DEV, optarg) == -1)
 					err(3, "asprintf");
+				vsetstr(DEVICE, device);
 			}
 			break;
 		case 's':
 			baudrate = (int)strtonum(optarg, 0, INT_MAX, &errstr);
 			if (errstr)
 				errx(3, "speed is %s: %s", errstr, optarg);
-			setnumber(value(BAUDRATE), baudrate);
+			vsetnum(BAUDRATE, baudrate);
 			break;
 		case 'h':
-			setboolean(value(LECHO), 1);
-			setboolean(value(HALFDUPLEX), 1);
+			vsetnum(LECHO, 1);
+			vsetnum(HALFDUPLEX, 1);
 			break;
 		case 't':
 			/* Was for a hardwired dial-up connection. */
@@ -145,23 +148,18 @@ getopt:
 	signal(SIGTERM, cleanup);
 	signal(SIGCHLD, SIG_DFL);
 
+	vinit();
+
 	/*
 	 * The "cu" host name is used to define the
 	 * attributes of the generic dialer.
 	 */
-	(void)snprintf(sbuf, sizeof(sbuf), "cu%ld", number(value(BAUDRATE)));
-	if ((i = hunt(sbuf)) == 0) {
-		printf("all ports busy\n");
-		exit(3);
-	}
-	if (i == -1) {
-		printf("link down\n");
-		(void)uu_unlock(uucplock);
-		exit(3);
-	}
+	snprintf(sbuf, sizeof(sbuf), "cu%d", vgetnum(BAUDRATE));
+	FD = hunt(sbuf);
 	setbuf(stdout, NULL);
+
 	loginit();
-	vinit();
+
 	switch (parity) {
 	case -1:
 		setparity("even");
@@ -173,10 +171,10 @@ getopt:
 		setparity("none");
 		break;
 	}
-	setboolean(value(VERBOSE), 0);
-	if (ttysetup(number(value(BAUDRATE)))) {
-		fprintf(stderr, "%s: unsupported speed %ld\n",
-		    __progname, number(value(BAUDRATE)));
+	vsetnum(VERBOSE, 0);
+	if (ttysetup(vgetnum(BAUDRATE))) {
+		fprintf(stderr, "%s: unsupported speed %d\n",
+		    __progname, vgetnum(BAUDRATE));
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}

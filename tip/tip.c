@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.c,v 1.46 2010/06/30 00:09:27 nicm Exp $	*/
+/*	$OpenBSD: tip.c,v 1.52 2010/07/02 07:40:03 nicm Exp $	*/
 /*	$NetBSD: tip.c,v 1.13 1997/04/20 00:03:05 mellon Exp $	*/
 
 /*
@@ -40,8 +40,9 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+#include <util.h>
+
 #include "tip.h"
-#include "pathnames.h"
 
 static void	intprompt(int);
 static void	tipin(void);
@@ -50,11 +51,11 @@ static int	escape(void);
 int
 main(int argc, char *argv[])
 {
-	char *sys = NULL, sbuf[12], *p;
+	char *sys = NULL;
 	int i, pair[2];
 
 	/* XXX preserve previous braindamaged behavior */
-	setboolean(value(DC), 1);
+	vsetnum(DC, 1);
 
 	if (strcmp(__progname, "cu") == 0) {
 		cumode = 1;
@@ -86,7 +87,7 @@ main(int argc, char *argv[])
 
 		case '0': case '1': case '2': case '3': case '4':
 		case '5': case '6': case '7': case '8': case '9':
-			setnumber(value(BAUDRATE), atoi(&argv[1][1]));
+			vsetnum(BAUDRATE, atoi(&argv[1][1]));
 			break;
 
 		default:
@@ -102,23 +103,17 @@ main(int argc, char *argv[])
 	(void)signal(SIGTERM, cleanup);
 	(void)signal(SIGCHLD, SIG_DFL);
 
-	if ((i = hunt(sys)) == 0) {
-		printf("all ports busy\n");
-		exit(3);
-	}
-	if (i == -1) {
-		printf("link down\n");
-		(void)uu_unlock(uucplock);
-		exit(3);
-	}
+	vinit();
+
+	FD = hunt(sys);
 	setbuf(stdout, NULL);
+
 	loginit();
-	vinit();				/* init variables */
 	setparity("none");			/* set the parity table */
 
-	if (ttysetup(number(value(BAUDRATE)))) {
-		fprintf(stderr, "%s: bad baud rate %ld\n", __progname,
-		    number(value(BAUDRATE)));
+	if (ttysetup(vgetnum(BAUDRATE))) {
+		fprintf(stderr, "%s: bad baud rate %d\n", __progname,
+		    vgetnum(BAUDRATE));
 		(void)uu_unlock(uucplock);
 		exit(3);
 	}
@@ -157,10 +152,10 @@ cucommon:
 
 	(void)signal(SIGALRM, timeout);
 
-	if (value(LINEDISC) != TTYDISC) {
-		int ld = (int)value(LINEDISC);
+	if (vgetnum(LINEDISC) != TTYDISC) {
+		int ld = (int)vgetnum(LINEDISC);
 		ioctl(FD, TIOCSETD, &ld);
-	}		
+	}
 
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pair) != 0) {
 		(void)uu_unlock(uucplock);
@@ -196,9 +191,9 @@ cucommon:
 void
 con(void)
 {
-	if (value(CONNECT) != NULL)
-		parwrite(FD, value(CONNECT), size(value(CONNECT)));
-	logent(value(HOST), value(DEVICE), "call completed");
+	if (vgetstr(CONNECT) != NULL)
+		parwrite(FD, vgetstr(CONNECT), size(vgetstr(CONNECT)));
+	logent(vgetstr(HOST), vgetstr(DEVICE), "call completed");
 }
 
 void
@@ -295,7 +290,7 @@ tipin(void)
 	 *   send a SIGEMT before tipout has a chance to set up catching
 	 *   it; so wait a second, then setscript()
 	 */
-	if (boolean(value(SCRIPT))) {
+	if (vgetnum(SCRIPT)) {
 		sleep(1);
 		setscript();
 	}
@@ -303,29 +298,29 @@ tipin(void)
 	while (1) {
 		gch = getchar()&STRIP_PAR;
 		/* XXX does not check for EOF */
-		if ((gch == character(value(ESCAPE))) && bol) {
+		if (gch == vgetnum(ESCAPE) && bol) {
 			if (!noesc) {
 				if (!(gch = escape()))
 					continue;
 			}
-		} else if (!cumode && gch == character(value(RAISECHAR))) {
-			setboolean(value(RAISE), !boolean(value(RAISE)));
+		} else if (!cumode && gch == vgetnum(RAISECHAR)) {
+			vsetnum(RAISE, !vgetnum(RAISE));
 			continue;
 		} else if (gch == '\r') {
 			bol = 1;
 			ch = gch;
 			parwrite(FD, &ch, 1);
-			if (boolean(value(HALFDUPLEX)))
+			if (vgetnum(HALFDUPLEX))
 				printf("\r\n");
 			continue;
-		} else if (!cumode && gch == character(value(FORCE)))
-			gch = getchar()&STRIP_PAR;
-		bol = any(gch, value(EOL));
-		if (boolean(value(RAISE)) && islower(gch))
+		} else if (!cumode && gch == vgetnum(FORCE))
+			gch = getchar() & STRIP_PAR;
+		bol = any(gch, vgetstr(EOL));
+		if (vgetnum(RAISE) && islower(gch))
 			gch = toupper(gch);
 		ch = gch;
 		parwrite(FD, &ch, 1);
-		if (boolean(value(HALFDUPLEX)))
+		if (vgetnum(HALFDUPLEX))
 			printf("%c", ch);
 	}
 }
@@ -341,7 +336,7 @@ escape(void)
 {
 	int gch;
 	esctable_t *p;
-	char c = character(value(ESCAPE));
+	char c = vgetnum(ESCAPE);
 
 	gch = (getchar()&STRIP_PAR);
 	/* XXX does not check for EOF */
@@ -428,7 +423,7 @@ help(int c)
 
 	printf("%c\r\n", c);
 	for (p = etable; p->e_char; p++) {
-		printf("%2s", ctrl(character(value(ESCAPE))));
+		printf("%2s", ctrl(vgetnum(ESCAPE)));
 		printf("%-2s     %s\r\n", ctrl(p->e_char), p->e_help);
 	}
 }
@@ -446,16 +441,16 @@ ttysetup(int speed)
 	cfsetspeed(&cntrl, speed);
 	cntrl.c_cflag &= ~(CSIZE|PARENB);
 	cntrl.c_cflag |= CS8;
-	if (boolean(value(DC)))
+	if (vgetnum(DC))
 		cntrl.c_cflag |= CLOCAL;
-	if (boolean(value(HARDWAREFLOW)))
+	if (vgetnum(HARDWAREFLOW))
 		cntrl.c_cflag |= CRTSCTS;
 	cntrl.c_iflag &= ~(ISTRIP|ICRNL);
 	cntrl.c_oflag &= ~OPOST;
 	cntrl.c_lflag &= ~(ICANON|ISIG|IEXTEN|ECHO);
 	cntrl.c_cc[VMIN] = 1;
 	cntrl.c_cc[VTIME] = 0;
-	if (boolean(value(TAND)))
+	if (vgetnum(TAND))
 		cntrl.c_iflag |= IXOFF;
 	return (tcsetattr(FD, TCSAFLUSH, &cntrl));
 }
@@ -483,6 +478,7 @@ parwrite(int fd, char *buf, size_t n)
 		if (errno == EIO)
 			tipabort("Lost carrier.");
 		/* this is questionable */
+		abort();;//
 		perror("write");
 	}
 }
@@ -497,9 +493,9 @@ setparity(char *defparity)
 	char *parity;
 	extern const unsigned char evenpartab[];
 
-	if (value(PARITY) == NULL)
-		value(PARITY) = defparity;
-	parity = value(PARITY);
+	if (vgetstr(PARITY) == NULL)
+		vsetstr(PARITY, defparity);
+	parity = vgetstr(PARITY);
 	if (strcmp(parity, "none") == 0) {
 		bits8 = 1;
 		return;

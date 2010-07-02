@@ -1,4 +1,4 @@
-/*	$OpenBSD: tip.h,v 1.46 2010/06/30 00:26:49 nicm Exp $	*/
+/*	$OpenBSD: tip.h,v 1.52 2010/07/02 07:32:16 nicm Exp $	*/
 /*	$NetBSD: tip.h,v 1.7 1997/04/20 00:02:46 mellon Exp $	*/
 
 /*
@@ -56,15 +56,20 @@
 #include <err.h>
 #include <limits.h>
 
-/*
- * String value table
- */
+/* tip paths. */
+#define _PATH_ACULOG "/var/log/aculog"
+#define _PATH_REMOTE "/etc/remote"
+
+/* Variable table entry. */
 typedef	struct {
 	char	*v_name;	/* variable name */
 	int	 v_flags;	/* type and flags */
 	char	*v_abbrev;	/* possible abbreviation */
-	char	*v_value;	/* casted to a union later */
-}  value_t;
+
+	char	*v_string;
+	int	 v_number;
+} value_t;
+extern value_t	vtable[];	/* variable table */
 
 #define V_STRING	01	/* string valued */
 #define V_BOOL		02	/* true-false value */
@@ -76,48 +81,7 @@ typedef	struct {
 #define V_READONLY	040	/* variable is not writable */
 #define V_INIT		0100	/* static data space used for initialization */
 
-/*
- * variable manipulation stuff --
- *   if we defined the value entry in value_t, then we couldn't
- *   initialize it in vars.c, so we cast it as needed to keep lint
- *   happy.
- */
-
-#define value(v)	vtable[v].v_value
-#define lvalue(v)	(long)vtable[v].v_value
-
-#define	number(v)	((long)(v))
-#define	boolean(v)      ((short)(long)(v))
-#define	character(v)    ((char)(long)(v))
-#define	address(v)      ((long *)(v))
-
-#define	setnumber(v,n)		do { (v) = (char *)(long)(n); } while (0)
-#define	setboolean(v,n)		do { (v) = (char *)(long)(n); } while (0)
-#define	setcharacter(v,n)	do { (v) = (char *)(long)(n); } while (0)
-#define	setaddress(v,n)		do { (v) = (char *)(n); } while (0)
-
-/*
- * Escape command table definitions --
- *   lookup in this table is performed when ``escapec'' is recognized
- *   at the begining of a line (as defined by the eolmarks variable).
-*/
-
-typedef
-	struct {
-		char	e_char;			/* char to match on */
-		char	*e_help;		/* help string */
-		void	(*e_func)(int);		/* command */
-	}
-	esctable_t;
-
-extern int	vflag;		/* verbose during reading of .tiprc file */
-extern int	noesc;		/* no escape `~' char */
-extern value_t	vtable[];	/* variable table */
-
-/*
- * Definition of indices into variable table so
- *  value(DEFINE) turns into a static address.
- */
+/* Variable table indexes. */
 enum {
 	BEAUTIFY = 0,
 	BAUDRATE,
@@ -157,6 +121,23 @@ enum {
 	DC
 };
 
+/*
+ * Escape command table definitions --
+ *   lookup in this table is performed when ``escapec'' is recognized
+ *   at the begining of a line (as defined by the eolmarks variable).
+*/
+
+typedef
+	struct {
+		char	e_char;			/* char to match on */
+		char	*e_help;		/* help string */
+		void	(*e_func)(int);		/* command */
+	}
+	esctable_t;
+
+extern int	vflag;		/* verbose during reading of .tiprc file */
+extern int	noesc;		/* no escape `~' char */
+
 struct termios	term;		/* current mode of terminal */
 struct termios	defterm;	/* initial mode of terminal */
 struct termios	defchars;	/* current mode with initial chars */
@@ -165,7 +146,6 @@ int	gotdefterm;
 FILE	*fscript;		/* FILE for scripting */
 
 int	FD;			/* open file descriptor to remote host */
-int	AC;			/* open file descriptor to dialer (v831 only) */
 int	vflag;			/* print .tiprc initialization sequence */
 int	noesc;			/* no `~' escape char */
 int	sfd;			/* for ~< operation */
@@ -216,7 +196,7 @@ void	 variable(int);
 void	 cumain(int, char **);
 
 /* hunt.c */
-long	 hunt(char *);
+int	 hunt(char *);
 
 /* log.c */
 void	 logent(char *, char *, char *);
@@ -246,4 +226,7 @@ void	tipout(void);
 /* value.c */
 void	vinit(void);
 void	vlex(char *);
-int	vstring(char *, char *);
+char   *vgetstr(int);
+int	vgetnum(int);
+void	vsetstr(int, char *);
+void	vsetnum(int, int);
