@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.341 2010/06/26 23:04:04 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.343 2010/07/12 22:41:13 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -664,6 +664,11 @@ main(int ac, char **av)
 		options.port = sp ? ntohs(sp->s_port) : SSH_DEFAULT_PORT;
 	}
 
+	if (options.hostname != NULL) {
+		host = percent_expand(options.hostname,
+		    "h", host, (char *)NULL);
+	}
+
 	if (options.local_command != NULL) {
 		char thishost[NI_MAXHOST];
 
@@ -673,15 +678,11 @@ main(int ac, char **av)
 		debug3("expanding LocalCommand: %s", options.local_command);
 		cp = options.local_command;
 		options.local_command = percent_expand(cp, "d", pw->pw_dir,
-		    "h", options.hostname? options.hostname : host,
-                    "l", thishost, "n", host, "r", options.user, "p", buf,
-                    "u", pw->pw_name, (char *)NULL);
+		    "h", host, "l", thishost, "n", host, "r", options.user,
+		    "p", buf, "u", pw->pw_name, (char *)NULL);
 		debug3("expanded LocalCommand: %s", options.local_command);
 		xfree(cp);
 	}
-
-	if (options.hostname != NULL)
-		host = options.hostname;
 
 	/* force lowercase for hostkey matching */
 	if (options.host_key_alias != NULL) {
@@ -1282,8 +1283,13 @@ ssh_session2(void)
 	/* Start listening for multiplex clients */
 	muxserver_listen();
 
-	/* If requested, let ssh continue in the background. */
-	if (fork_after_authentication_flag) {
+	/*
+	 * If requested and we are not interested in replies to remote
+	 * forwarding requests, then let ssh continue in the background.
+	 */
+	if (fork_after_authentication_flag &&
+	    (!options.exit_on_forward_failure ||
+	    options.num_remote_forwards == 0)) {
 		fork_after_authentication_flag = 0;
 		if (daemon(1, 1) < 0)
 			fatal("daemon() failed: %.200s", strerror(errno));
