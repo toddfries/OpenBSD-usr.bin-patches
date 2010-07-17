@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff_internals.c,v 1.29 2010/07/15 11:10:23 ray Exp $	*/
+/*	$OpenBSD: diff_internals.c,v 1.31 2010/07/16 17:53:20 ray Exp $	*/
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
  * All rights reserved.
@@ -859,11 +859,8 @@ preadline(int fd, size_t rlen, off_t off)
 	ssize_t nr;
 
 	line = xmalloc(rlen + 1);
-	if ((nr = pread(fd, line, rlen, off)) < 0) {
-		cvs_log(LP_ERR, "preadline failed");
-		xfree(line);
-		return (NULL);
-	}
+	if ((nr = pread(fd, line, rlen, off)) < 0)
+		fatal("preadline: %s", strerror(errno));
 	line[nr] = '\0';
 	return (line);
 }
@@ -1281,10 +1278,8 @@ dump_context_vec(FILE *f1, FILE *f2, int flags)
 	diff_output("***************");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n*** ");
 	range(lowa, upb, ",");
@@ -1390,10 +1385,8 @@ dump_unified_vec(FILE *f1, FILE *f2, int flags)
 	diff_output(" @@");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n");
 

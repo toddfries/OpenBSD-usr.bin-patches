@@ -1,4 +1,4 @@
-/*	$OpenBSD: diffdir.c,v 1.35 2009/10/27 23:59:37 deraadt Exp $	*/
+/*	$OpenBSD: diffdir.c,v 1.37 2010/07/17 00:00:32 ray Exp $	*/
 
 /*
  * Copyright (c) 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -81,8 +81,9 @@ diffdir(char *p1, char *p2, int flags)
 	/* get a list of the entries in each directory */
 	dp1 = dirp1 = slurpdir(path1, &dirbuf1, Nflag + Pflag);
 	dp2 = dirp2 = slurpdir(path2, &dirbuf2, Nflag);
-	if (dirp1 == NULL || dirp2 == NULL)
-		return;
+	if (dirp1 == NULL || dirp2 == NULL) {
+		goto closem;
+	}
 
 	/*
 	 * If we were given a starting point, find it.
@@ -144,6 +145,7 @@ diffdir(char *p1, char *p2, int flags)
 		}
 	}
 
+closem:
 	if (dirbuf1 != NULL) {
 		xfree(dirp1);
 		xfree(dirbuf1);
@@ -303,7 +305,7 @@ diffit(struct dirent *dp, char *path1, size_t plen1, char *path2, size_t plen2,
 	else
 		dp->d_status = diffreg(path1, path2, flags);
 	if (!lflag)
-		print_status(dp->d_status, path1, path2, NULL);
+		print_status(dp->d_status, path1, path2, "");
 }
 
 /*
