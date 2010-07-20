@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: util.c,v 1.23 2007/09/17 09:28:36 espie Exp $	*/
+/*	$OpenBSD: util.c,v 1.25 2010/07/19 19:46:44 espie Exp $	*/
 /*	$NetBSD: util.c,v 1.10 1996/12/31 17:56:04 christos Exp $	*/
 
 /*

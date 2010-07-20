@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: cmd_exec.c,v 1.6 2007/07/24 21:09:07 espie Exp $ */
+/*	$OpenBSD: cmd_exec.c,v 1.8 2010/07/19 19:46:43 espie Exp $ */
 /*
  * Copyright (c) 2001 Marc Espie.
  *

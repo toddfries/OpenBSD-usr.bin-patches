@@ -1,5 +1,4 @@
-/* $OpenPackages$ */
-/* $OpenBSD: regress.c,v 1.5 2004/04/07 13:11:36 espie Exp $ */
+/* $OpenBSD: regress.c,v 1.7 2010/07/19 19:46:44 espie Exp $ */
 
 /*
  * Copyright (c) 1999 Marc Espie.

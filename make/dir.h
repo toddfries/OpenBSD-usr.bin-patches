@@ -1,8 +1,7 @@
 #ifndef DIR_H
 #define DIR_H
 
-/*	$OpenPackages$ */
-/*	$OpenBSD: dir.h,v 1.24 2008/11/04 07:22:35 espie Exp $	*/
+/*	$OpenBSD: dir.h,v 1.26 2010/07/19 19:46:44 espie Exp $	*/
 /*	$NetBSD: dir.h,v 1.4 1996/11/06 17:59:05 christos Exp $ */
 
 /*
