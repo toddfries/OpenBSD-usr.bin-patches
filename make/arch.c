@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: arch.c,v 1.77 2010/02/03 20:45:44 miod Exp $ */
+/*	$OpenBSD: arch.c,v 1.79 2010/07/19 19:46:43 espie Exp $ */
 /*	$NetBSD: arch.c,v 1.17 1996/11/06 17:58:59 christos Exp $	*/
 
 /*

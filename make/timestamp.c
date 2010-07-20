@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: timestamp.c,v 1.4 2009/08/16 09:53:43 espie Exp $ */
+/*	$OpenBSD: timestamp.c,v 1.6 2010/07/19 19:46:44 espie Exp $ */
 
 /*
  * Copyright (c) 2001 Marc Espie.
