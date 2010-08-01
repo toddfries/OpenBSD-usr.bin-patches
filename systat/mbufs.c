@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbufs.c,v 1.26 2009/11/23 21:44:33 henning Exp $ */
+/*	$OpenBSD: mbufs.c,v 1.28 2010/08/01 05:30:13 blambert Exp $ */
 /*
  * Copyright (c) 2008 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/mbuf.h>
+#include <sys/pool.h>
 #include <net/if.h>
 
 #include <err.h>
@@ -254,7 +255,7 @@ read_mb(void)
 	size = sizeof(struct pool);
 
 	if (sysctl(mib, 4, &mbpool, &size, NULL, 0) < 0) {
-		error("sysctl(KERN_POOL_POOL, %d)", i);
+		error("sysctl(KERN_POOL_POOL, %d)", mib[3]);
 		goto exit;
 	}
 
