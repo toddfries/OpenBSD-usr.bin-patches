@@ -1,4 +1,4 @@
-/*	$Id: term.c,v 1.47 2010/08/20 00:53:35 schwarze Exp $ */
+/*	$Id: term.c,v 1.49 2010/08/20 23:34:00 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -165,12 +165,11 @@ term_flushln(struct termp *p)
 		 * Handle literal tab characters: collapse all
 		 * subsequent tabs into a single huge set of spaces.
 		 */
-		for (j = i; j < (int)p->col; j++) {
-			if ('\t' != p->buf[j])
-				break;
+		while (i < (int)p->col && '\t' == p->buf[i]) {
 			vend = (vis / p->tabwidth + 1) * p->tabwidth;
 			vbl += vend - vis;
 			vis = vend;
+			i++;
 		}
 
 		/*
@@ -181,7 +180,7 @@ term_flushln(struct termp *p)
 		 */
 
 		/* LINTED */
-		for (jhy = 0; j < (int)p->col; j++) {
+		for (j = i, jhy = 0; j < (int)p->col; j++) {
 			if ((j && ' ' == p->buf[j]) || '\t' == p->buf[j])
 				break;
 
@@ -224,12 +223,6 @@ term_flushln(struct termp *p)
 			p->overstep = 0;
 		}
 
-		/*
-		 * Skip leading tabs, they were handled above.
-		 */
-		while (i < (int)p->col && '\t' == p->buf[i])
-			i++;
-
 		/* Write out the [remaining] word. */
 		for ( ; i < (int)p->col; i++) {
 			if (vend > bp && jhy > 0 && i > jhy)
@@ -270,6 +263,12 @@ term_flushln(struct termp *p)
 		vend += vbl;
 		vis = vend;
 	}
+
+	/*
+	 * If there was trailing white space, it was not printed;
+	 * so reset the cursor position accordingly.
+	 */
+	vis -= vbl;
 
 	p->col = 0;
 	p->overstep = 0;
