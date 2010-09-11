@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.98 2010/07/25 18:05:54 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.103 2010/08/21 14:00:59 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -147,7 +147,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_bl_pre, termp_bl_post }, /* Bl */
 	{ NULL, NULL }, /* El */
 	{ termp_it_pre, termp_it_post }, /* It */
-	{ NULL, NULL }, /* Ad */ 
+	{ termp_under_pre, NULL }, /* Ad */ 
 	{ termp_an_pre, termp_an_post }, /* An */
 	{ termp_under_pre, NULL }, /* Ar */
 	{ termp_cd_pre, NULL }, /* Cd */
@@ -1617,8 +1617,7 @@ termp_fa_pre(DECL_ARGS)
 static int
 termp_bd_pre(DECL_ARGS)
 {
-	size_t			 tabwidth;
-	size_t			 rm, rmax;
+	size_t			 tabwidth, rm, rmax;
 	const struct mdoc_node	*nn;
 
 	if (MDOC_BLOCK == n->type) {
@@ -1650,12 +1649,11 @@ termp_bd_pre(DECL_ARGS)
 	p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
 
 	for (nn = n->child; nn; nn = nn->next) {
-		p->flags |= TERMP_NOSPACE;
 		print_mdoc_node(p, pair, m, nn);
-		if (NULL == nn->prev ||
-		    nn->prev->line < nn->line ||
-		    NULL == nn->next)
-			term_flushln(p);
+		if (nn->next && nn->next->line == nn->line)
+			continue;
+		term_flushln(p);
+		p->flags |= TERMP_NOSPACE;
 	}
 
 	p->tabwidth = tabwidth;
@@ -2117,23 +2115,25 @@ termp_li_pre(DECL_ARGS)
 static int
 termp_lk_pre(DECL_ARGS)
 {
-	const struct mdoc_node *nn;
+	const struct mdoc_node *nn, *sv;
 
 	term_fontpush(p, TERMFONT_UNDER);
-	nn = n->child;
+
+	nn = sv = n->child;
 
 	if (NULL == nn->next)
 		return(1);
 
-	term_word(p, nn->string);
+	for (nn = nn->next; nn; nn = nn->next) 
+		term_word(p, nn->string);
+
 	term_fontpop(p);
 
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, ":");
 
 	term_fontpush(p, TERMFONT_BOLD);
-	for (nn = nn->next; nn; nn = nn->next) 
-		term_word(p, nn->string);
+	term_word(p, sv->string);
 	term_fontpop(p);
 
 	return(0);

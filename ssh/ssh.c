@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.344 2010/07/19 09:15:12 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.351 2010/09/02 16:08:39 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -225,6 +225,12 @@ main(int ac, char **av)
 
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
+
+	/*
+	 * Discard other fds that are hanging around. These can cause problem
+	 * with backgrounded ssh processes started by ControlPersist.
+	 */
+	closefrom(STDERR_FILENO + 1);
 
 	/*
 	 * Save the original real uid.  It will be needed later (uid-swapping
@@ -580,7 +586,7 @@ main(int ac, char **av)
 	if (!host)
 		usage();
 
-	SSLeay_add_all_algorithms();
+	OpenSSL_add_all_algorithms();
 	ERR_load_crypto_strings();
 
 	/* Initialize the command to execute on remote host. */
@@ -755,26 +761,43 @@ main(int ac, char **av)
 	sensitive_data.external_keysign = 0;
 	if (options.rhosts_rsa_authentication ||
 	    options.hostbased_authentication) {
-		sensitive_data.nkeys = 3;
+		sensitive_data.nkeys = 7;
 		sensitive_data.keys = xcalloc(sensitive_data.nkeys,
 		    sizeof(Key));
 
 		PRIV_START;
 		sensitive_data.keys[0] = key_load_private_type(KEY_RSA1,
 		    _PATH_HOST_KEY_FILE, "", NULL, NULL);
-		sensitive_data.keys[1] = key_load_private_type(KEY_DSA,
+		sensitive_data.keys[1] = key_load_private_cert(KEY_DSA,
+		    _PATH_HOST_DSA_KEY_FILE, "", NULL);
+		sensitive_data.keys[2] = key_load_private_cert(KEY_ECDSA,
+		    _PATH_HOST_ECDSA_KEY_FILE, "", NULL);
+		sensitive_data.keys[3] = key_load_private_cert(KEY_RSA,
+		    _PATH_HOST_RSA_KEY_FILE, "", NULL);
+		sensitive_data.keys[4] = key_load_private_type(KEY_DSA,
 		    _PATH_HOST_DSA_KEY_FILE, "", NULL, NULL);
-		sensitive_data.keys[2] = key_load_private_type(KEY_RSA,
+		sensitive_data.keys[5] = key_load_private_type(KEY_ECDSA,
+		    _PATH_HOST_ECDSA_KEY_FILE, "", NULL, NULL);
+		sensitive_data.keys[6] = key_load_private_type(KEY_RSA,
 		    _PATH_HOST_RSA_KEY_FILE, "", NULL, NULL);
 		PRIV_END;
 
 		if (options.hostbased_authentication == 1 &&
 		    sensitive_data.keys[0] == NULL &&
-		    sensitive_data.keys[1] == NULL &&
-		    sensitive_data.keys[2] == NULL) {
-			sensitive_data.keys[1] = key_load_public(
+		    sensitive_data.keys[4] == NULL &&
+		    sensitive_data.keys[5] == NULL &&
+		    sensitive_data.keys[6] == NULL) {
+			sensitive_data.keys[1] = key_load_cert(
+			    _PATH_HOST_DSA_KEY_FILE);
+			sensitive_data.keys[2] = key_load_cert(
+			    _PATH_HOST_ECDSA_KEY_FILE);
+			sensitive_data.keys[3] = key_load_cert(
+			    _PATH_HOST_RSA_KEY_FILE);
+			sensitive_data.keys[4] = key_load_public(
 			    _PATH_HOST_DSA_KEY_FILE, NULL);
-			sensitive_data.keys[2] = key_load_public(
+			sensitive_data.keys[5] = key_load_public(
+			    _PATH_HOST_ECDSA_KEY_FILE, NULL);
+			sensitive_data.keys[6] = key_load_public(
 			    _PATH_HOST_RSA_KEY_FILE, NULL);
 			sensitive_data.external_keysign = 1;
 		}
@@ -871,6 +894,7 @@ static void
 control_persist_detach(void)
 {
 	pid_t pid;
+	int devnull;
 
 	debug("%s: backgrounding master process", __func__);
 
@@ -893,10 +917,21 @@ control_persist_detach(void)
 		tty_flag = otty_flag;
  		close(muxserver_sock);
  		muxserver_sock = -1;
+		options.control_master = SSHCTL_MASTER_NO;
  		muxclient(options.control_path);
 		/* muxclient() doesn't return on success. */
  		fatal("Failed to connect to new control master");
  	}
+	if ((devnull = open(_PATH_DEVNULL, O_RDWR)) == -1) {
+		error("%s: open(\"/dev/null\"): %s", __func__,
+		    strerror(errno));
+	} else {
+		if (dup2(devnull, STDIN_FILENO) == -1 ||
+		    dup2(devnull, STDOUT_FILENO) == -1)
+			error("%s: dup2: %s", __func__, strerror(errno));
+		if (devnull > STDERR_FILENO)
+			close(devnull);
+	}
 }
 
 /* Do fork() after authentication. Used by "ssh -f" */

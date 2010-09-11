@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.195 2010/07/16 04:45:30 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.203 2010/09/02 17:21:50 naddy Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -49,6 +49,7 @@
 /* Number of bits in the RSA/DSA key.  This value can be set on the command line. */
 #define DEFAULT_BITS		2048
 #define DEFAULT_BITS_DSA	1024
+#define DEFAULT_BITS_ECDSA	256
 u_int32_t bits = 0;
 
 /*
@@ -138,6 +139,8 @@ int print_generic = 0;
 
 char *key_type_name = NULL;
 
+/* Load key from this PKCS#11 provider */
+char *pkcs11provider = NULL;
 
 /* argv0 */
 extern char *__progname;
@@ -165,6 +168,10 @@ ask_filename(struct passwd *pw, const char *prompt)
 		case KEY_DSA_CERT_V00:
 		case KEY_DSA:
 			name = _PATH_SSH_CLIENT_ID_DSA;
+			break;
+		case KEY_ECDSA_CERT:
+		case KEY_ECDSA:
+			name = _PATH_SSH_CLIENT_ID_ECDSA;
 			break;
 		case KEY_RSA_CERT:
 		case KEY_RSA_CERT_V00:
@@ -250,6 +257,10 @@ do_convert_to_pkcs8(Key *k)
 		if (!PEM_write_DSA_PUBKEY(stdout, k->dsa))
 			fatal("PEM_write_DSA_PUBKEY failed");
 		break;
+	case KEY_ECDSA:
+		if (!PEM_write_EC_PUBKEY(stdout, k->ecdsa))
+			fatal("PEM_write_EC_PUBKEY failed");
+		break;
 	default:
 		fatal("%s: unsupported key type %s", __func__, key_type(k));
 	}
@@ -270,6 +281,7 @@ do_convert_to_pem(Key *k)
 			fatal("PEM_write_DSAPublicKey failed");
 		break;
 #endif
+	/* XXX ECDSA? */
 	default:
 		fatal("%s: unsupported key type %s", __func__, key_type(k));
 	}
@@ -529,6 +541,13 @@ do_convert_from_pkcs8(Key **k, int *private)
 		(*k)->type = KEY_DSA;
 		(*k)->dsa = EVP_PKEY_get1_DSA(pubkey);
 		break;
+	case EVP_PKEY_EC:
+		*k = key_new(KEY_UNSPEC);
+		(*k)->type = KEY_ECDSA;
+		(*k)->ecdsa = EVP_PKEY_get1_EC_KEY(pubkey);
+		(*k)->ecdsa_nid = key_ecdsa_group_to_nid(
+		    EC_KEY_get0_group((*k)->ecdsa));
+		break;
 	default:
 		fatal("%s: unsupported pubkey type %d", __func__,
 		    EVP_PKEY_type(pubkey->type));
@@ -564,6 +583,7 @@ do_convert_from_pem(Key **k, int *private)
 		fclose(fp);
 		return;
 	}
+	/* XXX ECDSA */
 #endif
 	fatal("%s: unrecognised raw private key format", __func__);
 }
@@ -602,6 +622,10 @@ do_convert_from(struct passwd *pw)
 		switch (k->type) {
 		case KEY_DSA:
 			ok = PEM_write_DSAPrivateKey(stdout, k->dsa, NULL,
+			    NULL, 0, NULL, NULL);
+			break;
+		case KEY_ECDSA:
+			ok = PEM_write_ECPrivateKey(stdout, k->ecdsa, NULL,
 			    NULL, 0, NULL, NULL);
 			break;
 		case KEY_RSA:
@@ -647,7 +671,7 @@ do_print_public(struct passwd *pw)
 }
 
 static void
-do_download(struct passwd *pw, char *pkcs11provider)
+do_download(struct passwd *pw)
 {
 #ifdef ENABLE_PKCS11
 	Key **keys = NULL;
@@ -1287,9 +1311,9 @@ static void
 prepare_options_buf(Buffer *c, int which)
 {
 	buffer_clear(c);
-	if ((which & OPTIONS_EXTENSIONS) != 0 &&
-	    (certflags_flags & CERTOPT_X_FWD) != 0)
-		add_flag_option(c, "permit-X11-forwarding");
+	if ((which & OPTIONS_CRITICAL) != 0 &&
+	    certflags_command != NULL)
+		add_string_option(c, "force-command", certflags_command);
 	if ((which & OPTIONS_EXTENSIONS) != 0 &&
 	    (certflags_flags & CERTOPT_AGENT_FWD) != 0)
 		add_flag_option(c, "permit-agent-forwarding");
@@ -1302,12 +1326,41 @@ prepare_options_buf(Buffer *c, int which)
 	if ((which & OPTIONS_EXTENSIONS) != 0 &&
 	    (certflags_flags & CERTOPT_USER_RC) != 0)
 		add_flag_option(c, "permit-user-rc");
-	if ((which & OPTIONS_CRITICAL) != 0 &&
-	    certflags_command != NULL)
-		add_string_option(c, "force-command", certflags_command);
+	if ((which & OPTIONS_EXTENSIONS) != 0 &&
+	    (certflags_flags & CERTOPT_X_FWD) != 0)
+		add_flag_option(c, "permit-X11-forwarding");
 	if ((which & OPTIONS_CRITICAL) != 0 &&
 	    certflags_src_addr != NULL)
 		add_string_option(c, "source-address", certflags_src_addr);
+}
+
+static Key *
+load_pkcs11_key(char *path)
+{
+#ifdef ENABLE_PKCS11
+	Key **keys = NULL, *public, *private = NULL;
+	int i, nkeys;
+
+	if ((public = key_load_public(path, NULL)) == NULL)
+		fatal("Couldn't load CA public key \"%s\"", path);
+
+	nkeys = pkcs11_add_provider(pkcs11provider, identity_passphrase, &keys);
+	debug3("%s: %d keys", __func__, nkeys);
+	if (nkeys <= 0)
+		fatal("cannot read public key from pkcs11");
+	for (i = 0; i < nkeys; i++) {
+		if (key_equal_public(public, keys[i])) {
+			private = keys[i];
+			continue;
+		}
+		key_free(keys[i]);
+	}
+	xfree(keys);
+	key_free(public);
+	return private;
+#else
+	fatal("no pkcs11 support");
+#endif /* ENABLE_PKCS11 */
 }
 
 static void
@@ -1319,11 +1372,6 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 	char *otmp, *tmp, *cp, *out, *comment, **plist = NULL;
 	FILE *f;
 	int v00 = 0; /* legacy keys */
-
-	tmp = tilde_expand_filename(ca_key_path, pw->pw_uid);
-	if ((ca = load_identity(tmp)) == NULL)
-		fatal("Couldn't load CA key \"%s\"", tmp);
-	xfree(tmp);
 
 	if (key_type_name != NULL) {
 		switch (key_type_from_name(key_type_name)) {
@@ -1344,6 +1392,15 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 		}
 	}
 
+	pkcs11_init(1);
+	tmp = tilde_expand_filename(ca_key_path, pw->pw_uid);
+	if (pkcs11provider != NULL) {
+		if ((ca = load_pkcs11_key(tmp)) == NULL)
+			fatal("No PKCS#11 key matching %s found", ca_key_path);
+	} else if ((ca = load_identity(tmp)) == NULL)
+		fatal("Couldn't load CA key \"%s\"", tmp);
+	xfree(tmp);
+
 	for (i = 0; i < argc; i++) {
 		/* Split list of principals */
 		n = 0;
@@ -1361,7 +1418,8 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 		tmp = tilde_expand_filename(argv[i], pw->pw_uid);
 		if ((public = key_load_public(tmp, &comment)) == NULL)
 			fatal("%s: unable to open \"%s\"", __func__, tmp);
-		if (public->type != KEY_RSA && public->type != KEY_DSA)
+		if (public->type != KEY_RSA && public->type != KEY_DSA &&
+		    public->type != KEY_ECDSA)
 			fatal("%s: key \"%s\" type %s cannot be certified",
 			    __func__, tmp, key_type(public));
 
@@ -1416,6 +1474,7 @@ do_ca_sign(struct passwd *pw, int argc, char **argv)
 		key_free(public);
 		xfree(out);
 	}
+	pkcs11_terminate();
 	exit(0);
 }
 
@@ -1717,8 +1776,7 @@ int
 main(int argc, char **argv)
 {
 	char dotsshdir[MAXPATHLEN], comment[1024], *passphrase1, *passphrase2;
-	char out_file[MAXPATHLEN], *pkcs11provider = NULL;
-	char *rr_hostname = NULL;
+	char out_file[MAXPATHLEN], *rr_hostname = NULL;
 	Key *private, *public;
 	struct passwd *pw;
 	struct stat st;
@@ -1736,7 +1794,7 @@ main(int argc, char **argv)
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
 
-	SSLeay_add_all_algorithms();
+	OpenSSL_add_all_algorithms();
 	log_init(argv[0], SYSLOG_LEVEL_INFO, SYSLOG_FACILITY_USER, 1);
 
 	/* we need this for the home * directory.  */
@@ -1754,7 +1812,7 @@ main(int argc, char **argv)
 	    "O:C:r:g:R:T:G:M:S:s:a:V:W:z:")) != -1) {
 		switch (opt) {
 		case 'b':
-			bits = (u_int32_t)strtonum(optarg, 768, 32768, &errstr);
+			bits = (u_int32_t)strtonum(optarg, 256, 32768, &errstr);
 			if (errstr)
 				fatal("Bits has bad value %s (%s)",
 					optarg, errstr);
@@ -1988,7 +2046,7 @@ main(int argc, char **argv)
 		}
 	}
 	if (pkcs11provider != NULL)
-		do_download(pw, pkcs11provider);
+		do_download(pw);
 
 	if (do_gen_candidates) {
 		FILE *out = fopen(out_file, "w");
@@ -2038,8 +2096,14 @@ main(int argc, char **argv)
 		fprintf(stderr, "unknown key type %s\n", key_type_name);
 		exit(1);
 	}
-	if (bits == 0)
-		bits = (type == KEY_DSA) ? DEFAULT_BITS_DSA : DEFAULT_BITS;
+	if (bits == 0) {
+		if (type == KEY_DSA)
+			bits = DEFAULT_BITS_DSA;
+		else if (type == KEY_ECDSA)
+			bits = DEFAULT_BITS_ECDSA;
+		else
+			bits = DEFAULT_BITS;
+	}
 	maxbits = (type == KEY_DSA) ?
 	    OPENSSL_DSA_MAX_MODULUS_BITS : OPENSSL_RSA_MAX_MODULUS_BITS;
 	if (bits > maxbits) {
@@ -2048,6 +2112,11 @@ main(int argc, char **argv)
 	}
 	if (type == KEY_DSA && bits != 1024)
 		fatal("DSA keys must be 1024 bits");
+	else if (type != KEY_ECDSA && bits < 768)
+		fatal("Key must at least be 768 bits");
+	else if (type == KEY_ECDSA && key_ecdsa_bits_to_nid(bits) == -1)
+		fatal("Invalid ECDSA key length - valid lengths are "
+		    "256, 384 or 521 bits");
 	if (!quiet)
 		printf("Generating public/private %s key pair.\n", key_type_name);
 	private = key_generate(type, bits);

@@ -1,4 +1,4 @@
-/*	$Id: term.c,v 1.45 2010/07/25 18:05:54 schwarze Exp $ */
+/*	$Id: term.c,v 1.49 2010/08/20 23:34:00 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -33,7 +33,6 @@
 static	void		  spec(struct termp *, enum roffdeco,
 				const char *, size_t);
 static	void		  res(struct termp *, const char *, size_t);
-static	void		  buffera(struct termp *, const char *, size_t);
 static	void		  bufferc(struct termp *, char);
 static	void		  adjbuf(struct termp *p, size_t);
 static	void		  encode(struct termp *, const char *, size_t);
@@ -80,7 +79,7 @@ term_alloc(enum termenc enc)
 	p = calloc(1, sizeof(struct termp));
 	if (NULL == p) {
 		perror(NULL);
-		exit(EXIT_FAILURE);
+		exit(MANDOCLEVEL_SYSERR);
 	}
 
 	p->enc = enc;
@@ -166,12 +165,11 @@ term_flushln(struct termp *p)
 		 * Handle literal tab characters: collapse all
 		 * subsequent tabs into a single huge set of spaces.
 		 */
-		for (j = i; j < (int)p->col; j++) {
-			if ('\t' != p->buf[j])
-				break;
+		while (i < (int)p->col && '\t' == p->buf[i]) {
 			vend = (vis / p->tabwidth + 1) * p->tabwidth;
 			vbl += vend - vis;
 			vis = vend;
+			i++;
 		}
 
 		/*
@@ -182,7 +180,7 @@ term_flushln(struct termp *p)
 		 */
 
 		/* LINTED */
-		for (jhy = 0; j < (int)p->col; j++) {
+		for (j = i, jhy = 0; j < (int)p->col; j++) {
 			if ((j && ' ' == p->buf[j]) || '\t' == p->buf[j])
 				break;
 
@@ -225,12 +223,6 @@ term_flushln(struct termp *p)
 			p->overstep = 0;
 		}
 
-		/*
-		 * Skip leading tabs, they were handled above.
-		 */
-		while (i < (int)p->col && '\t' == p->buf[i])
-			i++;
-
 		/* Write out the [remaining] word. */
 		for ( ; i < (int)p->col; i++) {
 			if (vend > bp && jhy > 0 && i > jhy)
@@ -238,10 +230,10 @@ term_flushln(struct termp *p)
 			if ('\t' == p->buf[i])
 				break;
 			if (' ' == p->buf[i]) {
-				while (' ' == p->buf[i]) {
-					vbl += (*p->width)(p, p->buf[i]);
+				j = i;
+				while (' ' == p->buf[i])
 					i++;
-				}
+				vbl += (i - j) * (*p->width)(p, ' ');
 				break;
 			}
 			if (ASCII_NBRSP == p->buf[i]) {
@@ -271,6 +263,12 @@ term_flushln(struct termp *p)
 		vend += vbl;
 		vis = vend;
 	}
+
+	/*
+	 * If there was trailing white space, it was not printed;
+	 * so reset the cursor position accordingly.
+	 */
+	vis -= vbl;
 
 	p->col = 0;
 	p->overstep = 0;
@@ -499,6 +497,8 @@ term_word(struct termp *p, const char *word)
 
 	if ( ! (p->flags & TERMP_NONOSPACE))
 		p->flags &= ~TERMP_NOSPACE;
+	else
+		p->flags |= TERMP_NOSPACE;
 
 	p->flags &= ~TERMP_SENTENCE;
 
@@ -572,20 +572,8 @@ adjbuf(struct termp *p, size_t sz)
 	p->buf = realloc(p->buf, p->maxcols);
 	if (NULL == p->buf) {
 		perror(NULL);
-		exit(EXIT_FAILURE);
+		exit(MANDOCLEVEL_SYSERR);
 	}
-}
-
-
-static void
-buffera(struct termp *p, const char *word, size_t sz)
-{
-
-	if (p->col + sz >= p->maxcols) 
-		adjbuf(p, p->col + sz);
-
-	memcpy(&p->buf[(int)p->col], word, sz);
-	p->col += sz;
 }
 
 
@@ -613,23 +601,31 @@ encode(struct termp *p, const char *word, size_t sz)
 	 */
 
 	if (TERMFONT_NONE == (f = term_fonttop(p))) {
-		buffera(p, word, sz);
+		if (p->col + sz >= p->maxcols) 
+			adjbuf(p, p->col + sz);
+		memcpy(&p->buf[(int)p->col], word, sz);
+		p->col += sz;
 		return;
 	}
 
+	/* Pre-buffer, assuming worst-case. */
+
+	if (p->col + 1 + (sz * 3) >= p->maxcols)
+		adjbuf(p, p->col + 1 + (sz * 3));
+
 	for (i = 0; i < (int)sz; i++) {
 		if ( ! isgraph((u_char)word[i])) {
-			bufferc(p, word[i]);
+			p->buf[(int)p->col++] = word[i];
 			continue;
 		}
 
 		if (TERMFONT_UNDER == f)
-			bufferc(p, '_');
+			p->buf[(int)p->col++] = '_';
 		else
-			bufferc(p, word[i]);
+			p->buf[(int)p->col++] = word[i];
 
-		bufferc(p, 8);
-		bufferc(p, word[i]);
+		p->buf[(int)p->col++] = 8;
+		p->buf[(int)p->col++] = word[i];
 	}
 }
 

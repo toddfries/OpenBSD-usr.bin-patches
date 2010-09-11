@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.38 2010/07/25 18:05:54 schwarze Exp $ */
+/*	$Id: man.c,v 1.40 2010/08/20 00:53:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -17,7 +17,6 @@
 #include <sys/types.h>
 
 #include <assert.h>
-#include <ctype.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -53,7 +52,6 @@ static	int		 man_ptext(struct man *, int, char *, int);
 static	int		 man_pmacro(struct man *, int, char *, int);
 static	void		 man_free1(struct man *);
 static	void		 man_alloc1(struct man *);
-static	int		 macrowarn(struct man *, int, const char *, int);
 
 
 const struct man_node *
@@ -91,8 +89,7 @@ man_free(struct man *man)
 
 
 struct man *
-man_alloc(struct regset *regs, void *data, 
-		int pflags, mandocmsg msg)
+man_alloc(struct regset *regs, void *data, mandocmsg msg)
 {
 	struct man	*p;
 
@@ -100,7 +97,6 @@ man_alloc(struct regset *regs, void *data,
 
 	man_hash_init();
 	p->data = data;
-	p->pflags = pflags;
 	p->msg = msg;
 	p->regs = regs;
 
@@ -432,19 +428,6 @@ descope:
 }
 
 
-static int
-macrowarn(struct man *m, int ln, const char *buf, int offs)
-{
-	int		 rc;
-
-	rc = man_vmsg(m, MANDOCERR_MACRO, ln, offs, 
-			"unknown macro: %s%s",
-			buf, strlen(buf) > 3 ? "..." : "");
-
-	return(MAN_IGN_MACRO & m->pflags ? rc : 0);
-}
-
-
 int
 man_pmacro(struct man *m, int ln, char *buf, int offs)
 {
@@ -477,34 +460,21 @@ man_pmacro(struct man *m, int ln, char *buf, int offs)
 
 	ppos = i;
 
-	/* Copy the first word into a nil-terminated buffer. */
+	/*
+	 * Copy the first word into a nil-terminated buffer.
+	 * Stop copying when a tab, space, or eoln is encountered.
+	 */
 
-	for (j = 0; j < 4; j++, i++) {
-		if ('\0' == (mac[j] = buf[i]))
-			break;
-		else if (' ' == buf[i])
-			break;
-
-		/* Check for invalid characters. */
-
-		if (isgraph((u_char)buf[i]))
-			continue;
-		if ( ! man_pmsg(m, ln, i, MANDOCERR_BADCHAR))
-			return(0);
-		i--;
-	}
-
+	j = 0;
+	while (j < 4 && '\0' != buf[i] && ' ' != buf[i] && '\t' != buf[i])
+		mac[j++] = buf[i++];
 	mac[j] = '\0';
 
-	if (j == 4 || j < 1) {
-		if ( ! macrowarn(m, ln, mac, ppos))
-			goto err;
-		return(1);
-	}
-	
-	if (MAN_MAX == (tok = man_hash_find(mac))) {
-		if ( ! macrowarn(m, ln, mac, ppos))
-			goto err;
+	tok = (j > 0 && j < 4) ? man_hash_find(mac) : MAN_MAX;
+	if (MAN_MAX == tok) {
+		man_vmsg(m, MANDOCERR_MACRO, ln, ppos, 
+		    "unknown macro: %s%s",
+		    buf, strlen(buf) > 3 ? "..." : "");
 		return(1);
 	}
 

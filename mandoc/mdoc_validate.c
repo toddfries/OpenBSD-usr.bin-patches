@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.66 2010/07/25 18:05:54 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.68 2010/08/20 00:53:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -141,7 +141,7 @@ static	v_pre	 pres_ss[] = { pre_ss, NULL };
 
 const	struct valids mdoc_valids[MDOC_MAX] = {
 	{ NULL, NULL },				/* Ap */
-	{ pres_dd, posts_text },		/* Dd */
+	{ pres_dd, posts_wtext },		/* Dd */
 	{ pres_dt, posts_dt },			/* Dt */
 	{ pres_os, NULL },			/* Os */
 	{ pres_sh, posts_sh },			/* Sh */ 
@@ -477,12 +477,8 @@ check_text(struct mdoc *m, int ln, int pos, char *p)
 		if (c) {
 			p += c - 1;
 			pos += c - 1;
-			continue;
-		}
-
-		c = mdoc_pmsg(m, ln, pos, MANDOCERR_BADESCAPE);
-		if ( ! (MDOC_IGN_ESCAPE & m->pflags) && ! c)
-			return(c);
+		} else
+			mdoc_pmsg(m, ln, pos, MANDOCERR_BADESCAPE);
 	}
 
 	return(1);

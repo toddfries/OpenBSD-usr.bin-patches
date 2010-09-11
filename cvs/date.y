@@ -1,5 +1,5 @@
 %{
-/*	$OpenBSD: date.y,v 1.20 2010/07/23 21:46:05 ray Exp $	*/
+/*	$OpenBSD: date.y,v 1.22 2010/07/31 08:54:42 ray Exp $	*/
 
 /*
 **  Originally written by Steven M. Bellovin <smb@research.att.com> while
@@ -814,7 +814,7 @@ date_parse(const char *p)
 
 	if (time(&nowtime) == -1 || !gmtime_r(&nowtime, &gmt) ||
 	    !localtime_r(&nowtime, &tm))
-		fatal("date_parse failed");
+		return -1;
 
 	tz = difftm(&gmt, &tm) / 60;
 
@@ -862,10 +862,7 @@ date_parse(const char *p)
 		Start += tod;
 	}
 
-	/* Have to do *something* with a legitimate -1 so it's distinguishable
-	 * from the error return value.  (Alternately could set errno on error.)
-	 */
-	return (Start == -1) ? (0) : (Start);
+	return Start;
 }
 
 #if defined(TEST)

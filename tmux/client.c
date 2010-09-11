@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.42 2010/06/28 22:10:42 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.44 2010/08/23 17:36:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -93,6 +93,7 @@ server_started:
 	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
 		fatal("fcntl failed");
 	imsg_init(&client_ibuf, fd);
+	event_set(&client_event, fd, EV_READ, client_callback, NULL);
 
 	if (cmdflags & CMD_SENDENVIRON)
 		client_send_environ();
@@ -297,7 +298,8 @@ client_dispatch(void)
 			client_exitmsg = "detached";
 			break;
 		case MSG_EXIT:
-			if (datalen != 0)
+			if (datalen != 0 &&
+			    datalen != sizeof (struct msg_exit_data))
 				fatalx("bad MSG_EXIT size");
 
 			client_write_server(MSG_EXITING, NULL, 0);

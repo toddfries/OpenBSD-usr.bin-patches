@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff.c,v 1.157 2010/07/23 21:46:05 ray Exp $	*/
+/*	$OpenBSD: diff.c,v 1.159 2010/07/30 21:47:18 ray Exp $	*/
 /*
  * Copyright (c) 2008 Tobias Stoeckmann <tobias@openbsd.org>
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
@@ -49,7 +49,7 @@ struct cvs_cmd cvs_cmd_diff = {
 	"Show differences between revisions",
 	"[-abcdilNnpRuw] [[-D date] [-r rev] [-D date2 | -r rev2]] "
 	"[-k mode] [file ...]",
-	"abcfdD:ik:lNnpr:Ruw",
+	"abcfC:dD:ik:lNnpr:RuU:w",
 	NULL,
 	cvs_diff
 };
@@ -70,6 +70,7 @@ cvs_diff(int argc, char **argv)
 {
 	int ch, flags;
 	char *arg = ".";
+	const char *errstr;
 	struct cvs_recursion cr;
 
 	flags = CR_RECURSE_DIRS;
@@ -91,16 +92,26 @@ cvs_diff(int argc, char **argv)
 			strlcat(diffargs, " -c", sizeof(diffargs));
 			diff_format = D_CONTEXT;
 			break;
+		case 'C':
+			diff_context = strtonum(optarg, 0, INT_MAX, &errstr);
+			if (errstr != NULL)
+				fatal("context lines %s: %s", errstr, optarg);
+			strlcat(diffargs, " -C ", sizeof(diffargs));
+			strlcat(diffargs, optarg, sizeof(diffargs));
+			diff_format = D_CONTEXT;
+			break;
 		case 'd':
 			strlcat(diffargs, " -d", sizeof(diffargs));
 			dflags |= D_MINIMAL;
 			break;
 		case 'D':
 			if (date1 == -1 && rev1 == NULL) {
-				date1 = date_parse(optarg);
+				if ((date1 = date_parse(optarg)) == -1)
+					fatal("invalid date: %s", optarg);
 				dateflag1 = optarg;
 			} else if (date2 == -1 && rev2 == NULL) {
-				date2 = date_parse(optarg);
+				if ((date2 = date_parse(optarg)) == -1)
+					fatal("invalid date: %s", optarg);
 				dateflag2 = optarg;
 			} else {
 				fatal("no more than 2 revisions/dates can"
@@ -161,6 +172,14 @@ cvs_diff(int argc, char **argv)
 			strlcat(diffargs, " -u", sizeof(diffargs));
 			diff_format = D_UNIFIED;
 			break;
+		case 'U':
+			diff_context = strtonum(optarg, 0, INT_MAX, &errstr);
+			if (errstr != NULL)
+				fatal("context lines %s: %s", errstr, optarg);
+			strlcat(diffargs, " -U ", sizeof(diffargs));
+			strlcat(diffargs, optarg, sizeof(diffargs));
+			diff_format = D_UNIFIED;
+			break;
 		case 'V':
 			fatal("the -V option is obsolete "
 			    "and should not be used");
@@ -209,13 +228,23 @@ cvs_diff(int argc, char **argv)
 
 		switch (diff_format) {
 		case D_CONTEXT:
-			cvs_client_send_request("Argument -c");
+			if (cvs_cmdop == CVS_OP_RDIFF)
+				cvs_client_send_request("Argument -c");
+			else {
+				cvs_client_send_request("Argument -C %d",
+				    diff_context);
+			}
 			break;
 		case D_RCSDIFF:
 			cvs_client_send_request("Argument -n");
 			break;
 		case D_UNIFIED:
-			cvs_client_send_request("Argument -u");
+			if (cvs_cmdop == CVS_OP_RDIFF)
+				cvs_client_send_request("Argument -u");
+			else {
+				cvs_client_send_request("Argument -U %d",
+				    diff_context);
+			}
 			break;
 		default:
 			break;

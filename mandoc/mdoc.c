@@ -1,4 +1,4 @@
-/*	$Id: mdoc.c,v 1.62 2010/07/16 00:34:33 schwarze Exp $ */
+/*	$Id: mdoc.c,v 1.65 2010/08/20 00:53:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -18,7 +18,6 @@
 #include <sys/types.h>
 
 #include <assert.h>
-#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,8 +94,6 @@ static	int		  node_append(struct mdoc *,
 				struct mdoc_node *);
 static	int		  mdoc_ptext(struct mdoc *, int, char *, int);
 static	int		  mdoc_pmacro(struct mdoc *, int, char *, int);
-static	int		  macrowarn(struct mdoc *, int, 
-				const char *, int);
 
 
 const struct mdoc_node *
@@ -188,8 +185,7 @@ mdoc_free(struct mdoc *mdoc)
  * Allocate volatile and non-volatile parse resources.  
  */
 struct mdoc *
-mdoc_alloc(struct regset *regs, void *data, 
-		int pflags, mandocmsg msg)
+mdoc_alloc(struct regset *regs, void *data, mandocmsg msg)
 {
 	struct mdoc	*p;
 
@@ -197,7 +193,6 @@ mdoc_alloc(struct regset *regs, void *data,
 
 	p->msg = msg;
 	p->data = data;
-	p->pflags = pflags;
 	p->regs = regs;
 
 	mdoc_hash_init();
@@ -724,21 +719,6 @@ mdoc_ptext(struct mdoc *m, int line, char *buf, int offs)
 }
 
 
-static int
-macrowarn(struct mdoc *m, int ln, const char *buf, int offs)
-{
-	int		 rc;
-
-	rc = mdoc_vmsg(m, MANDOCERR_MACRO, ln, offs, 
-			"unknown macro: %s%s", 
-			buf, strlen(buf) > 3 ? "..." : "");
-
-	/* FIXME: logic should be in driver. */
-	/* FIXME: broken, will error out and not omit a message. */
-	return(MDOC_IGN_MACRO & m->pflags ? rc : 0);
-}
-
-
 /*
  * Parse a macro line, that is, a line beginning with the control
  * character.
@@ -760,11 +740,11 @@ mdoc_pmacro(struct mdoc *m, int ln, char *buf, int offs)
 
 	i = offs;
 
-	/* Accept whitespace after the initial control char. */
+	/* Accept tabs/whitespace after the initial control char. */
 
-	if (' ' == buf[i]) {
+	if (' ' == buf[i] || '\t' == buf[i]) {
 		i++;
-		while (buf[i] && ' ' == buf[i])
+		while (buf[i] && (' ' == buf[i] || '\t' == buf[i]))
 			i++;
 		if ('\0' == buf[i])
 			return(1);
@@ -772,38 +752,30 @@ mdoc_pmacro(struct mdoc *m, int ln, char *buf, int offs)
 
 	sv = i;
 
-	/* Copy the first word into a nil-terminated buffer. */
+	/* 
+	 * Copy the first word into a nil-terminated buffer.
+	 * Stop copying when a tab, space, or eoln is encountered.
+	 */
 
-	for (j = 0; j < 4; j++, i++) {
-		if ('\0' == (mac[j] = buf[i]))
-			break;
-		else if (' ' == buf[i])
-			break;
-
-		/* Check for invalid characters. */
-
-		if (isgraph((u_char)buf[i]))
-			continue;
-		if ( ! mdoc_pmsg(m, ln, i, MANDOCERR_BADCHAR))
-			return(0);
-		i--;
-	}
-
+	j = 0;
+	while (j < 4 && '\0' != buf[i] && ' ' != buf[i] && '\t' != buf[i])
+		mac[j++] = buf[i++];
 	mac[j] = '\0';
 
-	if (j == 4 || j < 2) {
-		if ( ! macrowarn(m, ln, mac, sv))
-			goto err;
-		return(1);
-	} 
-	
-	if (MDOC_MAX == (tok = mdoc_hash_find(mac))) {
-		if ( ! macrowarn(m, ln, mac, sv))
-			goto err;
+	tok = (j > 1 || j < 4) ? mdoc_hash_find(mac) : MDOC_MAX;
+	if (MDOC_MAX == tok) {
+		mdoc_vmsg(m, MANDOCERR_MACRO, ln, sv, 
+		    "unknown macro: %s%s", 
+		    buf, strlen(buf) > 3 ? "..." : "");
 		return(1);
 	}
 
-	/* The macro is sane.  Jump to the next word. */
+	/* Disregard the first trailing tab, if applicable. */
+
+	if ('\t' == buf[i])
+		i++;
+
+	/* Jump to the next non-whitespace word. */
 
 	while (buf[i] && ' ' == buf[i])
 		i++;

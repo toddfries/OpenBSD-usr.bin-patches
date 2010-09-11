@@ -1,4 +1,4 @@
-/*	$OpenBSD: co.c,v 1.112 2010/07/28 09:07:11 ray Exp $	*/
+/*	$OpenBSD: co.c,v 1.114 2010/09/08 15:15:50 tobias Exp $	*/
 /*
  * Copyright (c) 2005 Joris Vink <joris@openbsd.org>
  * All rights reserved.
@@ -156,10 +156,6 @@ checkout_main(int argc, char **argv)
 	if ((username = getlogin()) == NULL)
 		err(1, "getlogin");
 
-	/* If -x flag was not given, use default. */
-	if (rcs_suffixes == NULL)
-		rcs_suffixes = RCS_DEFAULT_SUFFIX;
-
 	for (i = 0; i < argc; i++) {
 		fd = rcs_choosefile(argv[i], fpath, sizeof(fpath));
 		if (fd < 0) {
@@ -261,8 +257,10 @@ checkout_rev(RCSFILE *file, RCSNUM *frev, const char *dst, int flags,
 	RCSNUM *rev;
 
 	rcsdate = givendate = -1;
-	if (date != NULL)
-		givendate = date_parse(date);
+	if (date != NULL && (givendate = date_parse(date)) == -1) {
+		warnx("invalid date: %s", date);
+		return -1;
+	}
 
 	if (file->rf_ndelta == 0 && !(flags & QUIET))
 		(void)fprintf(stderr,
@@ -303,7 +301,10 @@ checkout_rev(RCSFILE *file, RCSNUM *frev, const char *dst, int flags,
 		TAILQ_FOREACH(rdp, &file->rf_delta, rd_list) {
 			if (date != NULL) {
 				fdate = asctime(&rdp->rd_date);
-				rcsdate = date_parse(fdate);
+				if ((rcsdate = date_parse(fdate)) == -1) {
+					warnx("invalid date: %s", fdate);
+					return -1;
+				}
 				if (givendate <= rcsdate)
 					continue;
 			}

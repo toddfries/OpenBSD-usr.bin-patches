@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.c,v 1.60 2010/07/28 09:07:11 ray Exp $	*/
+/*	$OpenBSD: rcs.c,v 1.62 2010/09/02 00:21:41 tobias Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -1147,7 +1147,7 @@ rcs_patch_lines(struct rcs_lines *dlines, struct rcs_lines *plines)
  * returned buffer is dynamically allocated and should be released using
  * buf_free() once the caller is done using it.
  */
-BUF*
+BUF *
 rcs_getrev(RCSFILE *rfp, RCSNUM *frev)
 {
 	u_int i, numlen;
@@ -1359,8 +1359,7 @@ rcs_rev_add(RCSFILE *rf, RCSNUM *rev, const char *msg, time_t date,
 		if (rf->rf_flags & RCS_CREATE) {
 			if ((rev = rcsnum_parse(RCS_HEAD_INIT)) == NULL)
 				return (-1);
-			rf->rf_head = rcsnum_alloc();
-			rcsnum_cpy(rev, rf->rf_head, 0);
+			rf->rf_head = rev;
 		} else {
 			rev = rcsnum_inc(rf->rf_head);
 		}

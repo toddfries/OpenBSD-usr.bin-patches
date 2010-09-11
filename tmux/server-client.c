@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.36 2010/07/24 20:11:59 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.40 2010/08/31 22:46:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,6 +30,7 @@
 void	server_client_handle_key(int, struct mouse_event *, void *);
 void	server_client_repeat_timer(int, short, void *);
 void	server_client_check_exit(struct client *);
+void	server_client_check_backoff(struct client *);
 void	server_client_check_redraw(struct client *);
 void	server_client_set_title(struct client *);
 void	server_client_reset_state(struct client *);
@@ -492,6 +493,50 @@ server_client_check_exit(struct client *c)
 	c->flags &= ~CLIENT_EXIT;
 }
 
+/*
+ * Check if the client should backoff. During backoff, data from external
+ * programs is not written to the terminal. When the existing data drains, the
+ * client is redrawn.
+ *
+ * There are two backoff phases - both the tty and client have backoff flags -
+ * the first to allow existing data to drain and the latter to ensure backoff
+ * is disabled until the redraw has finished and prevent the redraw triggering
+ * another backoff.
+ */
+void
+server_client_check_backoff(struct client *c)
+{
+	struct tty	*tty = &c->tty;
+	size_t		 used;
+
+	used = EVBUFFER_LENGTH(tty->event->output);
+
+	/*
+	 * If in the second backoff phase (redrawing), don't check backoff
+	 * until the redraw has completed (or enough of it to drop below the
+	 * backoff threshold).
+	 */
+	if (c->flags & CLIENT_BACKOFF) {
+		if (used > BACKOFF_THRESHOLD)
+			return;
+		c->flags &= ~CLIENT_BACKOFF;
+		return;
+	}
+
+	/* Once drained, allow data through again and schedule redraw. */
+	if (tty->flags & TTY_BACKOFF) {
+		if (used != 0)
+			return;
+		tty->flags &= ~TTY_BACKOFF;
+		c->flags |= (CLIENT_BACKOFF|CLIENT_REDRAWWINDOW|CLIENT_STATUS);
+		return;
+	}
+
+	/* If too much data, start backoff. */
+	if (used > BACKOFF_THRESHOLD)
+		tty->flags |= TTY_BACKOFF;
+}
+
 /* Check for client redraws. */
 void
 server_client_check_redraw(struct client *c)
@@ -520,6 +565,10 @@ server_client_check_redraw(struct client *c)
 	if (c->flags & CLIENT_REDRAW) {
 		screen_redraw_screen(c, 0, 0);
 		c->flags &= ~(CLIENT_STATUS|CLIENT_BORDERS);
+	} else if (c->flags & CLIENT_REDRAWWINDOW) {
+		TAILQ_FOREACH(wp, &c->session->curw->window->panes, entry)
+			screen_redraw_pane(c, wp);
+		c->flags &= ~CLIENT_REDRAWWINDOW;
 	} else {
 		TAILQ_FOREACH(wp, &c->session->curw->window->panes, entry) {
 			if (wp->flags & PANE_REDRAW)
@@ -649,14 +698,14 @@ server_client_msg_dispatch(struct client *c)
 			memcpy(&identifydata, imsg.data, sizeof identifydata);
 
 			c->stdin_fd = imsg.fd;
-			c->stdin_event = bufferevent_new(imsg.fd, NULL, NULL,
-			    server_client_in_callback, c);
+			c->stdin_event = bufferevent_new(c->stdin_fd,
+			    NULL, NULL, server_client_in_callback, c);
 			if (c->stdin_event == NULL)
 				fatalx("failed to create stdin event");
 
-			if ((mode = fcntl(imsg.fd, F_GETFL)) != -1)
-				fcntl(imsg.fd, F_SETFL, mode|O_NONBLOCK);
-			if (fcntl(imsg.fd, F_SETFD, FD_CLOEXEC) == -1)
+			if ((mode = fcntl(c->stdin_fd, F_GETFL)) != -1)
+				fcntl(c->stdin_fd, F_SETFL, mode|O_NONBLOCK);
+			if (fcntl(c->stdin_fd, F_SETFD, FD_CLOEXEC) == -1)
 				fatal("fcntl failed");
 
 			server_client_msg_identify(c, &identifydata, imsg.fd);
@@ -668,14 +717,14 @@ server_client_msg_dispatch(struct client *c)
 				fatalx("MSG_STDOUT missing fd");
 
 			c->stdout_fd = imsg.fd;
-			c->stdout_event = bufferevent_new(imsg.fd, NULL, NULL,
-			    server_client_out_callback, c);
+			c->stdout_event = bufferevent_new(c->stdout_fd,
+			    NULL, NULL, server_client_out_callback, c);
 			if (c->stdout_event == NULL)
 				fatalx("failed to create stdout event");
 
-			if ((mode = fcntl(imsg.fd, F_GETFL)) != -1)
-				fcntl(imsg.fd, F_SETFL, mode|O_NONBLOCK);
-			if (fcntl(imsg.fd, F_SETFD, FD_CLOEXEC) == -1)
+			if ((mode = fcntl(c->stdout_fd, F_GETFL)) != -1)
+				fcntl(c->stdout_fd, F_SETFL, mode|O_NONBLOCK);
+			if (fcntl(c->stdout_fd, F_SETFD, FD_CLOEXEC) == -1)
 				fatal("fcntl failed");
 			break;
 		case MSG_STDERR:
@@ -685,14 +734,14 @@ server_client_msg_dispatch(struct client *c)
 				fatalx("MSG_STDERR missing fd");
 
 			c->stderr_fd = imsg.fd;
-			c->stderr_event = bufferevent_new(imsg.fd, NULL, NULL,
-			    server_client_err_callback, c);
+			c->stderr_event = bufferevent_new(c->stderr_fd,
+			    NULL, NULL, server_client_err_callback, c);
 			if (c->stderr_event == NULL)
 				fatalx("failed to create stderr event");
 
-			if ((mode = fcntl(imsg.fd, F_GETFL)) != -1)
-				fcntl(imsg.fd, F_SETFL, mode|O_NONBLOCK);
-			if (fcntl(imsg.fd, F_SETFD, FD_CLOEXEC) == -1)
+			if ((mode = fcntl(c->stderr_fd, F_GETFL)) != -1)
+				fcntl(c->stderr_fd, F_SETFL, mode|O_NONBLOCK);
+			if (fcntl(c->stderr_fd, F_SETFD, FD_CLOEXEC) == -1)
 				fatal("fcntl failed");
 			break;
 		case MSG_RESIZE:
