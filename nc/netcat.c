@@ -517,7 +517,6 @@ connect_timeout(int s, const struct sockaddr *name, socklen_t namelen, int t)
 	wset = rset;
 	tv.tv_sec = t / 1000;
 	tv.tv_usec = t % 1000;
-	printf("tv: tv_sec = %d, tv_usec = %d\n",tv.tv_sec, tv.tv_usec);
 
 	if ( (n = select(s+1, &rset, &wset, NULL, &tv)) == 0) {
 		close(s);
@@ -597,9 +596,9 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 		} else {
 			error = connect(s, res0->ai_addr, res0->ai_addrlen);
 		}
-		if (error == 0) {
+		if (error == 0)
 			break;
-		} else if (vflag)
+		else if (vflag)
 			warn("connect to %s port %s (%s) failed", host, port,
 			    uflag ? "udp" : "tcp");
 
