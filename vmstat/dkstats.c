@@ -1,4 +1,4 @@
-/*	$OpenBSD: dkstats.c,v 1.33 2007/11/26 09:28:34 martynas Exp $	*/
+/*	$OpenBSD: dkstats.c,v 1.35 2010/09/24 00:11:15 deraadt Exp $	*/
 /*	$NetBSD: dkstats.c,v 1.1 1996/05/10 23:19:27 thorpej Exp $	*/
 
 /*
@@ -198,8 +198,14 @@ dkreadstats(void)
 			if (sysctl(mib, 2, disknames, &size, NULL, 0) < 0)
 				err(1, "can't get hw.disknames");
 			bufpp = disknames;
-			for (i = 0; i < dk_ndrive && (name = strsep(&bufpp, ",")) != NULL; i++)
+			for (i = 0; i < dk_ndrive &&
+			    (name = strsep(&bufpp, ",")) != NULL; i++)
 				dk_name[i] = name;
+			for (i = 0; i < dk_ndrive; i++) {
+				char *p = strchr(dk_name[i], ':');
+				if (p)
+					*p = '\0';
+			}
 			disknames = cur.dk_name[0];	/* To free old names. */
 
 			if (dk_ndrive < cur.dk_ndrive) {
@@ -431,27 +437,17 @@ dkinit(int sel)
 	size_t		size;
 	struct clockinfo clkinfo;
 	char		*disknames, *name, *bufpp;
-	gid_t		gid;
 
 	if (once)
 		return(1);
 
-	gid = getgid();
 	if (nlistf != NULL || memf != NULL) {
 #if !defined(NOKVM)
-		if (memf != NULL)
-			if (setresgid(gid, gid, gid) == -1)
-				err(1, "setresgid");
-
 		/* Open the kernel. */
 		if (kd == NULL &&
 		    (kd = kvm_openfiles(nlistf, memf, NULL, O_RDONLY,
 		    errbuf)) == NULL)
 			errx(1, "kvm_openfiles: %s", errbuf);
-
-		if (memf == NULL)
-			if (setresgid(gid, gid, gid) == -1)
-				err(1, "setresgid");
 
 		/* Obtain the namelist symbols from the kernel. */
 		if (kvm_nlist(kd, namelist))
@@ -537,6 +533,11 @@ dkinit(int sel)
 		for (i = 0; i < dk_ndrive && (name = strsep(&bufpp, ",")) != NULL; i++) {
 			cur.dk_name[i] = name;
 			cur.dk_select[i] = sel;
+		}
+		for (i = 0; i < dk_ndrive; i++) {
+			char *p = strchr(cur.dk_name[i], ':');
+			if (p)
+				*p = '\0';
 		}
 	} else {
 #if !defined(NOKVM)

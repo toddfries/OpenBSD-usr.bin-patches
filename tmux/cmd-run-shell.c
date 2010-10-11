@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-run-shell.c,v 1.6 2009/11/13 19:53:29 nicm Exp $ */
+/* $OpenBSD: cmd-run-shell.c,v 1.9 2010/07/24 20:11:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -82,6 +82,11 @@ cmd_run_shell_callback(struct job *job)
 	int				 retcode;
 	u_int				 lines;
 
+	if (ctx->cmdclient != NULL && ctx->cmdclient->flags & CLIENT_DEAD)
+		return;
+	if (ctx->curclient != NULL && ctx->curclient->flags & CLIENT_DEAD)
+		return;
+
 	lines = 0;
 	do {
 		if ((line = evbuffer_readline(job->event->input)) != NULL) {
@@ -129,7 +134,7 @@ cmd_run_shell_free(void *data)
 
 	if (ctx->cmdclient != NULL) {
 		ctx->cmdclient->references--;
-		server_write_client(ctx->cmdclient, MSG_EXIT, NULL, 0);
+		ctx->cmdclient->flags |= CLIENT_EXIT;
 	}
 	if (ctx->curclient != NULL)
 		ctx->curclient->references--;

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-new-session.c,v 1.25 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: cmd-new-session.c,v 1.30 2010/06/27 02:56:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,8 +18,10 @@
 
 #include <sys/types.h>
 
+#include <pwd.h>
 #include <string.h>
 #include <termios.h>
+#include <unistd.h>
 
 #include "tmux.h"
 
@@ -122,12 +124,14 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_new_session_data	*data = self->data;
 	struct session			*s, *groupwith;
 	struct window			*w;
+	struct window_pane		*wp;
 	struct environ			 env;
 	struct termios			 tio, *tiop;
-	const char			*update;
-	char				*overrides, *cmd, *cwd, *cause;
+	struct passwd			*pw;
+	const char			*update, *cwd;
+	char				*overrides, *cmd, *cause;
 	int				 detached, idx;
-	u_int				 sx, sy;
+	u_int				 sx, sy, i;
 
 	if (data->newname != NULL && session_find(data->newname) != NULL) {
 		ctx->error(ctx, "duplicate session: %s", data->newname);
@@ -197,8 +201,13 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	/* Get the new session working directory. */
 	if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
 		cwd = ctx->cmdclient->cwd;
-	else
-		cwd = options_get_string(&global_s_options, "default-path");
+	else {
+		pw = getpwuid(getuid());
+		if (pw->pw_dir != NULL && *pw->pw_dir != '\0')
+			cwd = pw->pw_dir;
+		else
+			cwd = "/";
+	}
 
 	/* Find new session size. */
 	if (detached) {
@@ -280,6 +289,22 @@ cmd_new_session_exec(struct cmd *self, struct cmd_ctx *ctx)
 	recalculate_sizes();
 	server_update_socket();
 
+	/*
+	 * If there are still configuration file errors to display, put the new
+	 * session's current window into more mode and display them now.
+	 */
+	if (cfg_finished && !ARRAY_EMPTY(&cfg_causes)) {
+		wp = s->curw->window->active;
+		window_pane_set_mode(wp, &window_copy_mode);
+		window_copy_init_for_output(wp);
+		for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
+			cause = ARRAY_ITEM(&cfg_causes, i);
+			window_copy_add(wp, "%s", cause);
+			xfree(cause);
+		}
+		ARRAY_FREE(&cfg_causes);
+	}
+
 	return (!detached);	/* 1 means don't tell command client to exit */
 }
 
@@ -308,10 +333,12 @@ cmd_new_session_print(struct cmd *self, char *buf, size_t len)
 		return (off);
 	if (off < len && data->flag_detached)
 		off += xsnprintf(buf + off, len - off, " -d");
-	if (off < len && data->newname != NULL)
-		off += cmd_prarg(buf + off, len - off, " -s ", data->newname);
 	if (off < len && data->winname != NULL)
 		off += cmd_prarg(buf + off, len - off, " -n ", data->winname);
+	if (off < len && data->newname != NULL)
+		off += cmd_prarg(buf + off, len - off, " -s ", data->newname);
+	if (off < len && data->target != NULL)
+		off += cmd_prarg(buf + off, len - off, " -t ", data->target);
 	if (off < len && data->cmd != NULL)
 		off += cmd_prarg(buf + off, len - off, " ", data->cmd);
 	return (off);

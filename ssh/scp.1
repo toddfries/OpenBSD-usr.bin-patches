@@ -9,9 +9,9 @@
 .\"
 .\" Created: Sun May  7 00:14:37 1995 ylo
 .\"
-.\" $OpenBSD: scp.1,v 1.47 2009/10/28 16:38:18 reyk Exp $
+.\" $OpenBSD: scp.1,v 1.52 2010/09/23 13:36:46 jmc Exp $
 .\"
-.Dd $Mdocdate: October 28 2009 $
+.Dd $Mdocdate: September 23 2010 $
 .Dt SCP 1
 .Os
 .Sh NAME
@@ -148,24 +148,24 @@ For full details of the options listed below, and their possible values, see
 .It IdentityFile
 .It IdentitiesOnly
 .It KbdInteractiveDevices
+.It KexAlgorithms
 .It LogLevel
 .It MACs
 .It NoHostAuthenticationForLocalhost
 .It NumberOfPasswordPrompts
 .It PasswordAuthentication
+.It PKCS11Provider
 .It Port
 .It PreferredAuthentications
 .It Protocol
 .It ProxyCommand
 .It PubkeyAuthentication
-.It RDomain
 .It RekeyLimit
 .It RhostsRSAAuthentication
 .It RSAAuthentication
 .It SendEnv
 .It ServerAliveInterval
 .It ServerAliveCountMax
-.It SmartcardDevice
 .It StrictHostKeyChecking
 .It TCPKeepAlive
 .It UsePrivilegedPort
@@ -210,7 +210,7 @@ to print debugging messages about their progress.
 This is helpful in
 debugging connection, authentication, and configuration problems.
 .El
-.Pp
+.Sh EXIT STATUS
 .Ex -std scp
 .Sh SEE ALSO
 .Xr rcp 1 ,

@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.62 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.88 2010/09/26 20:43:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 
 #include <errno.h>
 #include <event.h>
@@ -36,27 +37,31 @@ extern char	*malloc_options;
 #endif
 
 char		*cfg_file;
+struct options	 global_options;	/* server options */
 struct options	 global_s_options;	/* session options */
 struct options	 global_w_options;	/* window options */
 struct environ	 global_environ;
 
+struct event_base *ev_base;
+
 int		 debug_level;
-int		 be_quiet;
 time_t		 start_time;
 char		*socket_path;
 int		 login_shell;
 
+struct env_data {
+	char	*path;
+	pid_t	 pid;
+	u_int	 idx;
+};
+
 __dead void	 usage(void);
-void	 	 fill_session(struct msg_command_data *);
+void	 	 parse_env(struct env_data *);
 char 		*makesockpath(const char *);
 __dead void	 shell_exec(const char *, const char *);
 
 struct imsgbuf	*main_ibuf;
-struct event	 main_ev_sigterm;
-int	         main_exitval;
 
-void		 main_set_signals(void);
-void		 main_clear_signals(void);
 void		 main_signal(int, short, unused void *);
 void		 main_callback(int, short, void *);
 void		 main_dispatch(const char *);
@@ -129,9 +134,9 @@ areshell(const char *shell)
 }
 
 void
-fill_session(struct msg_command_data *data)
+parse_env(struct env_data *data)
 {
-	char		*env, *ptr1, *ptr2, buf[256];
+	char		*env, *path_pid, *pid_idx, buf[256];
 	size_t		 len;
 	const char	*errstr;
 	long long	 ll;
@@ -140,19 +145,24 @@ fill_session(struct msg_command_data *data)
 	if ((env = getenv("TMUX")) == NULL)
 		return;
 
-	if ((ptr2 = strrchr(env, ',')) == NULL || ptr2 == env)
+	if ((path_pid = strchr(env, ',')) == NULL || path_pid == env)
 		return;
-	for (ptr1 = ptr2 - 1; ptr1 > env && *ptr1 != ','; ptr1--)
-		;
-	if (*ptr1 != ',')
+	if ((pid_idx = strchr(path_pid + 1, ',')) == NULL)
 		return;
-	ptr1++;
-	ptr2++;
+	if ((pid_idx == path_pid + 1 || pid_idx[1] == '\0'))
+		return;
 
-	len = ptr2 - ptr1 - 1;
+	/* path */
+	len = path_pid - env;
+	data->path = xmalloc (len + 1);
+	memcpy(data->path, env, len);
+	data->path[len] = '\0';
+
+	/* pid */
+	len = pid_idx - path_pid - 1;
 	if (len > (sizeof buf) - 1)
 		return;
-	memcpy(buf, ptr1, len);
+	memcpy(buf, path_pid + 1, len);
 	buf[len] = '\0';
 
 	ll = strtonum(buf, 0, LONG_MAX, &errstr);
@@ -160,7 +170,8 @@ fill_session(struct msg_command_data *data)
 		return;
 	data->pid = ll;
 
-	ll = strtonum(ptr2, 0, UINT_MAX, &errstr);
+	/* idx */
+	ll = strtonum(pid_idx+1, 0, UINT_MAX, &errstr);
 	if (errstr != NULL)
 		return;
 	data->idx = ll;
@@ -222,14 +233,15 @@ main(int argc, char **argv)
 	struct cmd		*cmd;
 	enum msgtype		 msg;
 	struct passwd		*pw;
-	struct options		*so, *wo;
+	struct options		*oo, *so, *wo;
 	struct keylist		*keylist;
+	struct env_data		 envdata;
 	struct msg_command_data	 cmddata;
 	char			*s, *shellcmd, *path, *label, *home, *cause;
-	char			 cwd[MAXPATHLEN], **var;
+	char		       **var;
 	void			*buf;
 	size_t			 len;
-	int	 		 opt, flags, cmdflags = 0;
+	int	 		 opt, flags, quiet = 0, cmdflags = 0;
 	short		 	 events;
 
 #ifdef DEBUG
@@ -238,6 +250,7 @@ main(int argc, char **argv)
 
 	flags = 0;
 	shellcmd = label = path = NULL;
+	envdata.path = NULL;
 	login_shell = (**argv == '-');
 	while ((opt = getopt(argc, argv, "28c:df:lL:qS:uUv")) != -1) {
 		switch (opt) {
@@ -268,7 +281,7 @@ main(int argc, char **argv)
 			label = xstrdup(optarg);
 			break;
 		case 'q':
-			be_quiet = 1;
+			quiet = 1;
 			break;
 		case 'S':
 			if (path != NULL)
@@ -314,14 +327,24 @@ main(int argc, char **argv)
 	for (var = environ; *var != NULL; var++)
 		environ_put(&global_environ, *var);
 
+	options_init(&global_options, NULL);
+	oo = &global_options;
+	options_set_number(oo, "quiet", quiet);
+	options_set_number(oo, "escape-time", 500);
+	options_set_number(oo, "exit-unattached", 0);
+
 	options_init(&global_s_options, NULL);
 	so = &global_s_options;
 	options_set_number(so, "base-index", 0);
 	options_set_number(so, "bell-action", BELL_ANY);
 	options_set_number(so, "buffer-limit", 9);
 	options_set_string(so, "default-command", "%s", "");
+	options_set_string(so, "default-path", "%s", "");
 	options_set_string(so, "default-shell", "%s", getshell());
 	options_set_string(so, "default-terminal", "screen");
+	options_set_number(so, "destroy-unattached", 0);
+	options_set_number(so, "detach-on-destroy", 1);
+	options_set_number(so, "display-panes-active-colour", 1);
 	options_set_number(so, "display-panes-colour", 4);
 	options_set_number(so, "display-panes-time", 1000);
 	options_set_number(so, "display-time", 750);
@@ -334,6 +357,10 @@ main(int argc, char **argv)
 	options_set_number(so, "message-fg", 0);
 	options_set_number(so, "message-limit", 20);
 	options_set_number(so, "mouse-select-pane", 0);
+	options_set_number(so, "pane-active-border-bg", 8);
+	options_set_number(so, "pane-active-border-fg", 2);
+	options_set_number(so, "pane-border-bg", 8);
+	options_set_number(so, "pane-border-fg", 8);
 	options_set_number(so, "repeat-time", 500);
 	options_set_number(so, "set-remain-on-exit", 0);
 	options_set_number(so, "set-titles", 0);
@@ -371,6 +398,7 @@ main(int argc, char **argv)
 	options_init(&global_w_options, NULL);
 	wo = &global_w_options;
 	options_set_number(wo, "aggressive-resize", 0);
+	options_set_number(wo, "alternate-screen", 1);
 	options_set_number(wo, "automatic-rename", 1);
 	options_set_number(wo, "clock-mode-colour", 4);
 	options_set_number(wo, "clock-mode-style", 1);
@@ -391,8 +419,12 @@ main(int argc, char **argv)
 	options_set_number(wo, "window-status-current-bg", 8);
 	options_set_number(wo, "window-status-current-fg", 8);
 	options_set_number(wo, "window-status-fg", 8);
+	options_set_number(wo, "window-status-alert-attr", GRID_ATTR_REVERSE);
+	options_set_number(wo, "window-status-alert-bg", 8);
+	options_set_number(wo, "window-status-alert-fg", 8);
 	options_set_string(wo, "window-status-format", "#I:#W#F");
 	options_set_string(wo, "window-status-current-format", "#I:#W#F");
+	options_set_string(wo, "word-separators", " -_@");
 	options_set_number(wo, "xterm-keys", 0);
 	options_set_number(wo, "remain-on-exit", 0);
 	options_set_number(wo, "synchronize-panes", 0);
@@ -405,15 +437,6 @@ main(int argc, char **argv)
 		options_set_number(wo, "utf8", 0);
 	}
 
-	if (getcwd(cwd, sizeof cwd) == NULL) {
-		pw = getpwuid(getuid());
-		if (pw->pw_dir != NULL && *pw->pw_dir != '\0')
-			strlcpy(cwd, pw->pw_dir, sizeof cwd);
-		else
-			strlcpy(cwd, "/", sizeof cwd);
-	}
-	options_set_string(so, "default-path", "%s", cwd);
-
 	if (cfg_file == NULL) {
 		home = getenv("HOME");
 		if (home == NULL || *home == '\0') {
@@ -422,32 +445,45 @@ main(int argc, char **argv)
 				home = pw->pw_dir;
 		}
 		xasprintf(&cfg_file, "%s/%s", home, DEFAULT_CFG);
-		if (access(cfg_file, R_OK) != 0) {
+		if (access(cfg_file, R_OK) != 0 && errno == ENOENT) {
 			xfree(cfg_file);
 			cfg_file = NULL;
 		}
-	} else {
-		if (access(cfg_file, R_OK) != 0) {
-			log_warn("%s", cfg_file);
-			exit(1);
-		}
 	}
 
-	if (label == NULL)
-		label = xstrdup("default");
-	if (path == NULL && (path = makesockpath(label)) == NULL) {
-		log_warn("can't create socket");
-		exit(1);
+	/*
+	 * Figure out the socket path. If specified on the command-line with
+	 * -S or -L, use it, otherwise try $TMUX or assume -L default.
+	 */
+	parse_env(&envdata);
+	if (path == NULL) {
+		/* No -L. Try $TMUX, or default. */
+		if (label == NULL) {
+			path = envdata.path;
+			if (path == NULL)
+				label = xstrdup("default");
+		}
+
+		/* -L or default set. */
+		if (label != NULL) {
+			if ((path = makesockpath(label)) == NULL) {
+				log_warn("can't create socket");
+				exit(1);
+			}
+		}
 	}
-	xfree(label);
+	if (label != NULL)
+		xfree(label);
 
 	if (shellcmd != NULL) {
 		msg = MSG_SHELL;
 		buf = NULL;
 		len = 0;
 	} else {
-		fill_session(&cmddata);
+		cmddata.pid = envdata.pid;
+		cmddata.idx = envdata.idx;
 
+		/* Prepare command for server. */
 		cmddata.argc = argc;
 		if (cmd_pack_argv(
 		    argc, argv, cmddata.argv, sizeof cmddata.argv) != 0) {
@@ -463,7 +499,7 @@ main(int argc, char **argv)
 	if (shellcmd != NULL)
 		cmdflags |= CMD_STARTSERVER;
 	else if (argc == 0)	/* new-session is the default */
-		cmdflags |= CMD_STARTSERVER|CMD_SENDENVIRON;
+		cmdflags |= CMD_STARTSERVER|CMD_SENDENVIRON|CMD_CANTNEST;
 	else {
 		/*
 		 * It sucks parsing the command string twice (in client and
@@ -475,92 +511,63 @@ main(int argc, char **argv)
 			exit(1);
 		}
 		cmdflags &= ~CMD_STARTSERVER;
-		TAILQ_FOREACH(cmd, cmdlist, qentry) {
+		TAILQ_FOREACH(cmd, &cmdlist->list, qentry) {
 			if (cmd->entry->flags & CMD_STARTSERVER)
 				cmdflags |= CMD_STARTSERVER;
 			if (cmd->entry->flags & CMD_SENDENVIRON)
 				cmdflags |= CMD_SENDENVIRON;
+			if (cmd->entry->flags & CMD_CANTNEST)
+				cmdflags |= CMD_CANTNEST;
 		}
 		cmd_list_free(cmdlist);
 	}
 
+	/*
+	 * Check if this could be a nested session, if the command can't nest:
+	 * if the socket path matches $TMUX, this is probably the same server.
+	 */
+	if (shellcmd == NULL && envdata.path != NULL &&
+	    cmdflags & CMD_CANTNEST &&
+	    (path == envdata.path || strcmp(path, envdata.path) == 0)) {
+		log_warnx("sessions should be nested with care. "
+		    "unset $TMUX to force.");
+		exit(1);
+	}
+
+	ev_base = event_init();
+	set_signals(main_signal);
+
+	/* Initialise the client socket/start the server. */
 	if ((main_ibuf = client_init(path, cmdflags, flags)) == NULL)
 		exit(1);
 	xfree(path);
 
-	event_init();
-
 	imsg_compose(main_ibuf, msg, PROTOCOL_VERSION, -1, -1, buf, len);
-
-	main_set_signals();
 
 	events = EV_READ;
 	if (main_ibuf->w.queued > 0)
 		events |= EV_WRITE;
 	event_once(main_ibuf->fd, events, main_callback, shellcmd, NULL);
 
-	main_exitval = 0;
 	event_dispatch();
 
-	main_clear_signals();
+	clear_signals(0);
 
 	client_main();	/* doesn't return */
-}
-
-void
-main_set_signals(void)
-{
-	struct sigaction	sigact;
-
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_IGN;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-
-	signal_set(&main_ev_sigterm, SIGTERM, main_signal, NULL);
-	signal_add(&main_ev_sigterm, NULL);
-}
-
-void
-main_clear_signals(void)
-{
-	struct sigaction	sigact;
-
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_DFL;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-
-	event_del(&main_ev_sigterm);
 }
 
 /* ARGSUSED */
 void
 main_signal(int sig, unused short events, unused void *data)
 {
+	int	status;
+
 	switch (sig) {
 	case SIGTERM:
 		exit(1);
+	case SIGCHLD:
+		waitpid(WAIT_ANY, &status, WNOHANG);
+		break;
 	}
 }
 
@@ -589,8 +596,8 @@ main_dispatch(const char *shellcmd)
 {
 	struct imsg		imsg;
 	ssize_t			n, datalen;
-	struct msg_print_data	printdata;
 	struct msg_shell_data	shelldata;
+	struct msg_exit_data	exitdata;
 
 	if ((n = imsg_read(main_ibuf)) == -1 || n == 0)
 		fatalx("imsg_read failed");
@@ -605,21 +612,13 @@ main_dispatch(const char *shellcmd)
 		switch (imsg.hdr.type) {
 		case MSG_EXIT:
 		case MSG_SHUTDOWN:
-			if (datalen != 0)
-				fatalx("bad MSG_EXIT size");
-
-			exit(main_exitval);
-		case MSG_ERROR:
-		case MSG_PRINT:
-			if (datalen != sizeof printdata)
-				fatalx("bad MSG_PRINT size");
-			memcpy(&printdata, imsg.data, sizeof printdata);
-			printdata.msg[(sizeof printdata.msg) - 1] = '\0';
-
-			log_info("%s", printdata.msg);
-			if (imsg.hdr.type == MSG_ERROR)
-				main_exitval = 1;
-			break;
+			if (datalen != sizeof exitdata) {
+				if (datalen != 0)
+					fatalx("bad MSG_EXIT size");
+				exit(0);
+			}
+			memcpy(&exitdata, imsg.data, sizeof exitdata);
+			exit(exitdata.retcode);
 		case MSG_READY:
 			if (datalen != 0)
 				fatalx("bad MSG_READY size");
@@ -639,7 +638,7 @@ main_dispatch(const char *shellcmd)
 			memcpy(&shelldata, imsg.data, sizeof shelldata);
 			shelldata.shell[(sizeof shelldata.shell) - 1] = '\0';
 
-			main_clear_signals();
+			clear_signals(0);
 
 			shell_exec(shelldata.shell, shellcmd);
 		default:

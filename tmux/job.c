@@ -1,4 +1,4 @@
-/* $OpenBSD: job.c,v 1.14 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: job.c,v 1.20 2010/08/19 18:29:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,7 +32,7 @@
  */
 
 /* All jobs list. */
-struct joblist	all_jobs = SLIST_HEAD_INITIALIZER(&all_jobs);
+struct joblist	all_jobs = SLIST_HEAD_INITIALIZER(all_jobs);
 
 RB_GENERATE(jobs, job, entry, job_cmp);
 
@@ -149,8 +149,9 @@ job_run(struct job *job)
 	case -1:
 		return (-1);
 	case 0:		/* child */
-		server_signal_clear();
-		/* XXX environ? */
+		clear_signals(1);
+
+		environ_push(&global_environ);
 
 		if (dup2(out[1], STDOUT_FILENO) == -1)
 			fatal("dup2 failed");

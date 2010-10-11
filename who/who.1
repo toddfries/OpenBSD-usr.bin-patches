@@ -1,4 +1,4 @@
-.\"	$OpenBSD: who.1,v 1.22 2009/02/08 17:15:10 jmc Exp $
+.\"	$OpenBSD: who.1,v 1.24 2010/09/03 11:09:29 jmc Exp $
 .\"	$NetBSD: who.1,v 1.5 1994/12/07 04:28:47 jtc Exp $
 .\"
 .\" Copyright (c) 1986, 1991, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"     @(#)who.1	8.2 (Berkeley) 12/30/93
 .\"
-.Dd $Mdocdate: February 8 2009 $
+.Dd $Mdocdate: September 3 2010 $
 .Dt WHO 1
 .Os
 .Sh NAME
@@ -121,6 +121,8 @@ For more information on the special characters, see
 .It Pa /var/log/wtmp
 .It Pa /var/log/wtmp.[0-6]
 .El
+.Sh EXIT STATUS
+.Ex -std who
 .Sh SEE ALSO
 .Xr last 1 ,
 .Xr mesg 1 ,

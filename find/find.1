@@ -1,4 +1,4 @@
-.\"	$OpenBSD: find.1,v 1.74 2009/04/09 14:30:39 jmc Exp $
+.\"	$OpenBSD: find.1,v 1.81 2010/09/29 07:44:56 jmc Exp $
 .\" Copyright (c) 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
 .\"
@@ -31,7 +31,7 @@
 .\"
 .\"	from: @(#)find.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: April 9 2009 $
+.Dd $Mdocdate: September 29 2010 $
 .Dt FIND 1
 .Os
 .Sh NAME
@@ -126,19 +126,23 @@ quotes, backslash
 space, tab, and newline
 .Pq Sq \en
 characters.
-Alternatively, the
+Consider using
 .Fl print0
-primary may be used in conjunction with the
-.Fl 0
-option to
-.Xr xargs 1 ,
-allowing all file names to be processed safely.
+instead.
 .It Fl x
 Prevents
 .Nm
 from descending into directories that have a device number different
 than that of the file from which the descent began.
 .El
+.Pp
+It is not an error to specify more than one of
+the mutually exclusive options
+.Fl H
+and
+.Fl L .
+Where more than one of these options is specified,
+the last option given overrides the others.
 .Sh PRIMARIES
 .Bl -tag -width Ds
 .It Ic -amin Ar n
@@ -263,10 +267,9 @@ is numeric and there is no such group name, then
 .Ar gname
 is treated as a group ID.
 .It Ic -iname Ar pattern
-True if the last component of the pathname being examined
-matches
-.Ar pattern .
-Case insensitive.
+Identical to the
+.Ic -name
+primary except that the matching is done in a case insensitive manner.
 .It Ic -inum Ar n
 True if the file has inode number
 .Ar n .
@@ -306,18 +309,9 @@ was started, rounded up to the next full 24-hour period, is
 24-hour periods.
 .It Ic -name Ar pattern
 True if the last component of the pathname being examined matches
-.Ar pattern .
-Special shell pattern matching characters
-.Pf ( Ql [ ,
-.Ql \&] ,
-.Ql * ,
-and
-.Ql \&? )
-may be used as part of
-.Ar pattern .
-These characters may be matched explicitly by escaping them with a
-backslash
-.Pq Ql \e .
+.Ar pattern ,
+which may use any of the special characters documented in
+.Xr glob 7 .
 .It Ic -newer Ar file
 True if the current file has a more recent last modification time than
 .Ar file .
@@ -346,18 +340,9 @@ value of the
 expression is false.
 .It Ic -path Ar pattern
 True if the pathname being examined matches
-.Ar pattern .
-Special shell pattern matching characters
-.Pf ( Ql [ ,
-.Ql \&] ,
-.Ql * ,
-and
-.Ql \&? )
-may be used as part of
-.Ar pattern .
-These characters may be matched explicitly by escaping them with a
-backslash
-.Pq Ql \e .
+.Ar pattern ,
+which may use any of the special characters documented in
+.Xr glob 7 .
 Slashes
 .Pq Ql /
 are treated as normal characters and do not have to be
@@ -397,7 +382,10 @@ character.
 .It Ic -print0
 This primary always evaluates to true.
 It prints the pathname of the current file to standard output, followed
-by a null character.
+by a null character, suitable for use with the
+.Fl 0
+option to
+.Xr xargs 1 .
 .It Ic -prune
 This primary always evaluates to true.
 It causes
@@ -512,6 +500,11 @@ Operators, primaries, and arguments to primaries must be separate
 arguments to
 .Nm find ,
 i.e. they should be separated by whitespace.
+.Sh EXIT STATUS
+The
+.Nm
+utility exits with a value of 0 on successful traversal of all path operands
+or with a value \*(Gt0 if an error occurred.
 .Sh EXAMPLES
 Print out a list of all the files whose names end in
 .Dq \&.c :
@@ -536,23 +529,23 @@ ending in a dot and single digit, but skip directory
 .Pp
 .Dl "$ find /usr/src -path /usr/src/gnu -prune -or -name \e*.[0-9]"
 .Pp
-Find and remove all *.jpg files in the current working directory:
+Find and remove all *.jpg and *.gif files under the current working
+directory:
 .Pp
-.Dl "$ find . -name \e*.jpg -exec rm {} \e;"
+.Dl "$ find . \e( -name \e*.jpg -or -name \e*.gif \e) -exec rm {} \e;"
 or
-.Dl "$ find . -name \e*.jpg | xargs rm"
+.Dl "$ find . \e( -name \e*.jpg -or -name \e*.gif \e) -print0 | xargs -0r rm"
 .Sh SEE ALSO
 .Xr chflags 1 ,
 .Xr chmod 1 ,
 .Xr locate 1 ,
+.Xr ls 1 ,
 .Xr whereis 1 ,
 .Xr which 1 ,
 .Xr xargs 1 ,
 .Xr stat 2 ,
 .Xr fts 3 ,
-.Xr getgrent 3 ,
-.Xr getpwent 3 ,
-.Xr strmode 3 ,
+.Xr glob 7 ,
 .Xr symlink 7
 .Sh STANDARDS
 The
@@ -639,16 +632,36 @@ The special characters used by
 are also special characters to many shell programs.
 In particular, the characters
 .Ql * ,
-.Ql [ ,
+.Ql \&[ ,
 .Ql \&] ,
 .Ql \&? ,
-.Ql ( ,
+.Ql \&( ,
 .Ql \&) ,
 .Ql \&! ,
 .Ql \e ,
 and
 .Ql \&;
 may have to be escaped from the shell.
+.Pp
+Passing the output of
+.Nm
+to other programs requires some care:
+.Pp
+.Dl "$ find . -name \e*.jpg | xargs rm"
+or
+.Dl "$ rm `find . -name \e*.jpg`"
+.Pp
+would, given files
+.Dq important\ .jpg
+and
+.Dq important ,
+remove
+.Dq important .
+Use the
+.Ic -print0
+or
+.Ic -exec
+primaries instead.
 .Pp
 As there is no delimiter separating options and file names or file
 names and the

@@ -1,4 +1,4 @@
-/*	$OpenBSD: client.c,v 1.121 2009/04/04 11:29:57 joris Exp $	*/
+/*	$OpenBSD: client.c,v 1.123 2010/09/29 18:14:52 nicm Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -135,20 +135,20 @@ client_get_supported_responses(void)
 	int i, first;
 
 	first = 0;
-	bp = cvs_buf_alloc(512);
+	bp = buf_alloc(512);
 	for (i = 0; cvs_responses[i].supported != -1; i++) {
 		if (cvs_responses[i].hdlr == NULL)
 			continue;
 
 		if (first != 0)
-			cvs_buf_putc(bp, ' ');
+			buf_putc(bp, ' ');
 		else
 			first++;
-		cvs_buf_puts(bp, cvs_responses[i].name);
+		buf_puts(bp, cvs_responses[i].name);
 	}
 
-	cvs_buf_putc(bp, '\0');
-	d = cvs_buf_release(bp);
+	buf_putc(bp, '\0');
+	d = buf_release(bp);
 	return (d);
 }
 
@@ -524,7 +524,22 @@ cvs_client_sendfile(struct cvs_file *cf)
 			    cf->file_name);
 		break;
 	case FILE_ADDED:
+		if (backup_local_changes)	/* for update -C */
+			cvs_backup_file(cf);
+
+		cvs_client_send_request("Modified %s", cf->file_name);
+		cvs_remote_send_file(cf->file_path, cf->fd);
+		break;
 	case FILE_MODIFIED:
+		if (backup_local_changes) {	/* for update -C */
+			cvs_backup_file(cf);
+			cvs_client_send_request("Entry /%s/%s%s/%s/%s/%s",
+			    cf->file_name, "", rev, timebuf,
+			    cf->file_ent->ce_opts ? cf->file_ent->ce_opts : "",
+			    sticky);
+			break;
+		}
+
 		cvs_client_send_request("Modified %s", cf->file_name);
 		cvs_remote_send_file(cf->file_path, cf->fd);
 		break;

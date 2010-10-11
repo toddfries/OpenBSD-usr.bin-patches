@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.73 2009/11/20 03:24:07 djm Exp $ */
+/* $OpenBSD: misc.c,v 1.82 2010/09/24 13:33:00 matthew Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005,2006 Damien Miller.  All rights reserved.
@@ -144,43 +144,6 @@ set_nodelay(int fd)
 		error("setsockopt TCP_NODELAY: %.100s", strerror(errno));
 }
 
-/* open a socket in the specified routing domain */
-int
-socket_rdomain(int domain, int type, int protocol, int rdomain)
-{
-	int sock, ipproto = IPPROTO_IP;
-
-	if ((sock = socket(domain, type, protocol)) == -1)
-		return (-1);
-
-	if (rdomain == -1)
-		return (sock);
-	
-	switch (domain) {
-	case AF_INET6:
-		ipproto = IPPROTO_IPV6;
-		/* FALLTHROUGH */
-	case AF_INET:
-		debug2("socket %d af %d setting rdomain %d",
-		    sock, domain, rdomain);
-		if (setsockopt(sock, ipproto, SO_RDOMAIN, &rdomain,
-		    sizeof(rdomain)) == -1) {
-			debug("setsockopt SO_RDOMAIN: %.100s",
-			    strerror(errno));
-			close(sock);
-			return (-1);
-		}
-		break;
-	default:
-		debug("socket %d af %d does not support rdomain %d",
-		    sock, domain, rdomain);
-		close(sock);
-		return (-1);
-	}
-
-	return (sock);
-}
-
 /* Characters considered whitespace in strsep calls. */
 #define WHITESPACE " \t\r\n"
 #define QUOTE	"\""
@@ -208,6 +171,7 @@ strdelim(char **s)
 			return (NULL);		/* no matching quote */
 		} else {
 			*s[0] = '\0';
+			*s += strspn(*s + 1, WHITESPACE) + 1;
 			return (old);
 		}
 	}
@@ -449,7 +413,7 @@ colon(char *cp)
 	int flag = 0;
 
 	if (*cp == ':')		/* Leading colon is part of file name. */
-		return (0);
+		return NULL;
 	if (*cp == '[')
 		flag = 1;
 
@@ -461,9 +425,9 @@ colon(char *cp)
 		if (*cp == ':' && !flag)
 			return (cp);
 		if (*cp == '/')
-			return (0);
+			return NULL;
 	}
-	return (0);
+	return NULL;
 }
 
 /* function to assist building execv() arguments */
@@ -866,3 +830,66 @@ ms_to_timeval(struct timeval *tv, int ms)
 	tv->tv_usec = (ms % 1000) * 1000;
 }
 
+void
+bandwidth_limit_init(struct bwlimit *bw, u_int64_t kbps, size_t buflen)
+{
+	bw->buflen = buflen;
+	bw->rate = kbps;
+	bw->thresh = bw->rate;
+	bw->lamt = 0;
+	timerclear(&bw->bwstart);
+	timerclear(&bw->bwend);
+}	
+
+/* Callback from read/write loop to insert bandwidth-limiting delays */
+void
+bandwidth_limit(struct bwlimit *bw, size_t read_len)
+{
+	u_int64_t waitlen;
+	struct timespec ts, rm;
+
+	if (!timerisset(&bw->bwstart)) {
+		gettimeofday(&bw->bwstart, NULL);
+		return;
+	}
+
+	bw->lamt += read_len;
+	if (bw->lamt < bw->thresh)
+		return;
+
+	gettimeofday(&bw->bwend, NULL);
+	timersub(&bw->bwend, &bw->bwstart, &bw->bwend);
+	if (!timerisset(&bw->bwend))
+		return;
+
+	bw->lamt *= 8;
+	waitlen = (double)1000000L * bw->lamt / bw->rate;
+
+	bw->bwstart.tv_sec = waitlen / 1000000L;
+	bw->bwstart.tv_usec = waitlen % 1000000L;
+
+	if (timercmp(&bw->bwstart, &bw->bwend, >)) {
+		timersub(&bw->bwstart, &bw->bwend, &bw->bwend);
+
+		/* Adjust the wait time */
+		if (bw->bwend.tv_sec) {
+			bw->thresh /= 2;
+			if (bw->thresh < bw->buflen / 4)
+				bw->thresh = bw->buflen / 4;
+		} else if (bw->bwend.tv_usec < 10000) {
+			bw->thresh *= 2;
+			if (bw->thresh > bw->buflen * 8)
+				bw->thresh = bw->buflen * 8;
+		}
+
+		TIMEVAL_TO_TIMESPEC(&bw->bwend, &ts);
+		while (nanosleep(&ts, &rm) == -1) {
+			if (errno != EINTR)
+				break;
+			ts = rm;
+		}
+	}
+
+	bw->lamt = 0;
+	gettimeofday(&bw->bwstart, NULL);
+}

@@ -1,4 +1,4 @@
-/*	$OpenBSD: top.c,v 1.67 2009/07/18 06:12:41 jmc Exp $	*/
+/*	$OpenBSD: top.c,v 1.75 2010/04/24 22:02:14 deraadt Exp $	*/
 
 /*
  *  Top users/processes display for Unix
@@ -83,6 +83,7 @@ int old_system = No;
 int old_threads = No;
 int show_args = No;
 pid_t hlpid = -1;
+int combine_cpus = 0;
 
 #if Default_TOPN == Infinity
 char topn_specified = No;
@@ -116,6 +117,7 @@ char topn_specified = No;
 #define CMD_grep	20
 #define CMD_add		21
 #define CMD_hl		22
+#define CMD_cpus	23
 
 static void
 usage(void)
@@ -123,7 +125,7 @@ usage(void)
 	extern char *__progname;
 
 	fprintf(stderr,
-	    "usage: %s [-bCIinqSTu] [-d count] [-g string] [-o field] "
+	    "usage: %s [-1bCIinqSTu] [-d count] [-g string] [-o field] "
 	    "[-p pid] [-s time]\n\t[-U user] [number]\n",
 	    __progname);
 }
@@ -134,12 +136,14 @@ parseargs(int ac, char **av)
 	char *endp;
 	int i;
 
-	while ((i = getopt(ac, av, "STICbinqus:d:p:U:o:g:")) != -1) {
+	while ((i = getopt(ac, av, "1STICbinqus:d:p:U:o:g:")) != -1) {
 		switch (i) {
+		case '1':
+			combine_cpus = 1;
+			break;
 		case 'C':
 			show_args = Yes;
 			break;
-
 		case 'u':	/* toggle uid/username display */
 			do_unames = !do_unames;
 			break;
@@ -227,7 +231,9 @@ parseargs(int ac, char **av)
 			break;
 
 		case 'g':	/* grep command name */
-			ps.command = strdup(optarg);
+			free(ps.command);
+			if ((ps.command = strdup(optarg)) == NULL)
+				err(1, NULL);
 			break;
 
 		default:
@@ -318,7 +324,7 @@ main(int argc, char *argv[])
 	if (order_name != NULL) {
 		if ((order_index = string_index(order_name,
 		    statics.order_names)) == -1) {
-			char **pp, msg[80];
+			char **pp, msg[512];
 
 			snprintf(msg, sizeof(msg),
 			    "'%s' is not a recognized sorting order",
@@ -403,6 +409,24 @@ restart:
 	 *		indicates infinity (by being -1)
 	 */
 	while ((displays == -1) || (displays-- > 0)) {
+		if (winchflag) {
+			/*
+			 * reascertain the screen
+			 * dimensions
+			 */
+			get_screensize();
+			resizeterm(screen_length, screen_width + 1);
+
+			/* tell display to resize */
+			max_topn = display_resize();
+
+			/* reset the signal handler */
+			(void) signal(SIGWINCH, sigwinch);
+
+			reset_display();
+			winchflag = 0;
+		}
+
 		/* get the current stats */
 		get_system_info(&system_info);
 
@@ -510,13 +534,13 @@ restart:
 int
 rundisplay(void)
 {
-	static char tempbuf[50];
+	static char tempbuf[TEMPBUFSIZE];
 	sigset_t mask;
 	char ch, *iptr;
 	int change, i;
 	struct pollfd pfd[1];
 	uid_t uid;
-	static char command_chars[] = "\f qh?en#sdkriIuSopCTg+P";
+	static char command_chars[] = "\f qh?en#sdkriIuSopCTg+P1";
 
 	/*
 	 * assume valid command unless told
@@ -560,24 +584,6 @@ rundisplay(void)
 		reinit_screen();
 		reset_display();
 		tstopflag = 0;
-		return 1;
-	}
-	if (winchflag) {
-		/*
-		 * reascertain the screen
-		 * dimensions
-		 */
-		get_screensize();
-		resizeterm(screen_length, screen_width + 1);
-
-		/* tell display to resize */
-		max_topn = display_resize();
-
-		/* reset the signal handler */
-		(void) signal(SIGWINCH, sigwinch);
-
-		reset_display();
-		winchflag = 0;
 		return 1;
 	}
 	/*
@@ -662,9 +668,7 @@ rundisplay(void)
 			    "Number of processes to show: ");
 
 			if (readline(tempbuf, 8) > 0) {
-				char *ptr;
-				ptr = tempbuf;
-				if ((i = atoiwi(ptr)) != Invalid) {
+				if ((i = atoiwi(tempbuf)) != Invalid) {
 					if (i > max_topn) {
 						new_message(MT_standout |
 						    MT_delayed,
@@ -697,7 +701,7 @@ rundisplay(void)
 				char *endp;
 				double newdelay = strtod(tempbuf, &endp);
 
-				if (newdelay >= 0 && newdelay < 1000000 &&
+				if (newdelay >= 0 && newdelay <= 1000000 &&
 				    *endp == '\0') {
 					delay = newdelay;
 				} else {
@@ -718,9 +722,7 @@ rundisplay(void)
 			    itoa(displays));
 
 			if (readline(tempbuf, 10) > 0) {
-				char *ptr;
-				ptr = tempbuf;				
-				if ((i = atoiwi(ptr)) != Invalid) {
+				if ((i = atoiwi(tempbuf)) != Invalid) {
 					if (i == 0)
 						quit(0);
 					displays = i;
@@ -861,7 +863,9 @@ rundisplay(void)
 				    tempbuf[1] == '\0')
 					ps.command = NULL;
 				else
-					ps.command = strdup(tempbuf);
+					if ((ps.command = strdup(tempbuf)) ==
+					    NULL)
+						err(1, NULL);
 				putr();
 			} else
 				clear_message();
@@ -899,7 +903,11 @@ rundisplay(void)
 			ps.command = NULL;	/* grep */
 			hlpid = -1;
 			break;
-		
+		case CMD_cpus:
+			combine_cpus = !combine_cpus;
+			max_topn = display_resize();
+			reset_display();
+			break;
 		default:
 			new_message(MT_standout, " BAD CASE IN SWITCH!");
 			putr();

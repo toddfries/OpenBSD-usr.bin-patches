@@ -1,4 +1,4 @@
-/* $OpenBSD: server-window.c,v 1.13 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: server-window.c,v 1.17 2010/08/11 07:34:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -24,41 +24,17 @@
 #include "tmux.h"
 
 int	server_window_backoff(struct window_pane *);
-int	server_window_check_bell(struct session *, struct window *);
-int	server_window_check_activity(struct session *, struct window *);
+int	server_window_check_bell(struct session *, struct winlink *);
+int	server_window_check_activity(struct session *, struct winlink *);
 int	server_window_check_content(
-	    struct session *, struct window *, struct window_pane *);
-
-/* Check if this window should suspend reading. */
-int
-server_window_backoff(struct window_pane *wp)
-{
-	struct client	*c;
-	u_int		 i;
-
-	if (!window_pane_visible(wp))
-		return (0);
-
-	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
-		c = ARRAY_ITEM(&clients, i);
-		if (c == NULL || c->session == NULL)
-			continue;
-		if ((c->flags & (CLIENT_SUSPENDED|CLIENT_DEAD)) != 0)
-			continue;
-		if (c->session->curw->window != wp->window)
-			continue;
-
-		if (EVBUFFER_LENGTH(c->tty.event->output) > BACKOFF_THRESHOLD)
-			return (1);
-	}
-	return (0);
-}
+	    struct session *, struct winlink *, struct window_pane *);
 
 /* Window functions that need to happen every loop. */
 void
 server_window_loop(void)
 {
 	struct window		*w;
+	struct winlink		*wl;
 	struct window_pane	*wp;
 	struct session		*s;
 	u_int		 	 i, j;
@@ -68,44 +44,37 @@ server_window_loop(void)
 		if (w == NULL)
 			continue;
 
-		TAILQ_FOREACH(wp, &w->panes, entry) {
-			if (wp->fd != -1) {
-				if (server_window_backoff(wp))
-					bufferevent_disable(wp->event, EV_READ);
-				else
-					bufferevent_enable(wp->event, EV_READ);
-			}
-		}
-
 		for (j = 0; j < ARRAY_LENGTH(&sessions); j++) {
 			s = ARRAY_ITEM(&sessions, j);
-			if (s == NULL || !session_has(s, w))
+			if (s == NULL)
+				continue;
+			wl = session_has(s, w);
+			if (wl == NULL)
 				continue;
 
-			if (server_window_check_bell(s, w) ||
-			    server_window_check_activity(s, w))
+			if (server_window_check_bell(s, wl) ||
+			    server_window_check_activity(s, wl))
 				server_status_session(s);
 			TAILQ_FOREACH(wp, &w->panes, entry)
-				server_window_check_content(s, w, wp);
+				server_window_check_content(s, wl, wp);
 		}
-		w->flags &= ~(WINDOW_BELL|WINDOW_ACTIVITY|WINDOW_CONTENT);
+		w->flags &= ~(WINDOW_BELL|WINDOW_ACTIVITY);
 	}
 }
 
 /* Check for bell in window. */
 int
-server_window_check_bell(struct session *s, struct window *w)
+server_window_check_bell(struct session *s, struct winlink *wl)
 {
 	struct client	*c;
+	struct window	*w = wl->window;
 	u_int		 i;
 	int		 action, visual;
 
-	if (!(w->flags & WINDOW_BELL))
+	if (!(w->flags & WINDOW_BELL) || wl->flags & WINLINK_BELL)
 		return (0);
-
-	if (session_alert_has_window(s, w, WINDOW_BELL))
-		return (0);
-	session_alert_add(s, w, WINDOW_BELL);
+	if (s->curw != wl)
+		wl->flags |= WINLINK_BELL;
 
 	action = options_get_number(&s->options, "bell-action");
 	switch (action) {
@@ -153,25 +122,22 @@ server_window_check_bell(struct session *s, struct window *w)
 
 /* Check for activity in window. */
 int
-server_window_check_activity(struct session *s, struct window *w)
+server_window_check_activity(struct session *s, struct winlink *wl)
 {
 	struct client	*c;
+	struct window	*w = wl->window;
 	u_int		 i;
 
-	if (!(w->flags & WINDOW_ACTIVITY))
+	if (!(w->flags & WINDOW_ACTIVITY) || wl->flags & WINLINK_ACTIVITY)
 		return (0);
-	if (s->curw->window == w)
+	if (s->curw == wl)
 		return (0);
 
 	if (!options_get_number(&w->options, "monitor-activity"))
 		return (0);
 
-	if (session_alert_has_window(s, w, WINDOW_ACTIVITY))
-		return (0);
-	session_alert_add(s, w, WINDOW_ACTIVITY);
+	wl->flags |= WINLINK_ACTIVITY;
 
-	if (s->flags & SESSION_UNATTACHED)
-		return (0);
 	if (options_get_number(&s->options, "visual-activity")) {
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 			c = ARRAY_ITEM(&clients, i);
@@ -188,31 +154,28 @@ server_window_check_activity(struct session *s, struct window *w)
 /* Check for content change in window. */
 int
 server_window_check_content(
-    struct session *s, struct window *w, struct window_pane *wp)
+    struct session *s, struct winlink *wl, struct window_pane *wp)
 {
 	struct client	*c;
+	struct window	*w = wl->window;
 	u_int		 i;
 	char		*found, *ptr;
 
-	if (!(w->flags & WINDOW_ACTIVITY))	/* activity for new content */
+	/* Activity flag must be set for new content. */
+	if (!(w->flags & WINDOW_ACTIVITY) || wl->flags & WINLINK_CONTENT)
 		return (0);
-	if (s->curw->window == w)
+	if (s->curw == wl)
 		return (0);
 
 	ptr = options_get_string(&w->options, "monitor-content");
 	if (ptr == NULL || *ptr == '\0')
 		return (0);
-
-	if (session_alert_has_window(s, w, WINDOW_CONTENT))
-		return (0);
-
 	if ((found = window_pane_search(wp, ptr, NULL)) == NULL)
 		return (0);
 	xfree(found);
 
-	session_alert_add(s, w, WINDOW_CONTENT);
-	if (s->flags & SESSION_UNATTACHED)
-		return (0);
+	wl->flags |= WINLINK_CONTENT;
+
 	if (options_get_number(&s->options, "visual-content")) {
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 			c = ARRAY_ITEM(&clients, i);

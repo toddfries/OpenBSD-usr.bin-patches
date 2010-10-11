@@ -1,4 +1,4 @@
-/* $OpenBSD: server-fn.c,v 1.31 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: server-fn.c,v 1.42 2010/09/26 20:43:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -24,7 +24,8 @@
 
 #include "tmux.h"
 
-void	server_callback_identify(int, short, void *);
+struct session *server_next_session(struct session *);
+void		server_callback_identify(int, short, void *);
 
 void
 server_fill_environ(struct session *s, struct environ *env)
@@ -40,15 +41,6 @@ server_fill_environ(struct session *s, struct environ *env)
 
 	term = options_get_string(&s->options, "default-terminal");
 	environ_set(env, "TERM", term);
-}
-
-void
-server_write_error(struct client *c, const char *msg)
-{
-	struct msg_print_data	printdata;
-
-	strlcpy(printdata.msg, msg, sizeof printdata.msg);
-	server_write_client(c, MSG_ERROR, &printdata, sizeof printdata);
 }
 
 void
@@ -165,6 +157,21 @@ server_redraw_window(struct window *w)
 }
 
 void
+server_redraw_window_borders(struct window *w)
+{
+	struct client	*c;
+	u_int		 i;
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		c = ARRAY_ITEM(&clients, i);
+		if (c == NULL || c->session == NULL)
+			continue;
+		if (c->session->curw->window == w)
+			c->flags |= CLIENT_BORDERS;
+	}
+}
+
+void
 server_status_window(struct window *w)
 {
 	struct session	*s;
@@ -178,7 +185,7 @@ server_status_window(struct window *w)
 
 	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
 		s = ARRAY_ITEM(&sessions, i);
-		if (s != NULL && session_has(s, w))
+		if (s != NULL && session_has(s, w) != NULL)
 			server_status_session(s);
 	}
 }
@@ -243,16 +250,14 @@ server_kill_window(struct window *w)
 
 	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
 		s = ARRAY_ITEM(&sessions, i);
-		if (s == NULL || !session_has(s, w))
+		if (s == NULL || session_has(s, w) == NULL)
 			continue;
-		if ((wl = winlink_find_by_window(&s->windows, w)) == NULL)
-			continue;
-
-		if (session_detach(s, wl))
-			server_destroy_session_group(s);
-		else {
-			server_redraw_session(s);
-			server_status_session_group(s);
+		while ((wl = winlink_find_by_window(&s->windows, w)) != NULL) {
+			if (session_detach(s, wl)) {
+				server_destroy_session_group(s);
+				break;
+			} else
+				server_redraw_session_group(s);
 		}
 	}
 }
@@ -276,13 +281,13 @@ server_link_window(struct session *src, struct winlink *srcwl,
 		dstwl = winlink_find_by_index(&dst->windows, dstidx);
 	if (dstwl != NULL) {
 		if (dstwl->window == srcwl->window)
-			return (0);
+			return (-1);
 		if (killflag) {
 			/*
 			 * Can't use session_detach as it will destroy session
 			 * if this makes it empty.
 			 */
-			session_alert_cancel(dst, dstwl);
+			dstwl->flags &= ~WINLINK_ALERTFLAGS;
 			winlink_stack_remove(&dst->lastw, dstwl);
 			winlink_remove(&dst->windows, dstwl);
 
@@ -321,9 +326,11 @@ server_destroy_pane(struct window_pane *wp)
 {
 	struct window	*w = wp->window;
 
-	close(wp->fd);
-	bufferevent_free(wp->event);
-	wp->fd = -1;
+	if (wp->fd != -1) {
+		close(wp->fd);
+		bufferevent_free(wp->event);
+		wp->fd = -1;
+	}
 
 	if (options_get_number(&w->options, "remain-on-exit"))
 		return;
@@ -352,18 +359,67 @@ server_destroy_session_group(struct session *s)
 	}
 }
 
+struct session *
+server_next_session(struct session *s)
+{
+	struct session *s_loop, *s_out;
+	u_int		i;
+
+	s_out = NULL;
+	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+		s_loop = ARRAY_ITEM(&sessions, i);
+		if (s_loop == s)
+			continue;
+		if (s_out == NULL ||
+		    timercmp(&s_loop->activity_time, &s_out->activity_time, <))
+			s_out = s_loop;
+	}
+	return (s_out);
+}
+
 void
 server_destroy_session(struct session *s)
 {
 	struct client	*c;
+	struct session	*s_new;
 	u_int		 i;
+
+	if (!options_get_number(&s->options, "detach-on-destroy"))
+		s_new = server_next_session(s);
+	else
+		s_new = NULL;
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		c = ARRAY_ITEM(&clients, i);
 		if (c == NULL || c->session != s)
 			continue;
-		c->session = NULL;
-		server_write_client(c, MSG_EXIT, NULL, 0);
+		if (s_new == NULL) {
+			c->session = NULL;
+			c->flags |= CLIENT_EXIT;
+		} else {
+			c->session = s_new;
+			server_redraw_client(c);
+		}
+	}
+	recalculate_sizes();
+}
+
+void
+server_check_unattached (void)
+{
+	struct session	*s;
+	u_int		 i;
+
+	/*
+	 * If any sessions are no longer attached and have destroy-unattached
+	 * set, collect them.
+	 */
+	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+		s = ARRAY_ITEM(&sessions, i);
+		if (s == NULL || !(s->flags & SESSION_UNATTACHED))
+			continue;
+		if (options_get_number (&s->options, "destroy-unattached"))
+			session_destroy(s);
 	}
 }
 

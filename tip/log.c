@@ -1,4 +1,4 @@
-/*	$OpenBSD: log.c,v 1.10 2009/10/27 23:59:44 deraadt Exp $	*/
+/*	$OpenBSD: log.c,v 1.13 2010/07/01 21:28:01 nicm Exp $	*/
 /*	$NetBSD: log.c,v 1.4 1994/12/24 17:56:28 cgd Exp $	*/
 
 /*
@@ -32,14 +32,13 @@
 
 #include "tip.h"
 
-#ifdef ACULOG
 static	FILE *flog = NULL;
 
 /*
  * Log file maintenance routines
  */
 void
-logent(char *group, char *num, char *acu, char *message)
+logent(char *group, char *acu, char *message)
 {
 	char *user, *timestamp;
 	struct passwd *pwd;
@@ -60,13 +59,8 @@ logent(char *group, char *num, char *acu, char *message)
 	t = time(0);
 	timestamp = ctime(&t);
 	timestamp[24] = '\0';
-	fprintf(flog, "%s (%s) <%s, %s, %s> %s\n",
+	fprintf(flog, "%s (%s) <%s, %s> %s\n",
 		user, timestamp, group,
-#ifdef PRISTINE
-		"",
-#else
-		num,
-#endif
 		acu, message);
 	(void) fflush(flog);
 	(void) flock(fileno(flog), LOCK_UN);
@@ -75,8 +69,7 @@ logent(char *group, char *num, char *acu, char *message)
 void
 loginit(void)
 {
-	flog = fopen(value(LOG), "a");
+	flog = fopen(vgetstr(LOG), "a");
 	if (flog == NULL)
-		fprintf(stderr, "can't open log file %s.\r\n", value(LOG));
+		fprintf(stderr, "can't open log file %s.\r\n", vgetstr(LOG));
 }
-#endif

@@ -104,10 +104,6 @@
 # include "nonunix.h"
 #endif
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: sudo.c,v 1.517 2009/05/27 00:49:07 millert Exp $";
-#endif /* lint */
-
 /*
  * Prototypes
  */
@@ -363,11 +359,6 @@ main(argc, argv, envp)
 	}
     }
 
-#ifdef USING_NONUNIX_GROUPS
-    /* Finished with the groupcheck code */
-    sudo_nonunix_groupcheck_cleanup();
-#endif
-
     if (safe_cmnd == NULL)
 	safe_cmnd = estrdup(user_cmnd);
 
@@ -470,6 +461,11 @@ main(argc, argv, envp)
 	tq_foreach_fwd(snl, nss)
 	    nss->close(nss);
 
+#ifdef USING_NONUNIX_GROUPS
+	/* Finished with the groupcheck code */
+	sudo_nonunix_groupcheck_cleanup();
+#endif
+
 	/* Deferred exit due to sudo_ldap_close() */
 	if (ISSET(sudo_mode, (MODE_VALIDATE|MODE_CHECK|MODE_LIST)))
 	    exit(rc);
@@ -540,7 +536,7 @@ main(argc, argv, envp)
 	sudo_endpwent();
 	sudo_endgrent();
 
-	closefrom(def_closefrom + 1);
+	closefrom(def_closefrom);
 
 #ifndef PROFILING
 	if (ISSET(sudo_mode, MODE_BACKGROUND) && fork() > 0) {
@@ -648,7 +644,8 @@ init_vars(sudo_mode, envp)
 	}
     }
 
-    if ((p = ttyname(STDIN_FILENO)) || (p = ttyname(STDOUT_FILENO))) {
+    if ((p = ttyname(STDIN_FILENO)) || (p = ttyname(STDOUT_FILENO)) ||
+	(p = ttyname(STDERR_FILENO))) {
 	user_tty = user_ttypath = estrdup(p);
 	if (strncmp(user_tty, _PATH_DEV, sizeof(_PATH_DEV) - 1) == 0)
 	    user_tty += sizeof(_PATH_DEV) - 1;
@@ -1139,17 +1136,21 @@ open_sudoers(sudoers, doedit, keepopen)
 	log_error(NO_EXIT, "%s is owned by gid %lu, should be %lu", sudoers,
 	    (unsigned long) statbuf.st_gid, (unsigned long) SUDOERS_GID);
     else if ((fp = fopen(sudoers, "r")) == NULL)
-	log_error(USE_ERRNO, "can't open %s", sudoers);
+	log_error(USE_ERRNO|NO_EXIT, "can't open %s", sudoers);
     else {
 	/*
 	 * Make sure we can actually read sudoers so we can present the
 	 * user with a reasonable error message (unlike the lexer).
 	 */
-	if (statbuf.st_size != 0) {
-	    if (fgetc(fp) == EOF)
-		log_error(USE_ERRNO, "can't read %s", sudoers);
-	    rewind(fp);
+	if (statbuf.st_size != 0 && fgetc(fp) == EOF) {
+	    log_error(USE_ERRNO|NO_EXIT, "can't read %s", sudoers);
+	    fclose(fp);
+	    fp = NULL;
 	}
+    }
+
+    if (fp != NULL) {
+	rewind(fp);
 	(void) fcntl(fileno(fp), F_SETFD, 1);
     }
 
@@ -1443,6 +1444,9 @@ cleanup(gotsignal)
 	    tq_foreach_fwd(snl, nss)
 		nss->close(nss);
 	}
+#ifdef USING_NONUNIX_GROUPS
+	sudo_nonunix_groupcheck_cleanup();
+#endif
 	sudo_endpwent();
 	sudo_endgrent();
     }

@@ -1,4 +1,4 @@
-/* $OpenBSD: session.c,v 1.15 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: session.c,v 1.20 2010/09/08 22:02:28 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -32,71 +32,8 @@ struct sessions	sessions;
 struct sessions dead_sessions;
 struct session_groups session_groups;
 
-struct winlink *session_next_activity(struct session *, struct winlink *);
-struct winlink *session_previous_activity(struct session *, struct winlink *);
-
-void
-session_alert_cancel(struct session *s, struct winlink *wl)
-{
-	struct session_alert	*sa, *sb;
-
-	sa = SLIST_FIRST(&s->alerts);
-	while (sa != NULL) {
-		sb = sa;
-		sa = SLIST_NEXT(sa, entry);
-
-		if (wl == NULL || sb->wl == wl) {
-			SLIST_REMOVE(&s->alerts, sb, session_alert, entry);
-			xfree(sb);
-		}
-	}
-}
-
-void
-session_alert_add(struct session *s, struct window *w, int type)
-{
-	struct session_alert	*sa;
-	struct winlink		*wl;
-
-	RB_FOREACH(wl, winlinks, &s->windows) {
-		if (wl == s->curw)
-			continue;
-
-		if (wl->window == w &&
-		    !session_alert_has(s, wl, type)) {
-			sa = xmalloc(sizeof *sa);
-			sa->wl = wl;
-			sa->type = type;
-			SLIST_INSERT_HEAD(&s->alerts, sa, entry);
-		}
-	}
-}
-
-int
-session_alert_has(struct session *s, struct winlink *wl, int type)
-{
-	struct session_alert	*sa;
-
-	SLIST_FOREACH(sa, &s->alerts, entry) {
-		if (sa->wl == wl && sa->type == type)
-			return (1);
-	}
-
-	return (0);
-}
-
-int
-session_alert_has_window(struct session *s, struct window *w, int type)
-{
-	struct session_alert	*sa;
-
-	SLIST_FOREACH(sa, &s->alerts, entry) {
-		if (sa->wl->window == w && sa->type == type)
-			return (1);
-	}
-
-	return (0);
-}
+struct winlink *session_next_alert(struct winlink *);
+struct winlink *session_previous_alert(struct winlink *);
 
 /* Find session by name. */
 struct session *
@@ -131,10 +68,11 @@ session_create(const char *name, const char *cmd, const char *cwd,
 		fatal("gettimeofday failed");
 	memcpy(&s->activity_time, &s->creation_time, sizeof s->activity_time);
 
+	s->cwd = xstrdup(cwd);
+
 	s->curw = NULL;
 	TAILQ_INIT(&s->lastw);
 	RB_INIT(&s->windows);
-	SLIST_INIT(&s->alerts);
 
 	paste_init_stack(&s->buffers);
 
@@ -197,7 +135,6 @@ session_destroy(struct session *s)
 		xfree(s->tio);
 
 	session_group_remove(s);
-	session_alert_cancel(s, NULL);
 	environ_free(&s->environ);
 	options_free(&s->options);
 	paste_free_stack(&s->buffers);
@@ -207,6 +144,7 @@ session_destroy(struct session *s)
 	while (!RB_EMPTY(&s->windows))
 		winlink_remove(&s->windows, RB_ROOT(&s->windows));
 
+	xfree(s->cwd);
 	xfree(s->name);
 
 	for (i = 0; i < ARRAY_LENGTH(&dead_sessions); i++) {
@@ -229,6 +167,48 @@ session_index(struct session *s, u_int *i)
 			return (0);
 	}
 	return (-1);
+}
+
+/* Find the next usable session. */
+struct session *
+session_next_session(struct session *s)
+{
+	struct session *s2;
+	u_int		i;
+
+	if (ARRAY_LENGTH(&sessions) == 0 || session_index(s, &i) != 0)
+		return (NULL);
+
+	do {
+		if (i == ARRAY_LENGTH(&sessions) - 1)
+			i = 0;
+		else
+			i++;
+		s2 = ARRAY_ITEM(&sessions, i);
+	} while (s2 == NULL || s2->flags & SESSION_DEAD);
+
+	return (s2);
+}
+
+/* Find the previous usable session. */
+struct session *
+session_previous_session(struct session *s)
+{
+	struct session *s2;
+	u_int		i;
+
+	if (ARRAY_LENGTH(&sessions) == 0 || session_index(s, &i) != 0)
+		return (NULL);
+
+	do {
+		if (i == 0)
+			i = ARRAY_LENGTH(&sessions) - 1;
+		else
+			i--;
+		s2 = ARRAY_ITEM(&sessions, i);
+	} while (s2 == NULL || s2->flags & SESSION_DEAD);
+
+	return (s2);
 }
 
 /* Create a new window on a session. */
@@ -285,7 +265,7 @@ session_detach(struct session *s, struct winlink *wl)
 	    session_last(s) != 0 && session_previous(s, 0) != 0)
 		session_next(s, 0);
 
-	session_alert_cancel(s, wl);
+	wl->flags &= ~WINLINK_ALERTFLAGS;
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_remove(&s->windows, wl);
 	session_group_synchronize_from(s);
@@ -297,27 +277,23 @@ session_detach(struct session *s, struct winlink *wl)
 }
 
 /* Return if session has window. */
-int
+struct winlink *
 session_has(struct session *s, struct window *w)
 {
 	struct winlink	*wl;
 
 	RB_FOREACH(wl, winlinks, &s->windows) {
 		if (wl->window == w)
-			return (1);
+			return (wl);
 	}
-	return (0);
+	return (NULL);
 }
 
 struct winlink *
-session_next_activity(struct session *s, struct winlink *wl)
+session_next_alert(struct winlink *wl)
 {
 	while (wl != NULL) {
-		if (session_alert_has(s, wl, WINDOW_BELL))
-			break;
-		if (session_alert_has(s, wl, WINDOW_ACTIVITY))
-			break;
-		if (session_alert_has(s, wl, WINDOW_CONTENT))
+		if (wl->flags & WINLINK_ALERTFLAGS)
 			break;
 		wl = winlink_next(wl);
 	}
@@ -326,7 +302,7 @@ session_next_activity(struct session *s, struct winlink *wl)
 
 /* Move session to next window. */
 int
-session_next(struct session *s, int activity)
+session_next(struct session *s, int alert)
 {
 	struct winlink	*wl;
 
@@ -334,11 +310,11 @@ session_next(struct session *s, int activity)
 		return (-1);
 
 	wl = winlink_next(s->curw);
-	if (activity)
-		wl = session_next_activity(s, wl);
+	if (alert)
+		wl = session_next_alert(wl);
 	if (wl == NULL) {
 		wl = RB_MIN(winlinks, &s->windows);
-		if (activity && ((wl = session_next_activity(s, wl)) == NULL))
+		if (alert && ((wl = session_next_alert(wl)) == NULL))
 			return (-1);
 	}
 	if (wl == s->curw)
@@ -346,19 +322,15 @@ session_next(struct session *s, int activity)
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_stack_push(&s->lastw, s->curw);
 	s->curw = wl;
-	session_alert_cancel(s, wl);
+	wl->flags &= ~WINLINK_ALERTFLAGS;
 	return (0);
 }
 
 struct winlink *
-session_previous_activity(struct session *s, struct winlink *wl)
+session_previous_alert(struct winlink *wl)
 {
 	while (wl != NULL) {
-		if (session_alert_has(s, wl, WINDOW_BELL))
-			break;
-		if (session_alert_has(s, wl, WINDOW_ACTIVITY))
-			break;
-		if (session_alert_has(s, wl, WINDOW_CONTENT))
+		if (wl->flags & WINLINK_ALERTFLAGS)
 			break;
 		wl = winlink_previous(wl);
 	}
@@ -367,7 +339,7 @@ session_previous_activity(struct session *s, struct winlink *wl)
 
 /* Move session to previous window. */
 int
-session_previous(struct session *s, int activity)
+session_previous(struct session *s, int alert)
 {
 	struct winlink	*wl;
 
@@ -375,11 +347,11 @@ session_previous(struct session *s, int activity)
 		return (-1);
 
 	wl = winlink_previous(s->curw);
-	if (activity)
-		wl = session_previous_activity(s, wl);
+	if (alert)
+		wl = session_previous_alert(wl);
 	if (wl == NULL) {
 		wl = RB_MAX(winlinks, &s->windows);
-		if (activity && (wl = session_previous_activity(s, wl)) == NULL)
+		if (alert && (wl = session_previous_alert(wl)) == NULL)
 			return (-1);
 	}
 	if (wl == s->curw)
@@ -387,7 +359,7 @@ session_previous(struct session *s, int activity)
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_stack_push(&s->lastw, s->curw);
 	s->curw = wl;
-	session_alert_cancel(s, wl);
+	wl->flags &= ~WINLINK_ALERTFLAGS;
 	return (0);
 }
 
@@ -405,7 +377,7 @@ session_select(struct session *s, int idx)
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_stack_push(&s->lastw, s->curw);
 	s->curw = wl;
-	session_alert_cancel(s, wl);
+	wl->flags &= ~WINLINK_ALERTFLAGS;
 	return (0);
 }
 
@@ -424,7 +396,7 @@ session_last(struct session *s)
 	winlink_stack_remove(&s->lastw, wl);
 	winlink_stack_push(&s->lastw, s->curw);
 	s->curw = wl;
-	session_alert_cancel(s, wl);
+	wl->flags &= ~WINLINK_ALERTFLAGS;
 	return (0);
 }
 
@@ -541,7 +513,6 @@ session_group_synchronize1(struct session *target, struct session *s)
 	struct winlinks		 old_windows, *ww;
 	struct winlink_stack	 old_lastw;
 	struct winlink		*wl, *wl2;
-	struct session_alert	*sa;
 
 	/* Don't do anything if the session is empty (it'll be destroyed). */
 	ww = &target->windows;
@@ -549,18 +520,20 @@ session_group_synchronize1(struct session *target, struct session *s)
 		return;
 
 	/* If the current window has vanished, move to the next now. */
-	if (s->curw != NULL) {
-		while (winlink_find_by_index(ww, s->curw->idx) == NULL)
-			session_next(s, 0);
-	}
+	if (s->curw != NULL &&
+	    winlink_find_by_index(ww, s->curw->idx) == NULL &&
+	    session_last(s) != 0 && session_previous(s, 0) != 0)
+		session_next(s, 0);
 
 	/* Save the old pointer and reset it. */
 	memcpy(&old_windows, &s->windows, sizeof old_windows);
 	RB_INIT(&s->windows);
 
 	/* Link all the windows from the target. */
-	RB_FOREACH(wl, winlinks, ww)
-		winlink_add(&s->windows, wl->window, wl->idx);
+	RB_FOREACH(wl, winlinks, ww) {
+		wl2 = winlink_add(&s->windows, wl->window, wl->idx);
+		wl2->flags |= wl->flags & WINLINK_ALERTFLAGS;
+	}
 
 	/* Fix up the current window. */
 	if (s->curw != NULL)
@@ -575,15 +548,6 @@ session_group_synchronize1(struct session *target, struct session *s)
 		wl2 = winlink_find_by_index(&s->windows, wl->idx);
 		if (wl2 != NULL)
 			TAILQ_INSERT_TAIL(&s->lastw, wl2, sentry);
-	}
-
-	/* And update the alerts list. */
-	SLIST_FOREACH(sa, &s->alerts, entry) {
-		wl = winlink_find_by_index(&s->windows, sa->wl->idx);
-		if (wl == NULL)
-			session_alert_cancel(s, sa->wl);
-		else
-			sa->wl = wl;
 	}
 
 	/* Then free the old winlinks list. */

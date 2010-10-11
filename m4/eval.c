@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.66 2008/08/21 21:01:47 espie Exp $	*/
+/*	$OpenBSD: eval.c,v 1.68 2010/09/07 19:58:09 marco Exp $	*/
 /*	$NetBSD: eval.c,v 1.7 1996/11/10 21:21:29 pk Exp $	*/
 
 /*
@@ -100,7 +100,7 @@ eval(const char *argv[], int argc, int td, int is_traced)
 	size_t mark = SIZE_MAX;
 
 	expansion_id++;
-	if (td & RECDEF) 
+	if (td & RECDEF)
 		m4errx(1, "expanding recursive definition for %s.", argv[1]);
 	if (is_traced)
 		mark = trace(argv, argc, infile+ilevel);
@@ -108,7 +108,7 @@ eval(const char *argv[], int argc, int td, int is_traced)
 		expand_macro(argv, argc);
 	else
 		expand_builtin(argv, argc, td);
-    	if (mark != SIZE_MAX)
+	if (mark != SIZE_MAX)
 		finish_trace(mark);
 }
 
@@ -137,7 +137,7 @@ expand_builtin(const char *argv[], int argc, int td)
  /* we keep the initial value for those built-ins that differentiate
   * between builtin() and builtin.
   */
-  	ac = argc;
+	ac = argc;
 
 	if (argc == 3 && !*(argv[2]) && !mimic_gnu)
 		argc--;
@@ -252,7 +252,7 @@ expand_builtin(const char *argv[], int argc, int td)
 	/*
 	 * dosysval - return value of the last
 	 * system call.
-	 * 
+	 *
 	 */
 		pbnum(sysval);
 		break;
@@ -260,7 +260,7 @@ expand_builtin(const char *argv[], int argc, int td)
 	case ESYSCMDTYPE:
 		if (argc > 2)
 			doesyscmd(argv[2]);
-	    	break;
+		break;
 	case INCLTYPE:
 		if (argc > 2)
 			if (!doincl(argv[2]))
@@ -299,7 +299,7 @@ expand_builtin(const char *argv[], int argc, int td)
 	case SUBSTYPE:
 	/*
 	 * dosub - select substring
-	 * 
+	 *
 	 */
 		if (argc > 3)
 			dosub(argv, argc);
@@ -375,11 +375,11 @@ expand_builtin(const char *argv[], int argc, int td)
 			char *temp;
 
 			temp = xstrdup(argv[2]);
-			
+
 			fd = mkstemp(temp);
 			if (fd == -1)
-				err(1, 
-	    "%s at line %lu: couldn't make temp file %s", 
+				err(1,
+	    "%s at line %lu: couldn't make temp file %s",
 	    CURRENT_NAME, CURRENT_LINE, argv[2]);
 			close(fd);
 			pbstr(temp);
@@ -465,7 +465,7 @@ expand_builtin(const char *argv[], int argc, int td)
 		if (argc > 2)
 			doindir(argv, argc);
 		break;
-	
+
 	case BUILTINTYPE: /* Builtins only */
 		if (argc > 2)
 			dobuiltin(argv, argc);
@@ -541,7 +541,7 @@ expand_macro(const char *argv[], int argc)
 						pushback(COMMA);
 					}
 					pbstr(argv[2]);
-			    	}
+				}
 				break;
                         case '@':
 				if (argc > 2) {
@@ -578,7 +578,7 @@ dodefine(const char *name, const char *defn)
 {
 	if (!*name && !mimic_gnu)
 		m4errx(1, "null definition.");
-	else 
+	else
 		macro_define(name, defn);
 }
 
@@ -632,7 +632,7 @@ dump_one_def(const char *name, struct macro_definition *p)
 			fprintf(traceout, "%s:\t%s\n", name, p->defn);
 		else {
 			fprintf(traceout, "%s:\t<%s>\n", name, p->defn);
-	    	}
+		}
 	} else
 		fprintf(traceout, "`%s'\t`%s'\n", name, p->defn);
 }
@@ -803,7 +803,7 @@ dodiv(int n)
 			resizedivs(n + 10);
 		else
 			n = 0;		/* bitbucket */
-    	}
+	}
 
 	if (n < 0)
 		n = 0;		       /* bitbucket */
@@ -907,6 +907,8 @@ map(char *dest, const char *src, const char *from, const char *to)
 	unsigned char sch, dch;
 	static char frombis[257];
 	static char tobis[257];
+	int i;
+	char seen[256];
 	static unsigned char mapvec[256] = {
 	    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
 	    19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
@@ -941,9 +943,17 @@ map(char *dest, const char *src, const char *from, const char *to)
 	 * create a mapping between "from" and
 	 * "to"
 	 */
-		while (*from)
-			mapvec[(unsigned char)(*from++)] = (*to) ? 
-				(unsigned char)(*to++) : 0;
+		for (i = 0; i < 256; i++)
+			seen[i] = 0;
+		while (*from) {
+			if (!seen[(unsigned char)(*from)]) {
+				mapvec[(unsigned char)(*from)] = (unsigned char)(*to);
+				seen[(unsigned char)(*from)] = 1;
+			}
+			from++;
+			if (*to)
+				to++;
+		}
 
 		while (*src) {
 			sch = (unsigned char)(*src++);
@@ -976,7 +986,7 @@ static const char *
 handledash(char *buffer, char *end, const char *src)
 {
 	char *p;
-	
+
 	p = buffer;
 	while(*src) {
 		if (src[1] == '-' && src[2]) {

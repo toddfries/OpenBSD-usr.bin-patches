@@ -1,7 +1,7 @@
 /*
  * History
  *
- * $OpenBSD: calendar.history,v 1.71 2007/08/09 21:33:05 jmc Exp $
+ * $OpenBSD: calendar.history,v 1.73 2010/09/23 14:33:10 jmc Exp $
  */
 
 #ifndef _calendar_history_
@@ -223,7 +223,7 @@
 06/16	Henry Ford launched the Ford Motor Company, 1903
 06/17	China explodes its first Hydrogen bomb, 1967
 06/18	Winston Churchill delivers his "Finest Hour" speech, 1940
-06/19	Lizzie Bordon acquitted, 1893
+06/19	Lizzie Borden acquitted, 1893
 06/19	Julius and Ethel Rosenberg are executed in Sing-Sing prison, 1953
 06/20	Victoria crowned, 1837
 06/21	Berlin airlift begins, 1948
@@ -346,7 +346,7 @@
 09/12	German paratroopers rescue Mussolini from captivity in Rome, 1943
 09/12	Germany annexes Sudetenland, 1938
 09/13	136.4 F at el Azizia, Libya, 1922
-09/13	British defeat the French at Plains of Abraham near Quebec City, 1788
+09/13	British defeat the French at Plains of Abraham near Quebec City, 1759
 09/13	Building of Hadrian's Wall begun, 122
 09/13	Chiang Kai-Shek becomes president of China, 1943
 09/14	The Selective Service Act establishes the first peacetime draft, 1940

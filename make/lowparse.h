@@ -1,8 +1,7 @@
 #ifndef LOWPARSE_H
 #define LOWPARSE_H
 
-/* $OpenPackages$ */
-/* $OpenBSD: lowparse.h,v 1.5 2007/09/17 09:28:36 espie Exp $ */
+/* $OpenBSD: lowparse.h,v 1.7 2010/07/19 19:46:44 espie Exp $ */
 
 /*
  * Copyright (c) 1999 Marc Espie.

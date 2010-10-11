@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.36 2007/10/02 17:59:18 otto Exp $	*/
+/*	$OpenBSD: util.c,v 1.39 2010/07/02 22:18:03 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -49,8 +49,10 @@
 static int	linesqueued;
 static int	procline(str_t *l, int);
 static int	grep_search(fastgrep_t *, unsigned char *, size_t, regmatch_t *pmatch);
+#ifndef SMALL
 static int	grep_cmp(const unsigned char *, const unsigned char *, size_t);
 static void	grep_revstr(unsigned char *, int);
+#endif
 
 int
 grep_tree(char **argv)
@@ -59,16 +61,9 @@ grep_tree(char **argv)
 	FTSENT	*p;
 	int	c, fts_flags;
 
-	c = fts_flags = 0;
+	c = 0;
 
-	if (Hflag)
-		fts_flags = FTS_COMFOLLOW;
-	if (Pflag)
-		fts_flags = FTS_PHYSICAL;
-	if (Sflag)
-		fts_flags = FTS_LOGICAL;
-
-	fts_flags |= FTS_NOSTAT | FTS_NOCHDIR;
+	fts_flags = FTS_PHYSICAL | FTS_NOSTAT | FTS_NOCHDIR;
 
 	if (!(fts = fts_open(argv, fts_flags, NULL)))
 		err(2, NULL);
@@ -224,6 +219,7 @@ print:
 	return c;
 }
 
+#ifndef SMALL
 void
 fgrepcomp(fastgrep_t *fg, const char *pattern)
 {
@@ -262,6 +258,7 @@ fgrepcomp(fastgrep_t *fg, const char *pattern)
 			fg->qsBc[tolower(fg->pattern[i])] = fg->patternLen - i;
 	}
 }
+#endif
 
 /*
  * Returns: -1 on failure, 0 on success
@@ -269,6 +266,9 @@ fgrepcomp(fastgrep_t *fg, const char *pattern)
 int
 fastcomp(fastgrep_t *fg, const char *pattern)
 {
+#ifdef SMALL
+	return -1;
+#else
 	int i;
 	int bol = 0;
 	int eol = 0;
@@ -286,7 +286,7 @@ fastcomp(fastgrep_t *fg, const char *pattern)
 	fg->reversedSearch = 0;
 
 	/* Remove end-of-line character ('$'). */
-	if (pattern[fg->patternLen - 1] == '$') {
+	if (fg->patternLen > 0 && pattern[fg->patternLen - 1] == '$') {
 		eol++;
 		fg->eol = 1;
 		fg->patternLen--;
@@ -409,6 +409,7 @@ fastcomp(fastgrep_t *fg, const char *pattern)
 		grep_revstr(fg->pattern, fg->patternLen);
 
 	return (0);
+#endif
 }
 
 /*
@@ -425,6 +426,9 @@ fastcomp(fastgrep_t *fg, const char *pattern)
 static int
 grep_search(fastgrep_t *fg, unsigned char *data, size_t dataLen, regmatch_t *pmatch)
 {
+#ifdef SMALL
+	return 0;
+#else
 	int j;
 	int rtrnVal = REG_NOMATCH;
 
@@ -498,6 +502,7 @@ grep_search(fastgrep_t *fg, unsigned char *data, size_t dataLen, regmatch_t *pma
 	}
 
 	return (rtrnVal);
+#endif
 }
 
 
@@ -529,6 +534,7 @@ grep_realloc(void *ptr, size_t size)
 	return ptr;
 }
 
+#ifndef SMALL
 /*
  * Returns:	i >= 0 on failure (position that it failed)
  *		-1 on success
@@ -560,6 +566,7 @@ grep_revstr(unsigned char *str, int len)
 		str[len - i - 1] = c;
 	}
 }
+#endif
 
 void
 printline(str_t *line, int sep)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff_internals.c,v 1.28 2009/06/07 08:39:13 ray Exp $	*/
+/*	$OpenBSD: diff_internals.c,v 1.33 2010/07/28 21:19:30 nicm Exp $	*/
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
  * All rights reserved.
@@ -198,13 +198,13 @@ static char	*match_function(const long *, int, FILE *);
 static char	*preadline(int, size_t, off_t);
 
 static int Tflag;
-static int context = 3;
+int diff_context = 3;
 int diff_format = D_NORMAL;
 const char *diff_file1 = NULL;
 const char *diff_file2 = NULL;
 RCSNUM *diff_rev1 = NULL;
 RCSNUM *diff_rev2 = NULL;
-char diffargs[128];
+char diffargs[512];
 static struct stat stb1, stb2;
 static char *ifdefname, *ignore_pats;
 regex_t ignore_re;
@@ -430,13 +430,12 @@ files_differ(FILE *f1, FILE *f2)
 	for (;;) {
 		i = fread(buf1, 1, sizeof(buf1), f1);
 		j = fread(buf2, 1, sizeof(buf2), f2);
+		if ((!i && ferror(f1)) || (!j && ferror(f2)))
+			return (-1);
 		if (i != j)
 			return (1);
-		if (i == 0 && j == 0) {
-			if (ferror(f1) || ferror(f2))
-				return (1);
+		if (i == 0)
 			return (0);
-		}
 		if (memcmp(buf1, buf2, i) != 0)
 			return (1);
 	}
@@ -860,11 +859,8 @@ preadline(int fd, size_t rlen, off_t off)
 	ssize_t nr;
 
 	line = xmalloc(rlen + 1);
-	if ((nr = pread(fd, line, rlen, off)) < 0) {
-		cvs_log(LP_ERR, "preadline failed");
-		xfree(line);
-		return (NULL);
-	}
+	if ((nr = pread(fd, line, rlen, off)) < 0)
+		fatal("preadline: %s", strerror(errno));
 	line[nr] = '\0';
 	return (line);
 }
@@ -1015,8 +1011,8 @@ proceed:
 				diff_head();
 
 			anychange = 1;
-		} else if (a > context_vec_ptr->b + (2 * context) + 1 &&
-		    c > context_vec_ptr->d + (2 * context) + 1) {
+		} else if (a > context_vec_ptr->b + (2 * diff_context) + 1 &&
+		    c > context_vec_ptr->d + (2 * diff_context) + 1) {
 			/*
 			 * If this change is more than 'context' lines from the
 			 * previous change, dump the record and reset it.
@@ -1274,18 +1270,16 @@ dump_context_vec(FILE *f1, FILE *f2, int flags)
 		return;
 
 	b = d = 0;		/* gcc */
-	lowa = MAX(1, cvp->a - context);
-	upb = MIN(len[0], context_vec_ptr->b + context);
-	lowc = MAX(1, cvp->c - context);
-	upd = MIN(len[1], context_vec_ptr->d + context);
+	lowa = MAX(1, cvp->a - diff_context);
+	upb = MIN(len[0], context_vec_ptr->b + diff_context);
+	lowc = MAX(1, cvp->c - diff_context);
+	upd = MIN(len[1], context_vec_ptr->d + diff_context);
 
 	diff_output("***************");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n*** ");
 	range(lowa, upb, ",");
@@ -1379,10 +1373,10 @@ dump_unified_vec(FILE *f1, FILE *f2, int flags)
 		return;
 
 	b = d = 0;		/* gcc */
-	lowa = MAX(1, cvp->a - context);
-	upb = MIN(len[0], context_vec_ptr->b + context);
-	lowc = MAX(1, cvp->c - context);
-	upd = MIN(len[1], context_vec_ptr->d + context);
+	lowa = MAX(1, cvp->a - diff_context);
+	upb = MIN(len[0], context_vec_ptr->b + diff_context);
+	lowc = MAX(1, cvp->c - diff_context);
+	upd = MIN(len[1], context_vec_ptr->d + diff_context);
 
 	diff_output("@@ -");
 	uni_range(lowa, upb);
@@ -1391,10 +1385,8 @@ dump_unified_vec(FILE *f1, FILE *f2, int flags)
 	diff_output(" @@");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n");
 
@@ -1454,7 +1446,7 @@ diff_output(const char *fmt, ...)
 	if (i == -1)
 		fatal("diff_output: could not allocate memory");
 	if (diffbuf != NULL)
-		cvs_buf_puts(diffbuf, str);
+		buf_puts(diffbuf, str);
 	else
 		cvs_printf("%s", str);
 	xfree(str);

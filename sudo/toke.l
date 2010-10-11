@@ -71,11 +71,8 @@
 #include "parse.h"
 #include <gram.h>
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: toke.l,v 1.38 2009/07/18 13:55:37 millert Exp $";
-#endif /* lint */
-
 extern YYSTYPE yylval;
+extern int parse_error;
 int sudolineno = 1;
 char *sudoers;
 static int sawspace = 0;
@@ -253,8 +250,11 @@ DEFVAR			[a-z_]+
 
 			    LEXTRACE("INCLUDEDIR\n");
 
-			    /* Push current buffer and switch to include file */
-			    if (!push_includedir(path))
+			    /*
+			     * Push current buffer and switch to include file.
+			     * We simply ignore empty directories.
+			     */
+			    if (!push_includedir(path) && parse_error)
 				yyterminate();
 			}
 
@@ -748,7 +748,7 @@ switch_dir(stack, dirpath)
 
     if (!(dir = opendir(dirpath))) {
 	yyerror(dirpath);
-	return(FALSE);
+	return(NULL);
     }
     while ((dent = readdir(dir))) {
 	/* Ignore files that end in '~' or have a '.' in them. */
@@ -840,7 +840,7 @@ init_lexer()
 	    efree(pl);
 	}
 	efree(istack[idepth].path);
-	if (!istack[idepth].keepopen)
+	if (idepth && !istack[idepth].keepopen)
 	    fclose(istack[idepth].bs->yy_input_file);
 	yy_delete_buffer(istack[idepth].bs);
     }
@@ -865,7 +865,7 @@ _push_include(path, isdir)
 	}
 	istacksize += SUDOERS_STACK_INCREMENT;
 	istack = (struct include_stack *) realloc(istack,
-	    sizeof(istack) * istacksize);
+	    sizeof(*istack) * istacksize);
 	if (istack == NULL) {
 	    yyerror("unable to allocate memory");
 	    return(FALSE);
@@ -873,12 +873,12 @@ _push_include(path, isdir)
     }
     if (isdir) {
 	if (!(path = switch_dir(&istack[idepth], path))) {
-	    yyerror(path);
+	    /* switch_dir() called yyerror() for us */
 	    return(FALSE);
 	}
 	if ((fp = open_sudoers(path, FALSE, &keepopen)) == NULL) {
 	    yyerror(path);
-	    return(FALSE); /* XXX - just to go next one? */
+	    return(FALSE); /* XXX - just to go next one */
 	}
     } else {
 	if ((fp = open_sudoers(path, TRUE, &keepopen)) == NULL) {
@@ -918,7 +918,7 @@ pop_include()
 	istack[idepth - 1].more = pl->next;
 	if ((fp = open_sudoers(pl->path, FALSE, &keepopen)) == NULL) {
 	    yyerror(pl->path);
-	    return(FALSE); /* XXX - just to go next one? */
+	    return(FALSE); /* XXX - just to go next one */
 	}
 	efree(sudoers);
 	sudoers = pl->path;

@@ -93,10 +93,6 @@
 # include "nonunix.h"
 #endif /* USING_NONUNIX_GROUPS */
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: match.c,v 1.46 2009/05/27 00:49:07 millert Exp $";
-#endif /* lint */
-
 static struct member_list empty;
 
 static int command_matches_dir __P((char *, size_t));
@@ -318,14 +314,12 @@ _cmndlist_matches(list)
     struct member_list *list;
 {
     struct member *m;
-    int rval, matched = UNSPEC;
+    int matched = UNSPEC;
 
     tq_foreach_rev(list, m) {
-	rval = cmnd_matches(m);
-	if (rval != UNSPEC) {
-	    matched = m->negated ? !rval : rval;
+	matched = cmnd_matches(m);
+	if (matched != UNSPEC)
 	    break;
-	}
     }
     return(matched);
 }
@@ -381,7 +375,7 @@ command_matches(sudoers_cmnd, sudoers_args)
     char *sudoers_args;
 {
     /* Check for pseudo-commands */
-    if (strchr(user_cmnd, '/') == NULL) {
+    if (sudoers_cmnd[0] != '/') {
 	/*
 	 * Return true if both sudoers_cmnd and user_cmnd are "sudoedit" AND
 	 *  a) there are no args in sudoers OR
@@ -471,7 +465,7 @@ command_matches_glob(sudoers_cmnd, sudoers_args)
      * else return false.
      */
 #define GLOB_FLAGS	(GLOB_NOSORT | GLOB_MARK | GLOB_BRACE | GLOB_TILDE)
-    if (glob(sudoers_cmnd, GLOB_FLAGS, NULL, &gl) != 0) {
+    if (glob(sudoers_cmnd, GLOB_FLAGS, NULL, &gl) != 0 || gl.gl_pathc == 0) {
 	globfree(&gl);
 	return(FALSE);
     }
@@ -580,8 +574,10 @@ command_matches_dir(sudoers_dir, dlen)
     if (dirp == NULL)
 	return(FALSE);
 
-    if (strlcpy(buf, sudoers_dir, sizeof(buf)) >= sizeof(buf))
+    if (strlcpy(buf, sudoers_dir, sizeof(buf)) >= sizeof(buf)) {
+	closedir(dirp);
 	return(FALSE);
+    }
     while ((dent = readdir(dirp)) != NULL) {
 	/* ignore paths > PATH_MAX (XXX - log) */
 	buf[dlen] = '\0';

@@ -48,10 +48,6 @@
 #include "lbuf.h"
 #include <gram.h>
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: parse.c,v 1.242 2009/05/25 12:02:41 millert Exp $";
-#endif /* lint */
-
 /* Characters that must be quoted in sudoers */
 #define SUDOERS_QUOTED	":\\,=#\""
 
@@ -313,6 +309,8 @@ sudo_file_display_priv_short(pw, us, lbuf)
     int nfound = 0;
 
     tq_foreach_fwd(&us->privileges, priv) {
+	if (hostlist_matches(&priv->hostlist) != ALLOW)
+	    continue;
 	tags.noexec = UNSPEC;
 	tags.setenv = UNSPEC;
 	tags.nopasswd = UNSPEC;
@@ -364,6 +362,8 @@ sudo_file_display_priv_long(pw, us, lbuf)
     int nfound = 0;
 
     tq_foreach_fwd(&us->privileges, priv) {
+	if (hostlist_matches(&priv->hostlist) != ALLOW)
+	    continue;
 	tags.noexec = UNSPEC;
 	tags.setenv = UNSPEC;
 	tags.nopasswd = UNSPEC;
@@ -419,9 +419,7 @@ sudo_file_display_privs(nss, pw, lbuf)
 	return(-1);
 
     tq_foreach_fwd(&userspecs, us) {
-	/* XXX - why only check the first privilege here? */
-	if (userlist_matches(pw, &us->users) != ALLOW ||
-	    hostlist_matches(&us->privileges.first->hostlist) != ALLOW)
+	if (userlist_matches(pw, &us->users) != ALLOW)
 	    continue;
 
 	if (long_list)

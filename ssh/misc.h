@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.h,v 1.39 2009/10/28 16:38:18 reyk Exp $ */
+/* $OpenBSD: misc.h,v 1.45 2010/09/24 13:33:00 matthew Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -53,8 +53,6 @@ void	 freeargs(arglist *);
 
 int	 tun_open(int, int);
 
-int	 socket_rdomain(int, int, int, int);
-
 /* Common definitions for ssh tunnel device forwarding */
 #define SSH_TUNMODE_NO		0x00
 #define SSH_TUNMODE_POINTOPOINT	0x01
@@ -79,6 +77,15 @@ void		put_u32(void *, u_int32_t)
     __attribute__((__bounded__( __minbytes__, 1, 4)));
 void		put_u16(void *, u_int16_t)
     __attribute__((__bounded__( __minbytes__, 1, 2)));
+
+struct bwlimit {
+	size_t buflen;
+	u_int64_t rate, thresh, lamt;
+	struct timeval bwstart, bwend;
+};
+
+void bandwidth_limit_init(struct bwlimit *, u_int64_t, size_t);
+void bandwidth_limit(struct bwlimit *, size_t);
 
 
 /* readpass.c */

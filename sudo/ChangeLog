@@ -1,3 +1,224 @@
+2010-06-29  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* env.c: In unsetenv() check for NULL or empty name as per
+	  POSIX 1003.1-2008
+
+	* env.c: Do not rely on env.env_len when unsetting a variable,
+	  just use the NULL terminator.
+
+2010-06-25  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* env.c: In unsetenv(), do not assign ep early as we may
+	  end up reallocating env.envp which could result in ep
+	  pointing to freed memory if the environ pointer is out
+	  of sync with env.envp.
+
+	* pwutil.c: Ignore case when matching user/group names in
+	  the cache. From Quest sudo.
+
+	* sudo.c: Defer call to sudo_nonunix_groupcheck_cleanup()
+	  until after we have closed the sudoers sources. From Quest
+	  sudo.
+
+	* vasgroups.c: Use warningx() instead of log_error() since
+	  the latter is not available to visudo or testsudoers. This
+	  does mean that they don't end up in syslog.
+
+2010-06-02  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* auth/pam.c: Fix OpenPAM detection for newer versions.
+
+	* vasgroups.c: Sync with Quest sudo git repo
+
+	* aclocal.m4, configure, configure.in: Adapted from Quest sudo.
+	  HP-UX ld uses +b instead of -R or -rpath.
+	  Fix typo in libvas check.
+	  libvas may need libdl for dlopen().
+	  Add missing template for ENV_DEBUG.
+
+	* README.LDAP:
+	  Fix typos; from Quest Sudo
+
+	* Makefile.in, configure.in:
+	  Use value of SHELL from configure in Makefile
+
+2010-05-28  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* env.c: Handle duplicate variables in the environment.
+	  For unsetenv(), keep looking even after remove the first instance.
+	  For sudo_putenv(), check for and remove dupes after we replace an
+	  existing value.
+
+2010-04-29  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* visudo.c: Fix a crash when checking a sudoers file that has aliases
+	  that reference themselves. Based on a diff from David Wood.
+
+2010-04-15  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* alias.c: Fix use after free in error message when a duplicate
+	  alias exists.
+
+2010-04-14  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* visudo.c: Set errorfile to the sudoers path if we set parse_error
+	  manually.  This prevents a NULL dereference in printf() when
+	  checking a sudoers file in strict mode when alias errors are present.
+
+2010-04-09  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* configure, configure.in: Fix installation of sudoers.ldap
+	  in "make install" when --with-ldap was specified without a
+	  directory. From Prof. Dr. Andreas Mueller
+
+2010-04-09  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* find_path.c: Qualify the command even if it is in the
+	  current working directory, e.g. "./foo" instead of just
+	  returning "foo". This removes an ambiguity between real
+	  commands and possible pseudo-commands in command matching.
+
+2010-04-07  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* sudoers.cat, sudoers.man.in, sudoers.pod: Add a note about
+	  the security implications of the fast_glob option.
+
+	* memrchr.c: Remove duplicate includes
+
+2010-03-10  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* sudo.c: Fix a bug introduced with def_closefrom. The value
+	  of def_closefrom already includes the +1.
+
+2010-03-09  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* match.c: When doing a glob match, short circuit if
+	  gl.gl_pathc is 0. From Mark Kettenis.
+
+2010-02-22  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* match.c: Check for pseudo-command by looking at the first
+	  character of the command in sudoers instead of checking the
+	  user-supplied command for a slash.
+
+2010-02-09  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* toke.l: Fix size arg when realloc()ing include stack.
+	  From Daniel Kopecek
+
+	* toke.l: Avoid a duplicate fclose() of the sudoers file.
+
+2010-02-06  Todd C. Miller  <Todd.Miller@courtesan.com>
+
+	* aix.c, config.h.in, configure, configure.in: Use setrlimit64(),
+	  if available, instead of setrlimit() when setting AIX resource
+	  limits since rlim_t is 32bits.
+
+	* logging.c: Fix use after free when sending error messages.
+	  From Timo Juhani Lindfors
+
+2009-12-17 15:02  millert
+
+	* parse.c: Fix printing of entries with multiple host entries on
+	  a single line.
+
+2009-12-09 16:05  millert
+
+	* logging.c: fix typo in last commit
+
+2009-12-08 22:19  millert
+
+	* logging.c: Convert fmt_first and fmt_confd into macros.
+
+2009-11-23 10:56  millert
+
+	* match.c: cmnd_matches() already deals with negation so
+	  _cmndlist_matches() does not need to do so itself.  Fixes a bug
+	  with negated entries in a Cmnd_List.
+
+2009-11-22 11:12  millert
+
+	* sudo.c: Don't exit() from open_sudoers, just return NULL for all
+	  errors.
+
+2009-11-22 09:54  millert
+
+	* toke.c, toke.l: Add missing extern def for parse_error
+
+2009-11-20 19:11  millert
+
+	* toke.c, toke.l: Avoid a parse error when #includedir doesn't find
+	  any files.  Closes bug #375
+
+2009-11-20 19:03  millert
+
+	* Makefile.in: Include sudo.man.pl and sudoers.man.pl in the
+	  distribution tarball.
+
+2009-11-04 09:42  millert
+
+	* configure, configure.in: Fix a few typos in the descriptions;
+	  from Jeff Makey Only do the check for
+	  krb5_get_init_creds_opt_free() taking two arguments if we find
+	  krb5_get_init_creds_opt_alloc().  Otherwise we will get a false
+	  positive when using our own krb5_get_init_creds_opt_free which
+	  takes only a single argument.
+
+2009-11-03 09:58  millert
+
+	* configure, configure.in: Remove a spurious comma in the kerb5
+	  bits.
+
+2009-11-03 09:51  millert
+
+	* auth/kerb5.c: Call krb5_get_init_creds_opt_init() in our emulated
+	  krb5_get_init_creds_opt_alloc() for MIT kerberos.
+
+2009-09-30 09:50  millert
+
+	* sudo_edit.c: Always update the stashed mtime of the temp file
+	  instead of using what we have for the original because the time
+	  resolution of the filesystem the temporary is on may not match
+	  that of the filesystem that holds the original.  Should fix bz
+	  #371 found by Philippe Levan.
+
+2009-09-24 21:11  millert
+
+	* configure, configure.in, sudoers.man.pl, sudoers.pod: Substitute
+	  in default value for secure_path
+
+2009-09-24 20:31  millert
+
+	* sudo.pod: Mention that the password must be followed by a newline
+	  with the -S option.
+
+2009-08-07 10:21  millert
+
+	* auth/pam.c: Set PAM_RUSER and PAM_RHOST early so they can be used
+	  during authentication.  Based on a patch from Jamie Beverly.
+
+2009-08-07 09:25  millert
+
+	* match.c: Close dir before returning if strlcpy() reports
+	  overflow.  From Martynas Venckus.
+
+2009-07-18 09:55  millert
+
+	* toke.c, toke.l: Fix expansion of %h in #include names.  Fixes
+	  bugzilla 363
+
+2009-07-12 17:17  millert
+
+	* mkdefaults: If no arg assume def_data.in
+
+2009-07-11 21:27  millert
+
+	* README, WHATSNEW: Update for 1.7.2
+
+2009-07-11 21:12  millert
+
+	* ChangeLog: sync
+
 2009-06-30 08:41  millert
 
 	* sudoers.cat, sudoers.man.in, sudoers.pod: Add missing single

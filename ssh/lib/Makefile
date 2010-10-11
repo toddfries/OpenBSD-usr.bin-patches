@@ -1,18 +1,19 @@
-#	$OpenBSD: Makefile,v 1.58 2008/11/04 08:22:13 djm Exp $
+#	$OpenBSD: Makefile,v 1.62 2010/08/31 11:54:45 djm Exp $
 
 .PATH:		${.CURDIR}/..
+.include "${.CURDIR}/../Makefile.inc"
 
 LIB=	ssh
 WANTLINT=
-SRCS=	authfd.c authfile.c bufaux.c bufbn.c buffer.c canohost.c channels.c \
-	cipher.c cipher-3des1.c cipher-bf1.c cipher-ctr.c \
+SRCS=	authfd.c authfile.c bufaux.c bufec.c bufbn.c buffer.c canohost.c \
+	channels.c cipher.c cipher-3des1.c cipher-bf1.c cipher-ctr.c \
 	cleanup.c compat.c compress.c crc32.c deattack.c fatal.c \
 	hostfile.c log.c match.c nchan.c packet.c readpass.c \
 	rsa.c ttymodes.c xmalloc.c atomicio.c \
 	key.c dispatch.c kex.c mac.c uidswap.c uuencode.c misc.c \
-	ssh-dss.c ssh-rsa.c dh.c kexdh.c kexgex.c \
-	kexdhc.c kexgexc.c scard.c msg.c progressmeter.c dns.c \
-	monitor_fdpass.c umac.c addrmatch.c schnorr.c jpake.c
+	ssh-dss.c ssh-rsa.c ssh-ecdsa.c dh.c kexdh.c kexgex.c kexecdh.c \
+	kexdhc.c kexgexc.c kexecdhc.c msg.c progressmeter.c dns.c \
+	monitor_fdpass.c umac.c addrmatch.c schnorr.c jpake.c ssh-pkcs11.c
 
 DEBUGLIBS= no
 NOPROFILE= yes

@@ -1,4 +1,4 @@
-/*	$OpenBSD: getlog.c,v 1.93 2009/03/26 17:30:04 joris Exp $	*/
+/*	$OpenBSD: getlog.c,v 1.95 2010/07/30 21:47:18 ray Exp $	*/
 /*
  * Copyright (c) 2005, 2006 Xavier Santolaria <xsa@openbsd.org>
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
@@ -232,9 +232,12 @@ cvs_log_local(struct cvs_file *cf)
 
 	if (logrev != NULL)
 		nrev = cvs_revision_select(cf->file_rcs, logrev);
-	else if (logdate != NULL)
-		nrev = date_select(cf->file_rcs, logdate);
-	else
+	else if (logdate != NULL) {
+		if ((nrev = date_select(cf->file_rcs, logdate)) == -1) {
+			cvs_log(LP_ERR, "invalid date: %s", logdate);
+			return;
+		}
+	} else
 		nrev = cf->file_rcs->rf_ndelta;
 
 	cvs_printf("\nRCS file: %s", cf->file_rpath);
@@ -452,7 +455,8 @@ date_select(RCSFILE *file, char *date)
 
 		if (last == NULL) {
 			flags |= LDATE_SINGLE;
-			firstdate = cvs_date_parse(first);
+			if ((firstdate = date_parse(first)) == -1)
+				return -1;
 			delim = '\0';
 			last = "\0";
 		} else {
@@ -462,34 +466,40 @@ date_select(RCSFILE *file, char *date)
 
 		if (delim == '>' && *last == '\0') {
 			flags |= LDATE_EARLIER;
-			firstdate = cvs_date_parse(first);
+			if ((firstdate = date_parse(first)) == -1)
+				return -1;
 		}
 
 		if (delim == '>' && *first == '\0' && *last != '\0') {
 			flags |= LDATE_LATER;
-			firstdate = cvs_date_parse(last);
+			if ((firstdate = date_parse(last)) == -1)
+				return -1;
 		}
 
 		if (delim == '<' && *last == '\0') {
 			flags |= LDATE_LATER;
-			firstdate = cvs_date_parse(first);
+			if ((firstdate = date_parse(first)) == -1)
+				return -1;
 		}
 
 		if (delim == '<' && *first == '\0' && *last != '\0') {
 			flags |= LDATE_EARLIER;
-			firstdate = cvs_date_parse(last);
+			if ((firstdate = date_parse(last)) == -1)
+				return -1;
 		}
 
 		if (*first != '\0' && *last != '\0') {
 			flags |= LDATE_RANGE;
 
 			if (delim == '<') {
-				firstdate = cvs_date_parse(first);
-				lastdate = cvs_date_parse(last);
+				firstdate = date_parse(first);
+				lastdate = date_parse(last);
 			} else {
-				firstdate = cvs_date_parse(last);
-				lastdate = cvs_date_parse(first);
+				firstdate = date_parse(last);
+				lastdate = date_parse(first);
 			}
+			if (firstdate == -1 || lastdate == -1)
+				return -1;
 		}
 
 		TAILQ_FOREACH(rdp, &(file->rf_delta), rd_list) {

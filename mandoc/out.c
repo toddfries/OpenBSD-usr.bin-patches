@@ -1,6 +1,6 @@
-/*	$Id: out.c,v 1.2 2009/10/27 21:40:07 schwarze Exp $ */
+/*	$Id: out.c,v 1.8 2010/09/13 22:04:01 schwarze Exp $ */
 /*
- * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -112,11 +112,10 @@ a2roffsu(const char *src, struct roffsu *dst, enum roffscale def)
 		return(0);
 	}
 
+	/* FIXME: do this in the caller. */
 	if ((dst->scale = atof(buf)) < 0)
 		dst->scale = 0;
 	dst->unit = unit;
-	dst->pt = hasd;
-
 	return(1);
 }
 
@@ -162,3 +161,196 @@ time2a(time_t t, char *dst, size_t sz)
 	(void)strftime(p, sz, "%Y", &tm);
 }
 
+
+int
+a2roffdeco(enum roffdeco *d, const char **word, size_t *sz)
+{
+	int		 i, j, lim;
+	char		 term, c;
+	const char	*wp;
+	enum roffdeco	 dd;
+
+	*d = DECO_NONE;
+	lim = i = 0;
+	term = '\0';
+	wp = *word;
+
+	switch ((c = wp[i++])) {
+	case ('('):
+		*d = DECO_SPECIAL;
+		lim = 2;
+		break;
+	case ('F'):
+		/* FALLTHROUGH */
+	case ('f'):
+		*d = 'F' == c ? DECO_FFONT : DECO_FONT;
+
+		switch (wp[i++]) {
+		case ('('):
+			lim = 2;
+			break;
+		case ('['):
+			term = ']';
+			break;
+		case ('3'):
+			/* FALLTHROUGH */
+		case ('B'):
+			*d = DECO_BOLD;
+			return(i);
+		case ('2'):
+			/* FALLTHROUGH */
+		case ('I'):
+			*d = DECO_ITALIC;
+			return(i);
+		case ('P'):
+			*d = DECO_PREVIOUS;
+			return(i);
+		case ('1'):
+			/* FALLTHROUGH */
+		case ('R'):
+			*d = DECO_ROMAN;
+			return(i);
+		default:
+			i--;
+			lim = 1;
+			break;
+		}
+		break;
+	case ('k'):
+		/* FALLTHROUGH */
+	case ('M'):
+		/* FALLTHROUGH */
+	case ('m'):
+		/* FALLTHROUGH */
+	case ('*'):
+		if ('*' == c)
+			*d = DECO_RESERVED;
+
+		switch (wp[i++]) {
+		case ('('):
+			lim = 2;
+			break;
+		case ('['):
+			term = ']';
+			break;
+		default:
+			i--;
+			lim = 1;
+			break;
+		}
+		break;
+	case ('h'):
+		/* FALLTHROUGH */
+	case ('v'):
+		/* FALLTHROUGH */
+	case ('s'):
+		j = 0;
+		if ('+' == wp[i] || '-' == wp[i]) {
+			i++;
+			j = 1;
+		}
+
+		switch (wp[i++]) {
+		case ('('):
+			lim = 2;
+			break;
+		case ('['):
+			term = ']';
+			break;
+		case ('\''):
+			term = '\'';
+			break;
+		case ('0'):
+			j = 1;
+			/* FALLTHROUGH */
+		default:
+			i--;
+			lim = 1;
+			break;
+		}
+
+		if ('+' == wp[i] || '-' == wp[i]) {
+			if (j)
+				return(i);
+			i++;
+		} 
+
+		/* Handle embedded numerical subexp or escape. */
+
+		if ('(' == wp[i]) {
+			while (wp[i] && ')' != wp[i])
+				if ('\\' == wp[i++]) {
+					/* Handle embedded escape. */
+					*word = &wp[i];
+					i += a2roffdeco(&dd, word, sz);
+				}
+
+			if (')' == wp[i++])
+				break;
+
+			*d = DECO_NONE;
+			return(i - 1);
+		} else if ('\\' == wp[i]) {
+			*word = &wp[++i];
+			i += a2roffdeco(&dd, word, sz);
+		}
+
+		break;
+	case ('['):
+		*d = DECO_SPECIAL;
+		term = ']';
+		break;
+	case ('c'):
+		*d = DECO_NOSPACE;
+		return(i);
+	case ('z'):
+		*d = DECO_NONE;
+		if ('\\' == wp[i]) {
+			*word = &wp[++i];
+			return(i + a2roffdeco(&dd, word, sz));
+		} else
+			lim = 1;
+		break;
+	case ('o'):
+		/* FALLTHROUGH */
+	case ('w'):
+		if ('\'' == wp[i++]) {
+			term = '\'';
+			break;
+		} 
+		/* FALLTHROUGH */
+	default:
+		*d = DECO_SSPECIAL;
+		i--;
+		lim = 1;
+		break;
+	}
+
+	assert(term || lim);
+	*word = &wp[i];
+
+	if (term) {
+		j = i;
+		while (wp[i] && wp[i] != term)
+			i++;
+		if ('\0' == wp[i]) {
+			*d = DECO_NONE;
+			return(i);
+		}
+
+		assert(i >= j);
+		*sz = (size_t)(i - j);
+
+		return(i + 1);
+	}
+
+	assert(lim > 0);
+	*sz = (size_t)lim;
+
+	for (j = 0; wp[i] && j < lim; j++)
+		i++;
+	if (j < lim)
+		*d = DECO_NONE;
+
+	return(i);
+}

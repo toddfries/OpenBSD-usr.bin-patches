@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: targ.c,v 1.59 2009/08/16 09:49:22 espie Exp $ */
+/*	$OpenBSD: targ.c,v 1.62 2010/07/19 19:46:44 espie Exp $ */
 /*	$NetBSD: targ.c,v 1.11 1997/02/20 16:51:50 christos Exp $	*/
 
 /*
@@ -426,7 +425,7 @@ TargPrintNode(GNode *gn, int pass)
 static void
 TargPrintOnlySrc(GNode *gn)
 {
-	if (OP_NOP(gn->type) && gn->special == SPECIAL_NONE && 
+	if (OP_NOP(gn->type) && gn->special == SPECIAL_NONE &&
 	    !(gn->type & OP_DUMMY))
 		printf("#\t%s [%s]\n", gn->name,
 		    gn->path != NULL ? gn->path : gn->name);
@@ -461,4 +460,10 @@ struct ohash *
 targets_hash()
 {
 	return &targets;
+}
+
+GNode *
+Targ_FindNodeh(const char *name, size_t n, uint32_t hv, int flags)
+{
+	return Targ_FindNodeih(name, name + n - 1, hv, flags);
 }

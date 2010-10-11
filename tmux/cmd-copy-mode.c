@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-copy-mode.c,v 1.8 2009/11/13 19:53:29 nicm Exp $ */
+/* $OpenBSD: cmd-copy-mode.c,v 1.11 2010/08/11 07:41:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,7 @@ const struct cmd_entry cmd_copy_mode_entry = {
 	cmd_target_parse,
 	cmd_copy_mode_exec,
 	cmd_target_free,
-	NULL
+	cmd_target_print
 };
 
 void
@@ -62,7 +62,9 @@ cmd_copy_mode_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (cmd_find_pane(ctx, data->target, NULL, &wp) == NULL)
 		return (-1);
 
-	window_pane_set_mode(wp, &window_copy_mode);
+	if (window_pane_set_mode(wp, &window_copy_mode) != 0)
+		return (0);
+	window_copy_init_from_pane(wp);
 	if (wp->mode == &window_copy_mode && cmd_check_flag(data->chflags, 'u'))
 		window_copy_pageup(wp);
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: roaming_common.c,v 1.6 2009/10/24 11:22:37 andreas Exp $ */
+/* $OpenBSD: roaming_common.c,v 1.8 2010/01/12 00:59:29 djm Exp $ */
 /*
  * Copyright (c) 2004-2009 AppGate Network Security AB
  *
@@ -48,9 +48,9 @@ int
 get_snd_buf_size()
 {
 	int fd = packet_get_connection_out();
-	int optval, optvallen;
+	int optval;
+	socklen_t optvallen = sizeof(optval);
 
-	optvallen = sizeof(optval);
 	if (getsockopt(fd, SOL_SOCKET, SO_SNDBUF, &optval, &optvallen) != 0)
 		optval = DEFAULT_ROAMBUF;
 	return optval;
@@ -60,9 +60,9 @@ int
 get_recv_buf_size()
 {
 	int fd = packet_get_connection_in();
-	int optval, optvallen;
+	int optval;
+	socklen_t optvallen = sizeof(optval);
 
-	optvallen = sizeof(optval);
 	if (getsockopt(fd, SOL_SOCKET, SO_RCVBUF, &optval, &optvallen) != 0)
 		optval = DEFAULT_ROAMBUF;
 	return optval;
@@ -141,8 +141,6 @@ roaming_write(int fd, const void *buf, size_t count, int *cont)
 		if (out_buf_size > 0)
 			buf_append(buf, ret);
 	}
-	debug3("Wrote %ld bytes for a total of %llu", (long)ret,
-	    (unsigned long long)write_bytes);
 	if (out_buf_size > 0 &&
 	    (ret == 0 || (ret == -1 && errno == EPIPE))) {
 		if (wait_for_roaming_reconnect() != 0) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: diffreg.c,v 1.73 2009/10/27 23:59:37 deraadt Exp $	*/
+/*	$OpenBSD: diffreg.c,v 1.79 2010/07/16 21:47:02 ray Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -172,9 +172,10 @@ struct context_vec {
 	int	d;		/* end line in new file */
 };
 
+#define	diff_output	printf
 static FILE	*opentemp(const char *);
 static void	 output(char *, FILE *, char *, FILE *, int);
-static void	 check(char *, FILE *, char *, FILE *, int);
+static void	 check(FILE *, FILE *, int);
 static void	 range(int, int, char *);
 static void	 uni_range(int, int);
 static void	 dump_context_vec(FILE *, FILE *, int);
@@ -381,7 +382,8 @@ diffreg(char *file1, char *file2, int flags)
 			warnx("No more processes");
 			status |= 2;
 			xfree(header);
-			return (D_ERROR);
+			rval = D_ERROR;
+			goto closem;
 		case 0:
 			/* child */
 			if (pfd[0] != STDIN_FILENO) {
@@ -433,7 +435,7 @@ diffreg(char *file1, char *file2, int flags)
 
 	ixold = xrealloc(ixold, len[0] + 2, sizeof(*ixold));
 	ixnew = xrealloc(ixnew, len[1] + 2, sizeof(*ixnew));
-	check(file1, f1, file2, f2, flags);
+	check(f1, f2, flags);
 	output(file1, f1, file2, f2, flags);
 	if (ostdout != -1) {
 		int wstatus;
@@ -479,13 +481,12 @@ files_differ(FILE *f1, FILE *f2, int flags)
 	for (;;) {
 		i = fread(buf1, 1, sizeof(buf1), f1);
 		j = fread(buf2, 1, sizeof(buf2), f2);
+		if ((!i && ferror(f1)) || (!j && ferror(f2)))
+			return (-1);
 		if (i != j)
 			return (1);
-		if (i == 0 && j == 0) {
-			if (ferror(f1) || ferror(f2))
-				return (1);
+		if (i == 0)
 			return (0);
-		}
 		if (memcmp(buf1, buf2, i) != 0)
 			return (1);
 	}
@@ -514,8 +515,10 @@ opentemp(const char *file)
 		return (NULL);
 	}
 
-	if ((ofd = mkstemp(tempfile)) < 0)
+	if ((ofd = mkstemp(tempfile)) < 0) {
+		close(ifd);
 		return (NULL);
+	}
 	unlink(tempfile);
 	while ((nread = read(ifd, buf, BUFSIZ)) > 0) {
 		if (write(ofd, buf, nread) != nread) {
@@ -740,7 +743,7 @@ unravel(int p)
  *  2.  collect random access indexes to the two files
  */
 static void
-check(char *file1, FILE *f1, char *file2, FILE *f2, int flags)
+check(FILE *f1, FILE *f2, int flags)
 {
 	int i, j, jackpot, c, d;
 	long ctold, ctnew;
@@ -936,7 +939,7 @@ output(char *file1, FILE *f1, char *file2, FILE *f2, int flags)
 #define	c i0
 			if ((c = getc(f1)) == EOF)
 				return;
-			putchar(c);
+			diff_output("%c", c);
 		}
 #undef c
 	}
@@ -951,20 +954,20 @@ output(char *file1, FILE *f1, char *file2, FILE *f2, int flags)
 static void
 range(int a, int b, char *separator)
 {
-	printf("%d", a > b ? b : a);
+	diff_output("%d", a > b ? b : a);
 	if (a < b)
-		printf("%s%d", separator, b);
+		diff_output("%s%d", separator, b);
 }
 
 static void
 uni_range(int a, int b)
 {
 	if (a < b)
-		printf("%d,%d", a, b - a + 1);
+		diff_output("%d,%d", a, b - a + 1);
 	else if (a == b)
-		printf("%d", b);
+		diff_output("%d", b);
 	else
-		printf("%d,0", b);
+		diff_output("%d,0", b);
 }
 
 static char *
@@ -975,7 +978,7 @@ preadline(int fd, size_t rlen, off_t off)
 
 	line = xmalloc(rlen + 1);
 	if ((nr = pread(fd, line, rlen, off)) < 0)
-		err(1, "preadline");
+		err(2, "preadline");
 	if (nr > 0 && line[nr-1] == '\n')
 		nr--;
 	line[nr] = '\0';
@@ -1036,7 +1039,7 @@ restart:
 	}
 proceed:
 	if (*pflags & D_HEADER) {
-		printf("%s %s %s\n", diffargs, file1, file2);
+		diff_output("%s %s %s\n", diffargs, file1, file2);
 		*pflags &= ~D_HEADER;
 	}
 	if (diff_format == D_CONTEXT || diff_format == D_UNIFIED) {
@@ -1083,31 +1086,31 @@ proceed:
 	case D_NORMAL:
 	case D_EDIT:
 		range(a, b, ",");
-		putchar(a > b ? 'a' : c > d ? 'd' : 'c');
+		diff_output("%c", a > b ? 'a' : c > d ? 'd' : 'c');
 		if (diff_format == D_NORMAL)
 			range(c, d, ",");
-		putchar('\n');
+		diff_output("\n");
 		break;
 	case D_REVERSE:
-		putchar(a > b ? 'a' : c > d ? 'd' : 'c');
+		diff_output("%c", a > b ? 'a' : c > d ? 'd' : 'c');
 		range(a, b, " ");
-		putchar('\n');
+		diff_output("\n");
 		break;
 	case D_NREVERSE:
 		if (a > b)
-			printf("a%d %d\n", b, d - c + 1);
+			diff_output("a%d %d\n", b, d - c + 1);
 		else {
-			printf("d%d %d\n", a, b - a + 1);
+			diff_output("d%d %d\n", a, b - a + 1);
 			if (!(c > d))
 				/* add changed lines */
-				printf("a%d %d\n", b, d - c + 1);
+				diff_output("a%d %d\n", b, d - c + 1);
 		}
 		break;
 	}
 	if (diff_format == D_NORMAL || diff_format == D_IFDEF) {
 		fetch(ixold, a, b, f1, '<', 1, *pflags);
 		if (a <= b && c <= d && diff_format == D_NORMAL)
-			puts("---");
+			diff_output("---\n");
 	}
 	i = fetch(ixnew, c, d, f2, diff_format == D_NORMAL ? '>' : '\0', 0, *pflags);
 	if (i != 0 && diff_format == D_EDIT) {
@@ -1118,16 +1121,16 @@ proceed:
 		 * it.  We have to add a substitute command to change this
 		 * back and restart where we left off.
 		 */
-		puts(".");
-		printf("%ds/^\\.\\././\n", a);
+		diff_output(".\n");
+		diff_output("%ds/^\\.\\././\n", a);
 		a += i;
 		c += i;
 		goto restart;
 	}
 	if ((diff_format == D_EDIT || diff_format == D_REVERSE) && c <= d)
-		puts(".");
+		diff_output(".\n");
 	if (inifdef) {
-		printf("#endif /* %s */\n", ifdefname);
+		diff_output("#endif /* %s */\n", ifdefname);
 		inifdef = 0;
 	}
 }
@@ -1146,19 +1149,19 @@ fetch(long *f, int a, int b, FILE *lb, int ch, int oldfile, int flags)
 		/* print through if append (a>b), else to (nb: 0 vs 1 orig) */
 		nc = f[a > b ? b : a - 1] - curpos;
 		for (i = 0; i < nc; i++)
-			putchar(getc(lb));
+			diff_output("%c", getc(lb));
 	}
 	if (a > b)
 		return (0);
 	if (diff_format == D_IFDEF) {
 		if (inifdef) {
-			printf("#else /* %s%s */\n",
+			diff_output("#else /* %s%s */\n",
 			    oldfile == 1 ? "!" : "", ifdefname);
 		} else {
 			if (oldfile)
-				printf("#ifndef %s\n", ifdefname);
+				diff_output("#ifndef %s\n", ifdefname);
 			else
-				printf("#ifdef %s\n", ifdefname);
+				diff_output("#ifdef %s\n", ifdefname);
 		}
 		inifdef = 1 + oldfile;
 	}
@@ -1166,12 +1169,12 @@ fetch(long *f, int a, int b, FILE *lb, int ch, int oldfile, int flags)
 		fseek(lb, f[i - 1], SEEK_SET);
 		nc = f[i] - f[i - 1];
 		if (diff_format != D_IFDEF && ch != '\0') {
-			putchar(ch);
+			diff_output("%c", ch);
 			if (Tflag && (diff_format == D_NORMAL || diff_format == D_CONTEXT
 			    || diff_format == D_UNIFIED))
-				putchar('\t');
+				diff_output("\t");
 			else if (diff_format != D_UNIFIED)
-				putchar(' ');
+				diff_output(" ");
 		}
 		col = 0;
 		for (j = 0, lastc = '\0'; j < nc; j++, lastc = c) {
@@ -1180,12 +1183,13 @@ fetch(long *f, int a, int b, FILE *lb, int ch, int oldfile, int flags)
 				    diff_format == D_NREVERSE)
 					warnx("No newline at end of file");
 				else
-					puts("\n\\ No newline at end of file");
+					diff_output("\n\\ No newline at end of "
+					    "file\n");
 				return (0);
 			}
 			if (c == '\t' && (flags & D_EXPANDTABS)) {
 				do {
-					putchar(' ');
+					diff_output(" ");
 				} while (++col & 7);
 			} else {
 				if (diff_format == D_EDIT && j == 1 && c == '\n'
@@ -1197,10 +1201,10 @@ fetch(long *f, int a, int b, FILE *lb, int ch, int oldfile, int flags)
 					 * giving the caller an offset
 					 * from which to restart.
 					 */
-					puts(".");
+					diff_output(".\n");
 					return (i - a + 1);
 				}
-				putchar(c);
+				diff_output("%c", c);
 				col++;
 			}
 		}
@@ -1353,17 +1357,15 @@ dump_context_vec(FILE *f1, FILE *f2, int flags)
 	lowc = MAX(1, cvp->c - diff_context);
 	upd = MIN(len[1], context_vec_ptr->d + diff_context);
 
-	printf("***************");
+	diff_output("***************");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			putchar(' ');
-			fputs(f, stdout);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
-	printf("\n*** ");
+	diff_output("\n*** ");
 	range(lowa, upb, ",");
-	printf(" ****\n");
+	diff_output(" ****\n");
 
 	/*
 	 * Output changes to the "old" file.  The first loop suppresses
@@ -1402,9 +1404,9 @@ dump_context_vec(FILE *f1, FILE *f2, int flags)
 		fetch(ixold, b + 1, upb, f1, ' ', 0, flags);
 	}
 	/* output changes to the "new" file */
-	printf("--- ");
+	diff_output("--- ");
 	range(lowc, upd, ",");
-	printf(" ----\n");
+	diff_output(" ----\n");
 
 	do_output = 0;
 	for (cvp = context_vec_start; cvp <= context_vec_ptr; cvp++)
@@ -1458,19 +1460,17 @@ dump_unified_vec(FILE *f1, FILE *f2, int flags)
 	lowc = MAX(1, cvp->c - diff_context);
 	upd = MIN(len[1], context_vec_ptr->d + diff_context);
 
-	fputs("@@ -", stdout);
+	diff_output("@@ -");
 	uni_range(lowa, upb);
-	fputs(" +", stdout);
+	diff_output(" +");
 	uni_range(lowc, upd);
-	fputs(" @@", stdout);
+	diff_output(" @@");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			putchar(' ');
-			fputs(f, stdout);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
-	putchar('\n');
+	diff_output("\n");
 
 	/*
 	 * Output changes in "unified" diff format--the old and new lines
@@ -1519,15 +1519,15 @@ static void
 print_header(const char *file1, const char *file2)
 {
 	if (label[0] != NULL)
-		printf("%s %s\n", diff_format == D_CONTEXT ? "***" : "---",
+		diff_output("%s %s\n", diff_format == D_CONTEXT ? "***" : "---",
 		    label[0]);
 	else
-		printf("%s %s\t%s", diff_format == D_CONTEXT ? "***" : "---",
+		diff_output("%s %s\t%s", diff_format == D_CONTEXT ? "***" : "---",
 		    file1, ctime(&stb1.st_mtime));
 	if (label[1] != NULL)
-		printf("%s %s\n", diff_format == D_CONTEXT ? "---" : "+++",
+		diff_output("%s %s\n", diff_format == D_CONTEXT ? "---" : "+++",
 		    label[1]);
 	else
-		printf("%s %s\t%s", diff_format == D_CONTEXT ? "---" : "+++",
+		diff_output("%s %s\t%s", diff_format == D_CONTEXT ? "---" : "+++",
 		    file2, ctime(&stb2.st_mtime));
 }

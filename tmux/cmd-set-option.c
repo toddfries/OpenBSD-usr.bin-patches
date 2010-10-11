@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-option.c,v 1.28 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: cmd-set-option.c,v 1.39 2010/09/26 20:43:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -48,8 +48,8 @@ void	cmd_set_option_choice(struct cmd_ctx *,
 
 const struct cmd_entry cmd_set_option_entry = {
 	"set-option", "set",
-	"[-aguw] [-t target-session|target-window] option [value]",
-	CMD_ARG12, "aguw",
+	"[-agsuw] [-t target-session|target-window] option [value]",
+	CMD_ARG12, "agsuw",
 	NULL,
 	cmd_target_parse,
 	cmd_set_option_exec,
@@ -73,6 +73,13 @@ const char *set_option_bell_action_list[] = {
 	"none", "any", "current", NULL
 };
 
+const struct set_option_entry set_option_table[] = {
+	{ "escape-time", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
+	{ "exit-unattached", SET_OPTION_FLAG, 0, 0, NULL },
+	{ "quiet", SET_OPTION_FLAG, 0, 0, NULL },
+	{ NULL, 0, 0, 0, NULL }
+};
+
 const struct set_option_entry set_session_option_table[] = {
 	{ "base-index", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
 	{ "bell-action", SET_OPTION_CHOICE, 0, 0, set_option_bell_action_list },
@@ -81,7 +88,10 @@ const struct set_option_entry set_session_option_table[] = {
 	{ "default-path", SET_OPTION_STRING, 0, 0, NULL },
 	{ "default-shell", SET_OPTION_STRING, 0, 0, NULL },
 	{ "default-terminal", SET_OPTION_STRING, 0, 0, NULL },
+	{ "destroy-unattached", SET_OPTION_FLAG, 0, 0, NULL },
+	{ "detach-on-destroy", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "display-panes-colour", SET_OPTION_COLOUR, 0, 0, NULL },
+	{ "display-panes-active-colour", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "display-panes-time", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "display-time", SET_OPTION_NUMBER, 1, INT_MAX, NULL },
 	{ "history-limit", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
@@ -93,6 +103,10 @@ const struct set_option_entry set_session_option_table[] = {
 	{ "message-fg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "message-limit", SET_OPTION_NUMBER, 0, INT_MAX, NULL },
 	{ "mouse-select-pane", SET_OPTION_FLAG, 0, 0, NULL },
+	{ "pane-active-border-bg", SET_OPTION_COLOUR, 0, 0, NULL },
+	{ "pane-active-border-fg", SET_OPTION_COLOUR, 0, 0, NULL },
+	{ "pane-border-bg", SET_OPTION_COLOUR, 0, 0, NULL },
+	{ "pane-border-fg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "prefix", SET_OPTION_KEYS, 0, 0, NULL },
 	{ "repeat-time", SET_OPTION_NUMBER, 0, SHRT_MAX, NULL },
 	{ "set-remain-on-exit", SET_OPTION_FLAG, 0, 0, NULL },
@@ -127,6 +141,7 @@ const struct set_option_entry set_session_option_table[] = {
 
 const struct set_option_entry set_window_option_table[] = {
 	{ "aggressive-resize", SET_OPTION_FLAG, 0, 0, NULL },
+	{ "alternate-screen", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "automatic-rename", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "clock-mode-colour", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "clock-mode-style",
@@ -145,6 +160,9 @@ const struct set_option_entry set_window_option_table[] = {
 	{ "remain-on-exit", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "synchronize-panes", SET_OPTION_FLAG, 0, 0, NULL },
 	{ "utf8", SET_OPTION_FLAG, 0, 0, NULL },
+	{ "window-status-alert-attr", SET_OPTION_ATTRIBUTES, 0, 0, NULL },
+	{ "window-status-alert-bg", SET_OPTION_COLOUR, 0, 0, NULL },
+	{ "window-status-alert-fg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "window-status-attr", SET_OPTION_ATTRIBUTES, 0, 0, NULL },
 	{ "window-status-bg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "window-status-current-attr", SET_OPTION_ATTRIBUTES, 0, 0, NULL },
@@ -153,6 +171,7 @@ const struct set_option_entry set_window_option_table[] = {
 	{ "window-status-current-format", SET_OPTION_STRING, 0, 0, NULL },
 	{ "window-status-fg", SET_OPTION_COLOUR, 0, 0, NULL },
 	{ "window-status-format", SET_OPTION_STRING, 0, 0, NULL },
+	{ "word-separators", SET_OPTION_STRING, 0, 0, NULL },
 	{ "xterm-keys", SET_OPTION_FLAG, 0, 0, NULL },
 	{ NULL, 0, 0, 0, NULL }
 };
@@ -172,7 +191,10 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	u_int				 i;
 	int				 try_again;
 
-	if (cmd_check_flag(data->chflags, 'w')) {
+	if (cmd_check_flag(data->chflags, 's')) {
+		oo = &global_options;
+		table = set_option_table;
+	} else if (cmd_check_flag(data->chflags, 'w')) {
 		table = set_window_option_table;
 		if (cmd_check_flag(data->chflags, 'g'))
 			oo = &global_w_options;
@@ -273,6 +295,7 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 	 */
 	if (strcmp(entry->name, "status-left") == 0 ||
 	    strcmp(entry->name, "status-right") == 0 ||
+	    strcmp(entry->name, "status") == 0 ||
 	    strcmp(entry->name, "set-titles-string") == 0 ||
 	    strcmp(entry->name, "window-status-format") == 0) {
 		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {

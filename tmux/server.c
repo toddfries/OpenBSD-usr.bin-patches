@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.80 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.94 2010/09/26 20:43:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -49,9 +49,6 @@ struct clients	 dead_clients;
 int		 server_fd;
 int		 server_shutdown;
 struct event	 server_ev_accept;
-struct event	 server_ev_sigterm;
-struct event	 server_ev_sigusr1;
-struct event	 server_ev_sigchld;
 struct event	 server_ev_second;
 
 int		 server_create_socket(void);
@@ -89,7 +86,7 @@ server_create_socket(void)
 	if ((fd = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
 		fatal("socket failed");
 
-	mask = umask(S_IXUSR|S_IRWXG|S_IRWXO);
+	mask = umask(S_IXUSR|S_IXGRP|S_IRWXO);
 	if (bind(fd, (struct sockaddr *) &sa, SUN_LEN(&sa)) == -1)
 		fatal("bind failed");
 	umask(mask);
@@ -113,10 +110,11 @@ server_create_socket(void)
 int
 server_start(char *path)
 {
-	struct client	*c;
-	int		 pair[2];
-	char		*cause, rpathbuf[MAXPATHLEN];
-	struct timeval	 tv;
+	struct window_pane	*wp;
+	int	 		 pair[2];
+	char			 rpathbuf[MAXPATHLEN], *cause;
+	struct timeval		 tv;
+	u_int			 i;
 
 	/* The first client is special and gets a socketpair; create it. */
 	if (socketpair(AF_UNIX, SOCK_STREAM, PF_UNSPEC, pair) != 0)
@@ -140,6 +138,11 @@ server_start(char *path)
 	if (daemon(1, 0) != 0)
 		fatal("daemon failed");
 
+	/* event_init() was called in our parent, need to reinit. */
+	if (event_reinit(ev_base) != 0)
+		fatal("event_reinit failed");
+	clear_signals(0);
+
 	logfile("server");
 	log_debug("server started, pid %ld", (long) getpid());
 
@@ -161,20 +164,34 @@ server_start(char *path)
 	log_debug("socket path %s", socket_path);
 	setproctitle("server (%s)", rpathbuf);
 
-	event_init();
-
 	server_fd = server_create_socket();
 	server_client_create(pair[1]);
 
-	if (access(SYSTEM_CFG, R_OK) == 0) {
-		if (load_cfg(SYSTEM_CFG, NULL, &cause) != 0)
-			goto error;
-	} else if (errno != ENOENT) {
-		xasprintf(&cause, "%s: %s", strerror(errno), SYSTEM_CFG);
-		goto error;
+	if (access(SYSTEM_CFG, R_OK) == 0)
+		load_cfg(SYSTEM_CFG, NULL, &cfg_causes);
+	else if (errno != ENOENT) {
+		cfg_add_cause(
+		    &cfg_causes, "%s: %s", strerror(errno), SYSTEM_CFG);
 	}
-	if (cfg_file != NULL && load_cfg(cfg_file, NULL, &cause) != 0)
-		goto error;
+	if (cfg_file != NULL)
+		load_cfg(cfg_file, NULL, &cfg_causes);
+
+	/*
+	 * If there is a session already, put the current window and pane into
+	 * more mode.
+	 */
+	if (!ARRAY_EMPTY(&sessions) && !ARRAY_EMPTY(&cfg_causes)) {
+		wp = ARRAY_FIRST(&sessions)->curw->window->active;
+		window_pane_set_mode(wp, &window_copy_mode);
+		window_copy_init_for_output(wp);
+		for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
+			cause = ARRAY_ITEM(&cfg_causes, i);
+			window_copy_add(wp, "%s", cause);
+			xfree(cause);
+		}
+		ARRAY_FREE(&cfg_causes);
+	}
+	cfg_finished = 1;
 
 	event_set(&server_ev_accept,
 	    server_fd, EV_READ|EV_PERSIST, server_accept_callback, NULL);
@@ -185,23 +202,9 @@ server_start(char *path)
 	evtimer_set(&server_ev_second, server_second_callback, NULL);
 	evtimer_add(&server_ev_second, &tv);
 
-	server_signal_set();
+	set_signals(server_signal_callback);
 	server_loop();
 	exit(0);
-
-error:
-	/* Write the error and shutdown the server. */
-	c = ARRAY_FIRST(&clients);
-
-	server_write_error(c, cause);
-	server_write_client(c, MSG_EXIT, NULL, 0);
-	xfree(cause);
-
-	server_shutdown = 1;
-
-	server_signal_set();
-	server_loop();
-	exit(1);
 }
 
 /* Main server loop. */
@@ -219,15 +222,17 @@ server_loop(void)
 	}
 }
 
-/* Check if the server should be shutting down (no more clients or windows). */
+/* Check if the server should be shutting down (no more clients or sessions). */
 int
 server_should_shutdown(void)
 {
 	u_int	i;
 
-	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
-		if (ARRAY_ITEM(&sessions, i) != NULL)
-			return (0);
+	if (!options_get_number(&global_options, "exit-unattached")) {
+		for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
+			if (ARRAY_ITEM(&sessions, i) != NULL)
+				return (0);
+		}
 	}
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
 		if (ARRAY_ITEM(&clients, i) != NULL)
@@ -293,7 +298,8 @@ server_update_socket(void)
 	struct session	*s;
 	u_int		 i;
 	static int	 last = -1;
-	int		 n;
+	int		 n, mode;
+	struct stat      sb;
 
 	n = 0;
 	for (i = 0; i < ARRAY_LENGTH(&sessions); i++) {
@@ -306,10 +312,20 @@ server_update_socket(void)
 
 	if (n != last) {
 		last = n;
-		if (n != 0)
-			chmod(socket_path, S_IRWXU);
-		else
-			chmod(socket_path, S_IRUSR|S_IWUSR);
+
+		if (stat(socket_path, &sb) != 0)
+			return;
+		mode = sb.st_mode;
+		if (n != 0) {
+			if (mode & S_IRUSR)
+				mode |= S_IXUSR;
+			if (mode & S_IRGRP)
+				mode |= S_IXGRP;
+			if (mode & S_IROTH)
+				mode |= S_IXOTH;
+		} else
+			mode &= ~(S_IXUSR|S_IXGRP|S_IXOTH);
+		chmod(socket_path, mode);
 	}
 }
 
@@ -336,57 +352,6 @@ server_accept_callback(int fd, short events, unused void *data)
 		return;
 	}
 	server_client_create(newfd);
-}
-
-/* Set up server signal handling. */
-void
-server_signal_set(void)
-{
-	struct sigaction	 sigact;
-
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_IGN;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-
-	signal_set(&server_ev_sigchld, SIGCHLD, server_signal_callback, NULL);
-	signal_add(&server_ev_sigchld, NULL);
-	signal_set(&server_ev_sigterm, SIGTERM, server_signal_callback, NULL);
-	signal_add(&server_ev_sigterm, NULL);
-	signal_set(&server_ev_sigusr1, SIGUSR1, server_signal_callback, NULL);
-	signal_add(&server_ev_sigusr1, NULL);
-}
-
-/* Destroy server signal events. */
-void
-server_signal_clear(void)
-{
-	struct sigaction	 sigact;
-
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_DFL;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-
-	signal_del(&server_ev_sigchld);
-	signal_del(&server_ev_sigterm);
-	signal_del(&server_ev_sigusr1);
 }
 
 /* Signal handler. */

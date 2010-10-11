@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.160 2009/03/24 17:03:32 joris Exp $	*/
+/*	$OpenBSD: update.c,v 1.164 2010/09/29 18:14:52 nicm Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -31,6 +31,7 @@ int	print_stdout = 0;
 int	build_dirs = 0;
 int	reset_option = 0;
 int	reset_tag = 0;
+int 	backup_local_changes = 0;
 char *cvs_specified_tag = NULL;
 char *cvs_join_rev1 = NULL;
 char *cvs_join_rev2 = NULL;
@@ -75,10 +76,12 @@ cvs_update(int argc, char **argv)
 				reset_tag = 1;
 			break;
 		case 'C':
+			backup_local_changes = 1;
 			break;
 		case 'D':
 			dateflag = optarg;
-			cvs_specified_date = cvs_date_parse(dateflag);
+			if ((cvs_specified_date = date_parse(dateflag)) == -1)
+				fatal("invalid date: %s", dateflag);
 			reset_tag = 0;
 			break;
 		case 'd':
@@ -403,13 +406,20 @@ cvs_update_local(struct cvs_file *cf)
 		cvs_printf("? %s\n", cf->file_path);
 		break;
 	case FILE_MODIFIED:
-		ret = update_has_conflict_markers(cf);
-		if (cf->file_ent->ce_conflict != NULL && ret == 1) {
-			cvs_printf("C %s\n", cf->file_path);
+		if (backup_local_changes) {
+			cvs_backup_file(cf);
+
+			cvs_checkout_file(cf, cf->file_rcsrev, NULL, flags);
+			cvs_printf("U %s\n", cf->file_path);
 		} else {
-			if (cf->file_ent->ce_conflict != NULL && ret == 0)
-				update_clear_conflict(cf);
-			cvs_printf("M %s\n", cf->file_path);
+			ret = update_has_conflict_markers(cf);
+			if (cf->file_ent->ce_conflict != NULL && ret == 1)
+				cvs_printf("C %s\n", cf->file_path);
+			else {
+				if (cf->file_ent->ce_conflict != NULL && ret == 0)
+					update_clear_conflict(cf);
+				cvs_printf("M %s\n", cf->file_path);
+			}
 		}
 		break;
 	case FILE_ADDED:
@@ -429,9 +439,16 @@ cvs_update_local(struct cvs_file *cf)
 		    cf->file_ent->ce_tag != NULL)))
 			flags = CO_SETSTICKY;
 
-		cvs_checkout_file(cf, cf->file_rcsrev, tag, flags);
-		cvs_printf("U %s\n", cf->file_path);
-		cvs_history_add(CVS_HISTORY_UPDATE_CO, cf, NULL);
+		if (cf->file_flags & FILE_ON_DISK && (cf->file_ent == NULL ||
+		    cf->file_ent->ce_type == CVS_ENT_NONE)) {
+			cvs_log(LP_ERR, "move away %s; it is in the way",
+			    cf->file_path);
+			cvs_printf("C %s\n", cf->file_path);
+		} else {
+			cvs_checkout_file(cf, cf->file_rcsrev, tag, flags);
+			cvs_printf("U %s\n", cf->file_path);
+			cvs_history_add(CVS_HISTORY_UPDATE_CO, cf, NULL);
+		}
 		break;
 	case FILE_MERGE:
 		d3rev1 = cf->file_ent->ce_rev;
@@ -522,8 +539,8 @@ update_has_conflict_markers(struct cvs_file *cf)
 	BUF *bp;
 	int conflict;
 	char *content;
-	struct cvs_line *lp;
-	struct cvs_lines *lines;
+	struct rcs_line *lp;
+	struct rcs_lines *lines;
 	size_t len;
 
 	cvs_log(LP_TRACE, "update_has_conflict_markers(%s)", cf->file_path);
@@ -531,11 +548,11 @@ update_has_conflict_markers(struct cvs_file *cf)
 	if (!(cf->file_flags & FILE_ON_DISK) || cf->file_ent == NULL)
 		return (0);
 
-	bp = cvs_buf_load_fd(cf->fd);
+	bp = buf_load_fd(cf->fd);
 
-	cvs_buf_putc(bp, '\0');
-	len = cvs_buf_len(bp);
-	content = cvs_buf_release(bp);
+	buf_putc(bp, '\0');
+	len = buf_len(bp);
+	content = buf_release(bp);
 	if ((lines = cvs_splitlines(content, len)) == NULL)
 		fatal("update_has_conflict_markers: failed to split lines");
 
@@ -585,7 +602,10 @@ update_join_file(struct cvs_file *cf)
 
 	if ((p = strchr(jrev2, ':')) != NULL) {
 		(*p++) = '\0';
-		cvs_specified_date = cvs_date_parse(p);
+		if ((cvs_specified_date = date_parse(p)) == -1) {
+			cvs_printf("invalid date: %s", p);
+			goto out;
+		}
 	}
 
 	rev2 = rcs_translate_tag(jrev2, cf->file_rcs);
@@ -594,7 +614,10 @@ update_join_file(struct cvs_file *cf)
 	if (jrev1 != NULL) {
 		if ((p = strchr(jrev1, ':')) != NULL) {
 			(*p++) = '\0';
-			cvs_specified_date = cvs_date_parse(p);
+			if ((cvs_specified_date = date_parse(p)) == -1) {
+				cvs_printf("invalid date: %s", p);
+				goto out;
+			}
 		}
 
 		rev1 = rcs_translate_tag(jrev1, cf->file_rcs);
@@ -699,4 +722,26 @@ out:
 		xfree(jrev1);
 	if (jrev2 != NULL)
 		xfree(jrev2);
+}
+
+void
+cvs_backup_file(struct cvs_file *cf)
+{
+	char	 backup_name[MAXPATHLEN];
+	char	 revstr[RCSNUM_MAXLEN];
+
+	if (cf->file_status == FILE_ADDED)
+		(void)xsnprintf(revstr, RCSNUM_MAXLEN, "0");
+	else
+		rcsnum_tostr(cf->file_ent->ce_rev, revstr, RCSNUM_MAXLEN);
+
+	(void)xsnprintf(backup_name, MAXPATHLEN, "%s/.#%s.%s",
+	    cf->file_wd, cf->file_name, revstr);
+
+	cvs_file_copy(cf->file_path, backup_name);
+
+	(void)xsnprintf(backup_name, MAXPATHLEN, ".#%s.%s",
+	    cf->file_name, revstr);
+	cvs_printf("(Locally modified %s moved to %s)\n",
+		   cf->file_name, backup_name);
 }

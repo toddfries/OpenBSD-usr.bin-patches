@@ -1,4 +1,4 @@
-.\"	$OpenBSD: printf.1,v 1.22 2009/02/08 17:15:10 jmc Exp $
+.\"	$OpenBSD: printf.1,v 1.24 2010/09/03 11:09:29 jmc Exp $
 .\"
 .\" Copyright (c) 1989, 1990 The Regents of the University of California.
 .\" All rights reserved.
@@ -32,7 +32,7 @@
 .\"
 .\"	from: @(#)printf.1	5.11 (Berkeley) 7/24/91
 .\"
-.Dd $Mdocdate: February 8 2009 $
+.Dd $Mdocdate: September 3 2010 $
 .Dt PRINTF 1
 .Os
 .Sh NAME
@@ -258,7 +258,7 @@ The
 .Ar argument
 is printed in the style
 .Sm off
-.Pf [\-]d Cm \&. No ddd Cm e No \\*(Pmdd
+.Pf [\-]d Cm \&. No ddd Cm e No \*(Pmdd
 .Sm on
 where there
 is one digit before the decimal point and the number after is equal to
@@ -307,7 +307,7 @@ The
 .Ar argument
 is printed in style
 .Sm off
-.Pf [\-]0xh Cm \&. No hhh Cm p No [\\*(Pm]d
+.Pf [\-]0xh Cm \&. No hhh Cm p No [\*(Pm]d
 .Sm on
 where there is one digit before the hexadecimal point and the number
 after is equal to the precision specification for the argument.
@@ -348,7 +348,7 @@ no argument is used.
 In no case does a non-existent or small field width cause truncation of
 a field; padding takes place only if the specified field width exceeds
 the actual width.
-.Pp
+.Sh EXIT STATUS
 The
 .Nm
 utility exits 0 on success or 1 on failure.

@@ -1,5 +1,4 @@
-.\"	$OpenBSD: make.1,v 1.84 2009/02/10 19:24:17 jmc Exp $
-.\"	$OpenPackages$
+.\"	$OpenBSD: make.1,v 1.89 2010/09/29 07:44:56 jmc Exp $
 .\"	$NetBSD: make.1,v 1.18 1997/03/10 21:19:53 christos Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -31,7 +30,7 @@
 .\"
 .\"	from: @(#)make.1	8.4 (Berkeley) 3/19/94
 .\"
-.Dd $Mdocdate: February 10 2009 $
+.Dd $Mdocdate: September 29 2010 $
 .Dt MAKE 1
 .Os
 .Sh NAME
@@ -667,6 +666,15 @@ Name of the machine architecture
 was compiled for, obtained from the
 .Ev MACHINE_ARCH
 environment variable, or defined at compilation time.
+.It Va MACHINE_CPU
+Name of the machine processor
+.Nm
+was compiled for, obtained from the
+.Ev MACHINE_CPU
+environment variable, or defined at compilation time.
+On processors where only one endianness is possible, the value of this
+variable is always the same as
+.Ev MACHINE_ARCH .
 .It Va MAKEFILE
 Possibly the file name of the last makefile that has been read.
 It should not be used; see the
@@ -715,6 +723,11 @@ the rest of the modifier.
 Quotes every shell meta-character in the variable, so that it can be passed
 safely through recursive invocations of
 .Nm make .
+.It Cm :QL
+Quote list: quotes every shell meta-character in the variable, except
+whitespace, so that it can be passed to a shell's
+.Sq for
+loops.
 .It Cm :R
 Replaces each word in the variable with everything but its suffix.
 .Sm off
@@ -823,11 +836,24 @@ is the substring of
 .Ar old_string
 to be replaced in
 .Ar new_string .
+The right hand side
+.Pq Ar new_string
+may contain variable values, which will be expanded.
+To put an actual single dollar, just double it.
 .El
 .Pp
 All modifiers are BSD extensions, except for the standard
 .At V
 style variable substitution.
+.Pp
+The interpretation of
+.Ar %
+and
+.Ar $
+in
+.At V
+variable substitutions is not mandated by POSIX, though it is
+fairly common.
 .Sh INCLUDE STATEMENTS, CONDITIONALS AND FOR LOOPS
 Makefile inclusion, conditional structures and for loops reminiscent
 of the C programming language are provided in
@@ -1281,6 +1307,7 @@ If no sources are specified, any previously specified suffixes are deleted.
 uses the following environment variables, if they exist:
 .Ev MACHINE ,
 .Ev MACHINE_ARCH ,
+.Ev MACHINE_CPU ,
 .Ev MAKEFLAGS ,
 .Ev MAKEOBJDIR ,
 .Ev MAKEOBJDIRPREFIX ,
@@ -1312,6 +1339,25 @@ default
 .Ev MAKEOBJDIRPREFIX
 directory
 .El
+.Sh EXIT STATUS
+If
+.Fl q
+was specified, the
+.Nm
+utility exits with one of the following values:
+.Pp
+.Bl -tag -width Ds -offset indent -compact
+.It 0
+Normal behavior.
+.It 1
+The target was not up-to date.
+.It \*(Gt1
+An error occurred.
+.El
+.Pp
+Otherwise, the
+.Nm
+utility exits with a value of 0 on success, and \*(Gt0 if an error occurred.
 .Sh SEE ALSO
 .Xr ed 1 ,
 .Xr mkdep 1 ,

@@ -1,4 +1,4 @@
-/* $OpenBSD: window-choose.c,v 1.13 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: window-choose.c,v 1.16 2010/05/23 19:42:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -25,9 +25,9 @@
 struct screen *window_choose_init(struct window_pane *);
 void	window_choose_free(struct window_pane *);
 void	window_choose_resize(struct window_pane *, u_int, u_int);
-void	window_choose_key(struct window_pane *, struct client *, int);
+void	window_choose_key(struct window_pane *, struct session *, int);
 void	window_choose_mouse(
-	    struct window_pane *, struct client *, struct mouse_event *);
+	    struct window_pane *, struct session *, struct mouse_event *);
 
 void	window_choose_redraw_screen(struct window_pane *);
 void	window_choose_write_line(
@@ -171,7 +171,7 @@ window_choose_resize(struct window_pane *wp, u_int sx, u_int sy)
 
 /* ARGSUSED */
 void
-window_choose_key(struct window_pane *wp, unused struct client *c, int key)
+window_choose_key(struct window_pane *wp, unused struct session *sess, int key)
 {
 	struct window_choose_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
@@ -225,16 +225,41 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 		}
 		data->selected++;
 
-		if (data->selected >= data->top + screen_size_y(&data->screen))
-			window_choose_scroll_down(wp);
-		else {
+		if (data->selected < data->top + screen_size_y(s)) {
 			screen_write_start(&ctx, wp, NULL);
 			window_choose_write_line(
 			    wp, &ctx, data->selected - data->top);
 			window_choose_write_line(
 			    wp, &ctx, data->selected - 1 - data->top);
 			screen_write_stop(&ctx);
-		}
+		} else
+			window_choose_scroll_down(wp);
+		break;
+	case MODEKEYCHOICE_SCROLLUP:
+		if (items == 0 || data->top == 0)
+			break;
+		if (data->selected == data->top + screen_size_y(s) - 1) {
+			data->selected--;
+			window_choose_scroll_up(wp);
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(
+			    wp, &ctx, screen_size_y(s) - 1);
+			screen_write_stop(&ctx);
+		} else
+			window_choose_scroll_up(wp);
+		break;
+	case MODEKEYCHOICE_SCROLLDOWN:
+		if (items == 0 ||
+		    data->top + screen_size_y(&data->screen) >= items)
+			break;
+		if (data->selected == data->top) {
+			data->selected++;
+			window_choose_scroll_down(wp);
+			screen_write_start(&ctx, wp, NULL);
+			window_choose_write_line(wp, &ctx, 0);
+			screen_write_stop(&ctx);
+		} else
+			window_choose_scroll_down(wp);
 		break;
 	case MODEKEYCHOICE_PAGEUP:
 		if (data->selected < screen_size_y(s)) {
@@ -279,7 +304,7 @@ window_choose_key(struct window_pane *wp, unused struct client *c, int key)
 /* ARGSUSED */
 void
 window_choose_mouse(
-    struct window_pane *wp, unused struct client *c, struct mouse_event *m)
+    struct window_pane *wp, unused struct session *sess, struct mouse_event *m)
 {
 	struct window_choose_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
@@ -312,8 +337,7 @@ window_choose_write_line(
 	struct options			*oo = &wp->window->options;
 	struct screen			*s = &data->screen;
 	struct grid_cell		 gc;
-	int				 utf8flag;
-	char				 key;
+	int				 utf8flag, key;
 
 	if (data->callbackfn == NULL)
 		fatalx("called before callback assigned");

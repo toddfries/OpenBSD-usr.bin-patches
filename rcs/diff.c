@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff.c,v 1.26 2009/06/07 08:39:13 ray Exp $	*/
+/*	$OpenBSD: diff.c,v 1.31 2010/07/23 21:46:05 ray Exp $	*/
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
  * All rights reserved.
@@ -413,13 +413,12 @@ files_differ(FILE *f1, FILE *f2)
 	for (;;) {
 		i = fread(buf1, 1, sizeof(buf1), f1);
 		j = fread(buf2, 1, sizeof(buf2), f2);
+		if ((!i && ferror(f1)) || (!j && ferror(f2)))
+			return (-1);
 		if (i != j)
 			return (1);
-		if (i == 0 && j == 0) {
-			if (ferror(f1) || ferror(f2))
-				return (-1);
+		if (i == 0)
 			return (0);
-		}
 		if (memcmp(buf1, buf2, i) != 0)
 			return (1);
 	}
@@ -843,11 +842,8 @@ preadline(int fd, size_t rlen, off_t off)
 	ssize_t nr;
 
 	line = xmalloc(rlen + 1);
-	if ((nr = pread(fd, line, rlen, off)) < 0) {
-		warn("preadline failed");
-		xfree(line);
-		return (NULL);
-	}
+	if ((nr = pread(fd, line, rlen, off)) < 0)
+		err(D_ERROR, "preadline");
 	line[nr] = '\0';
 	return (line);
 }
@@ -1047,7 +1043,7 @@ fetch(long *f, int a, int b, FILE *lb, int ch, int oldfile, int flags)
 		for (j = 0; j < nc; j++) {
 			if ((c = getc(lb)) == EOF) {
 				if (diff_format == D_RCSDIFF)
-					warn("No newline at end of file");
+					warnx("No newline at end of file");
 				else
 					diff_output("\n\\ No newline at end of "
 					    "file");
@@ -1213,10 +1209,8 @@ dump_context_vec(FILE *f1, FILE *f2, int flags)
 	diff_output("***************");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n*** ");
 	range(lowa, upb, ",");
@@ -1322,10 +1316,8 @@ dump_unified_vec(FILE *f1, FILE *f2, int flags)
 	diff_output(" @@");
 	if ((flags & D_PROTOTYPE)) {
 		f = match_function(ixold, lowa-1, f1);
-		if (f != NULL) {
-			diff_output(" ");
-			diff_output("%s", f);
-		}
+		if (f != NULL)
+			diff_output(" %s", f);
 	}
 	diff_output("\n");
 
@@ -1385,7 +1377,7 @@ diff_output(const char *fmt, ...)
 	if (i == -1)
 		err(1, "diff_output");
 	if (diffbuf != NULL)
-		rcs_buf_append(diffbuf, str, strlen(str));
+		buf_append(diffbuf, str, strlen(str));
 	else
 		printf("%s", str);
 	xfree(str);

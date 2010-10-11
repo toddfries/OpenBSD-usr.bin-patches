@@ -1,6 +1,6 @@
-/*	$Id: arch.in,v 1.2 2009/06/14 23:00:57 schwarze Exp $ */
+/*	$Id: arch.in,v 1.5 2010/09/26 15:10:20 jmc Exp $ */
 /*
- * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,8 @@
  * formatted output.
  *
  * Be sure to escape strings.
+ *
+ * REMEMBER TO ADD NEW ARCHITECTURES TO MDOC.7!
  */
 
 LINE("alpha",		"Alpha")
@@ -36,9 +38,11 @@ LINE("hppa",		"HPPA")
 LINE("hppa64",		"HPPA64")
 LINE("i386",		"i386")
 LINE("landisk",		"LANDISK")
+LINE("loongson",	"Loongson")
 LINE("luna88k",		"Luna88k")
 LINE("mac68k",		"Mac68k")
 LINE("macppc",		"MacPPC")
+LINE("mips64",		"MIPS64")
 LINE("mvme68k",		"MVME68k")
 LINE("mvme88k",		"MVME88k")
 LINE("mvmeppc",		"MVMEPPC")

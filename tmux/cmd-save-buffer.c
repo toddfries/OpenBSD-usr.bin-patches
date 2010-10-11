@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-save-buffer.c,v 1.6 2009/11/13 19:53:29 nicm Exp $ */
+/* $OpenBSD: cmd-save-buffer.c,v 1.8 2010/07/24 20:11:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -47,7 +47,7 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct cmd_buffer_data	*data = self->data;
 	struct session		*s;
 	struct paste_buffer	*pb;
-	mode_t			mask;
+	mode_t			 mask;
 	FILE			*f;
 
 	if ((s = cmd_find_session(ctx, data->target)) == NULL)
@@ -65,24 +65,31 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_ctx *ctx)
 		}
 	}
 
-	mask = umask(S_IRWXG | S_IRWXO);
-	if (cmd_check_flag(data->chflags, 'a'))
-		f = fopen(data->arg, "ab");
-	else
-		f = fopen(data->arg, "wb");
-	umask(mask);
-	if (f == NULL) {
-		ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
-		return (-1);
+	if (strcmp(data->arg, "-") == 0) {
+		if (ctx->cmdclient == NULL) {
+			ctx->error(ctx, "%s: can't write to stdout", data->arg);
+			return (-1);
+		}
+		bufferevent_write(
+		    ctx->cmdclient->stdout_event, pb->data, pb->size);
+	} else {
+		mask = umask(S_IRWXG | S_IRWXO);
+		if (cmd_check_flag(data->chflags, 'a'))
+			f = fopen(data->arg, "ab");
+		else
+			f = fopen(data->arg, "wb");
+		umask(mask);
+		if (f == NULL) {
+			ctx->error(ctx, "%s: %s", data->arg, strerror(errno));
+			return (-1);
+		}
+		if (fwrite(pb->data, 1, pb->size, f) != pb->size) {
+			ctx->error(ctx, "%s: fwrite error", data->arg);
+			fclose(f);
+			return (-1);
+		}
+		fclose(f);
 	}
-
-	if (fwrite(pb->data, 1, pb->size, f) != pb->size) {
-	    	ctx->error(ctx, "%s: fwrite error", data->arg);
-	    	fclose(f);
-	    	return (-1);
-	}
-
-	fclose(f);
 
 	return (0);
 }

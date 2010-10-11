@@ -1,4 +1,4 @@
-/* $OpenBSD: machine.c,v 1.64 2009/04/28 21:24:41 deraadt Exp $	 */
+/* $OpenBSD: machine.c,v 1.67 2010/04/26 00:30:58 deraadt Exp $	 */
 
 /*-
  * Copyright (c) 1994 Thorsten Lockert <tholo@sigmasoft.com>
@@ -87,8 +87,6 @@ char	*state_abbrev[] = {
 	"", "start", "run", "sleep", "stop", "zomb", "dead", "onproc"
 };
 
-static int      stathz;
-
 /* these are for calculating cpu state percentages */
 static int64_t     **cp_time;
 static int64_t     **cp_old;
@@ -118,7 +116,7 @@ char *memorynames[] = {
 
 /* these are names given to allowed sorting orders -- first is default */
 char	*ordernames[] = {
-	"cpu", "size", "res", "time", "pri", NULL
+	"cpu", "size", "res", "time", "pri", "pid", "command", NULL
 };
 
 /* these are for keeping track of the proc array */
@@ -137,20 +135,6 @@ static int      pageshift;	/* log base 2 of the pagesize */
 int		ncpu;
 
 unsigned int	maxslp;
-
-static int
-getstathz(void)
-{
-	struct clockinfo cinf;
-	size_t size = sizeof(cinf);
-	int mib[2];
-
-	mib[0] = CTL_KERN;
-	mib[1] = KERN_CLOCKRATE;
-	if (sysctl(mib, 2, &cinf, &size, NULL, 0) == -1)
-		return (-1);
-	return (cinf.stathz);
-}
 
 int
 machine_init(struct statics *statics)
@@ -178,10 +162,6 @@ machine_init(struct statics *statics)
 		    cp_diff[cpu] == NULL)
 			err(1, NULL);
 	}
-
-	stathz = getstathz();
-	if (stathz == -1)
-		return (-1);
 
 	pbase = NULL;
 	pref = NULL;
@@ -234,9 +214,11 @@ get_system_info(struct system_info *si)
 	int64_t *tmpstate;
 
 	if (ncpu > 1) {
+		int cp_time_mib[] = {CTL_KERN, KERN_CPTIME2, /*fillme*/0};
+
 		size = CPUSTATES * sizeof(int64_t);
 		for (i = 0; i < ncpu; i++) {
-			int cp_time_mib[] = {CTL_KERN, KERN_CPTIME2, i};
+			cp_time_mib[2] = i;
 			tmpstate = cpu_states + (CPUSTATES * i);
 			if (sysctl(cp_time_mib, 3, cp_time[i], &size, NULL, 0) < 0)
 				warn("sysctl kern.cp_time2 failed");
@@ -471,7 +453,7 @@ format_next_process(caddr_t handle, char *(*get_userid)(uid_t), pid_t *pid)
 	pp = *(hp->next_proc++);
 	hp->remaining--;
 
-	cputime = (pp->p_uticks + pp->p_sticks + pp->p_iticks) / stathz;
+	cputime = pp->p_rtime_sec + ((pp->p_rtime_usec + 500000) / 1000000);
 
 	/* calculate the base for cpu percentages */
 	pct = pctdouble(pp->p_pctcpu);
@@ -539,6 +521,10 @@ static unsigned char sorted_state[] =
 	if ((result = p2->p_vm_rssize - p1->p_vm_rssize) == 0)
 #define ORDERKEY_MEM \
 	if ((result = PROCSIZE(p2) - PROCSIZE(p1)) == 0)
+#define ORDERKEY_PID \
+	if ((result = p1->p_pid - p2->p_pid) == 0)
+#define ORDERKEY_CMD \
+	if ((result = strcmp(p1->p_comm, p2->p_comm)) == 0)
 
 /* compare_cpu - the comparison function for sorting by cpu percentage */
 static int
@@ -660,12 +646,63 @@ compare_prio(const void *v1, const void *v2)
 	return (result);
 }
 
+static int
+compare_pid(const void *v1, const void *v2)
+{
+	struct proc **pp1 = (struct proc **) v1;
+	struct proc **pp2 = (struct proc **) v2;
+	struct kinfo_proc2 *p1, *p2;
+	pctcpu lresult;
+	int result;
+
+	/* remove one level of indirection */
+	p1 = *(struct kinfo_proc2 **) pp1;
+	p2 = *(struct kinfo_proc2 **) pp2;
+
+	ORDERKEY_PID
+	ORDERKEY_PCTCPU
+	ORDERKEY_CPUTIME
+	ORDERKEY_STATE
+	ORDERKEY_PRIO
+	ORDERKEY_RSSIZE
+	ORDERKEY_MEM
+		;
+	return (result);
+}
+
+static int
+compare_cmd(const void *v1, const void *v2)
+{
+	struct proc **pp1 = (struct proc **) v1;
+	struct proc **pp2 = (struct proc **) v2;
+	struct kinfo_proc2 *p1, *p2;
+	pctcpu lresult;
+	int result;
+
+	/* remove one level of indirection */
+	p1 = *(struct kinfo_proc2 **) pp1;
+	p2 = *(struct kinfo_proc2 **) pp2;
+
+	ORDERKEY_CMD
+	ORDERKEY_PCTCPU
+	ORDERKEY_CPUTIME
+	ORDERKEY_STATE
+	ORDERKEY_PRIO
+	ORDERKEY_RSSIZE
+	ORDERKEY_MEM
+		;
+	return (result);
+}
+
+
 int (*proc_compares[])(const void *, const void *) = {
 	compare_cpu,
 	compare_size,
 	compare_res,
 	compare_time,
 	compare_prio,
+	compare_pid,
+	compare_cmd,
 	NULL
 };
 

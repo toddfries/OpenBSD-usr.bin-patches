@@ -1,4 +1,4 @@
-/*	$OpenBSD: opt.h,v 1.2 2009/11/03 21:31:37 ratchov Exp $	*/
+/*	$OpenBSD: opt.h,v 1.8 2010/06/04 06:15:28 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -20,6 +20,8 @@
 #include <sys/queue.h>
 #include "aparams.h"
 
+struct dev;
+
 struct opt {
 	SLIST_ENTRY(opt) entry;
 #define OPT_NAMEMAX 11
@@ -28,11 +30,24 @@ struct opt {
 	struct aparams wpar;	/* template for clients write params */
 	struct aparams rpar;	/* template for clients read params */
 	int mmc;		/* true if MMC control enabled */
+	int join;		/* true if join/expand enabled */
+#define MODE_PLAY	0x1	/* allowed to play */
+#define MODE_REC	0x2	/* allowed to rec */
+#define MODE_MIDIIN	0x4	/* allowed to read midi */
+#define MODE_MIDIOUT	0x8	/* allowed to write midi */
+#define MODE_MON	0x10	/* allowed to monitor */
+#define MODE_LOOP	0x20	/* deviceless mode */
+#define MODE_RECMASK	(MODE_REC | MODE_MON)
+#define MODE_AUDIOMASK	(MODE_REC | MODE_MON | MODE_PLAY)
+#define MODE_MIDIMASK	(MODE_MIDIIN | MODE_MIDIOUT)
+	unsigned mode;		/* bitmap of above */
+	struct dev *dev;	/* device to which we're attached */
 };
 
 SLIST_HEAD(optlist,opt);
 
-void opt_new(char *, struct aparams *, struct aparams *, int, int);
+void opt_new(char *, struct dev *, struct aparams *, struct aparams *,
+    int, int, int, unsigned);
 struct opt *opt_byname(char *);
 
 #endif /* !defined(OPT_H) */

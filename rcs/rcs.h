@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.h,v 1.8 2008/02/02 16:21:38 xsa Exp $	*/
+/*	$OpenBSD: rcs.h,v 1.10 2010/08/31 20:42:45 tobias Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -45,7 +45,6 @@
 
 #define RCS_SYM_INVALCHAR	"$,.:;@"
 
-
 #define RCS_MAGIC_BRANCH	".0."
 #define RCS_STATE_EXP		"Exp"
 #define RCS_STATE_DEAD		"dead"
@@ -54,7 +53,6 @@
 #define RCS_LOCK_INVAL		(-1)
 #define RCS_LOCK_LOOSE		0
 #define RCS_LOCK_STRICT		1
-
 
 /*
  * Keyword expansion table
@@ -89,7 +87,6 @@
 #define RCS_KWEXP_INVAL(k) \
 	((k & RCS_KWEXP_ERR) || \
 	((k & RCS_KWEXP_OLD) && (k & ~RCS_KWEXP_OLD)))
-
 
 struct rcs_kw {
 	char	kw_str[16];
@@ -146,10 +143,8 @@ typedef struct rcs_num {
 	u_int16_t	*rn_id;
 } RCSNUM;
 
-
 struct rcs_access {
 	char			*ra_name;
-	uid_t			 ra_uid;
 	TAILQ_ENTRY(rcs_access)	 ra_list;
 };
 
@@ -165,7 +160,6 @@ struct rcs_lock {
 
 	TAILQ_ENTRY(rcs_lock)	 rl_list;
 };
-
 
 struct rcs_branch {
 	RCSNUM			*rb_num;

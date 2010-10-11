@@ -1,4 +1,4 @@
-/*	$OpenBSD: netstat.h,v 1.53 2009/11/22 22:22:14 tedu Exp $	*/
+/*	$OpenBSD: netstat.h,v 1.56 2010/06/29 03:09:29 blambert Exp $	*/
 /*	$NetBSD: netstat.h,v 1.6 1996/05/07 02:55:05 thorpej Exp $	*/
 
 /*
@@ -69,8 +69,7 @@ int	kread(u_long addr, void *buf, int size);
 char	*plural(u_int64_t);
 char	*plurales(u_int64_t);
 
-void	protopr(u_long, char *);
-void	ip6protopr(u_long, char *);
+void	protopr(u_long, char *, int);
 void	tcp_stats(char *);
 void	udp_stats(char *);
 void	ip_stats(char *);
@@ -86,8 +85,6 @@ void	pfsync_stats (char *);
 void	pflow_stats (char *);
 void	etherip_stats(char *);
 void	ipcomp_stats(char *);
-
-void	protopr(u_long, char *);
 
 void	net80211_ifstats(char *);
 
@@ -105,7 +102,6 @@ void	pr_family(int);
 
 struct in6_addr;
 struct sockaddr_in6;
-void	ip6protopr(u_long, char *);
 void	ip6_stats(char *);
 void	ip6_ifstats(char *);
 void	icmp6_stats(char *);
@@ -127,6 +123,7 @@ char	*routename(struct sockaddr *);
 char	*routename4(in_addr_t);
 char	*netname(struct sockaddr *, struct sockaddr *);
 char	*netname4(in_addr_t, in_addr_t);
+char	*mpls_op(u_int32_t);
 void	routepr(u_long, u_long, u_long, u_long, u_int);
 
 void	nsprotopr(u_long, char *);
@@ -138,7 +135,6 @@ void	unixpr(u_long);
 void	mroutepr(u_long, u_long, u_long);
 void	mrt_stats(void);
 
-void	atalkprotopr(u_long, char *);
+void	atalkprotopr(u_long, char *, int);
 void	ddp_stats(char *);
 char	*atalk_print(const struct sockaddr *, int);
-char	*atalk_print2(const struct sockaddr *, const struct sockaddr *, int);

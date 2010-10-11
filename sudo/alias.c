@@ -46,10 +46,6 @@
 #include "redblack.h"
 #include <gram.h>
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: alias.c,v 1.18 2009/05/25 12:02:41 millert Exp $";
-#endif /* lint */
-
 /*
  * Globals
  */
@@ -125,8 +121,8 @@ alias_add(name, type, members)
     a->seqno = 0;
     list2tq(&a->members, members);
     if (rbinsert(aliases, a)) {
-	alias_free(a);
 	snprintf(errbuf, sizeof(errbuf), "Alias `%s' already defined", name);
+	alias_free(a);
 	return(errbuf);
     }
     return(NULL);

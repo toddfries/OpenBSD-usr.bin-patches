@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keyscan.c,v 1.79 2009/10/28 16:38:18 reyk Exp $ */
+/* $OpenBSD: ssh-keyscan.c,v 1.83 2010/08/31 11:54:45 djm Exp $ */
 /*
  * Copyright 1995, 1996 by David Mazieres <dm@lcs.mit.edu>.
  *
@@ -47,9 +47,10 @@ int IPv4or6 = AF_UNSPEC;
 
 int ssh_port = SSH_DEFAULT_PORT;
 
-#define KT_RSA1	1
-#define KT_DSA	2
-#define KT_RSA	4
+#define KT_RSA1		1
+#define KT_DSA		2
+#define KT_RSA		4
+#define KT_ECDSA	8
 
 int get_keytypes = KT_RSA;	/* Get only RSA keys by default */
 
@@ -62,9 +63,6 @@ int timeout = 5;
 
 int maxfd;
 #define MAXCON (maxfd - 10)
-
-/* The default routing domain */
-int scan_rdomain = -1;
 
 extern char *__progname;
 fd_set *read_wait;
@@ -101,122 +99,6 @@ typedef struct Connection {
 
 TAILQ_HEAD(conlist, Connection) tq;	/* Timeout Queue */
 con *fdcon;
-
-/*
- *  This is just a wrapper around fgets() to make it usable.
- */
-
-/* Stress-test.  Increase this later. */
-#define LINEBUF_SIZE 16
-
-typedef struct {
-	char *buf;
-	u_int size;
-	int lineno;
-	const char *filename;
-	FILE *stream;
-	void (*errfun) (const char *,...);
-} Linebuf;
-
-static Linebuf *
-Linebuf_alloc(const char *filename, void (*errfun) (const char *,...))
-{
-	Linebuf *lb;
-
-	if (!(lb = malloc(sizeof(*lb)))) {
-		if (errfun)
-			(*errfun) ("linebuf (%s): malloc failed\n",
-			    filename ? filename : "(stdin)");
-		return (NULL);
-	}
-	if (filename) {
-		lb->filename = filename;
-		if (!(lb->stream = fopen(filename, "r"))) {
-			xfree(lb);
-			if (errfun)
-				(*errfun) ("%s: %s\n", filename, strerror(errno));
-			return (NULL);
-		}
-	} else {
-		lb->filename = "(stdin)";
-		lb->stream = stdin;
-	}
-
-	if (!(lb->buf = malloc((lb->size = LINEBUF_SIZE)))) {
-		if (errfun)
-			(*errfun) ("linebuf (%s): malloc failed\n", lb->filename);
-		xfree(lb);
-		return (NULL);
-	}
-	lb->errfun = errfun;
-	lb->lineno = 0;
-	return (lb);
-}
-
-static void
-Linebuf_free(Linebuf * lb)
-{
-	fclose(lb->stream);
-	xfree(lb->buf);
-	xfree(lb);
-}
-
-#if 0
-static void
-Linebuf_restart(Linebuf * lb)
-{
-	clearerr(lb->stream);
-	rewind(lb->stream);
-	lb->lineno = 0;
-}
-
-static int
-Linebuf_lineno(Linebuf * lb)
-{
-	return (lb->lineno);
-}
-#endif
-
-static char *
-Linebuf_getline(Linebuf * lb)
-{
-	size_t n = 0;
-	void *p;
-
-	lb->lineno++;
-	for (;;) {
-		/* Read a line */
-		if (!fgets(&lb->buf[n], lb->size - n, lb->stream)) {
-			if (ferror(lb->stream) && lb->errfun)
-				(*lb->errfun)("%s: %s\n", lb->filename,
-				    strerror(errno));
-			return (NULL);
-		}
-		n = strlen(lb->buf);
-
-		/* Return it or an error if it fits */
-		if (n > 0 && lb->buf[n - 1] == '\n') {
-			lb->buf[n - 1] = '\0';
-			return (lb->buf);
-		}
-		if (n != lb->size - 1) {
-			if (lb->errfun)
-				(*lb->errfun)("%s: skipping incomplete last line\n",
-				    lb->filename);
-			return (NULL);
-		}
-		/* Double the buffer if we need more space */
-		lb->size *= 2;
-		if ((p = realloc(lb->buf, lb->size)) == NULL) {
-			lb->size /= 2;
-			if (lb->errfun)
-				(*lb->errfun)("linebuf (%s): realloc failed\n",
-				    lb->filename);
-			return (NULL);
-		}
-		lb->buf = p;
-	}
-}
 
 static int
 fdlim_get(int hard)
@@ -355,6 +237,7 @@ keygrab_ssh2(con *c)
 	c->c_kex->kex[KEX_DH_GRP14_SHA1] = kexdh_client;
 	c->c_kex->kex[KEX_DH_GEX_SHA1] = kexgex_client;
 	c->c_kex->kex[KEX_DH_GEX_SHA256] = kexgex_client;
+	c->c_kex->kex[KEX_ECDH_SHA2] = kexecdh_client;
 	c->c_kex->verify_host_key = hostjump;
 
 	if (!(j = setjmp(kexjmp))) {
@@ -400,8 +283,7 @@ tcpconnect(char *host)
 	if ((gaierr = getaddrinfo(host, strport, &hints, &aitop)) != 0)
 		fatal("getaddrinfo %s: %s", host, ssh_gai_strerror(gaierr));
 	for (ai = aitop; ai; ai = ai->ai_next) {
-		s = socket_rdomain(ai->ai_family, ai->ai_socktype,
-		    ai->ai_protocol, scan_rdomain);
+		s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
 		if (s < 0) {
 			error("socket: %s", strerror(errno));
 			continue;
@@ -704,7 +586,7 @@ usage(void)
 {
 	fprintf(stderr,
 	    "usage: %s [-46Hv] [-f file] [-p port] [-T timeout] [-t type]\n"
-	    "\t\t   [-V rdomain] [host | addrlist namelist] ...\n",
+	    "\t\t   [host | addrlist namelist] ...\n",
 	    __progname);
 	exit(1);
 }
@@ -713,8 +595,10 @@ int
 main(int argc, char **argv)
 {
 	int debug_flag = 0, log_level = SYSLOG_LEVEL_INFO;
-	int opt, fopt_count = 0;
-	char *tname;
+	int opt, fopt_count = 0, j;
+	char *tname, *cp, line[NI_MAXHOST];
+	FILE *fp;
+	u_long linenum;
 
 	extern int optind;
 	extern char *optarg;
@@ -727,7 +611,7 @@ main(int argc, char **argv)
 	if (argc <= 1)
 		usage();
 
-	while ((opt = getopt(argc, argv, "Hv46p:T:t:f:V:")) != -1) {
+	while ((opt = getopt(argc, argv, "Hv46p:T:t:f:")) != -1) {
 		switch (opt) {
 		case 'H':
 			hash_hosts = 1;
@@ -773,6 +657,9 @@ main(int argc, char **argv)
 				case KEY_DSA:
 					get_keytypes |= KT_DSA;
 					break;
+				case KEY_ECDSA:
+					get_keytypes |= KT_ECDSA;
+					break;
 				case KEY_RSA:
 					get_keytypes |= KT_RSA;
 					break;
@@ -787,11 +674,6 @@ main(int argc, char **argv)
 			break;
 		case '6':
 			IPv4or6 = AF_INET6;
-			break;
-		case 'V':
-			scan_rdomain = a2port(optarg);
-			if (scan_rdomain < 0)
-				scan_rdomain = -1;
 			break;
 		case '?':
 		default:
@@ -817,19 +699,40 @@ main(int argc, char **argv)
 	read_wait_nfdset = howmany(maxfd, NFDBITS);
 	read_wait = xcalloc(read_wait_nfdset, sizeof(fd_mask));
 
-	if (fopt_count) {
-		Linebuf *lb;
-		char *line;
-		int j;
+	for (j = 0; j < fopt_count; j++) {
+		if (argv[j] == NULL)
+			fp = stdin;
+		else if ((fp = fopen(argv[j], "r")) == NULL)
+			fatal("%s: %s: %s", __progname, argv[j],
+			    strerror(errno));
+		linenum = 0;
 
-		for (j = 0; j < fopt_count; j++) {
-			lb = Linebuf_alloc(argv[j], error);
-			if (!lb)
+		while (read_keyfile_line(fp,
+		    argv[j] == NULL ? "(stdin)" : argv[j], line, sizeof(line),
+		    &linenum) != -1) {
+			/* Chomp off trailing whitespace and comments */
+			if ((cp = strchr(line, '#')) == NULL)
+				cp = line + strlen(line) - 1;
+			while (cp >= line) {
+				if (*cp == ' ' || *cp == '\t' ||
+				    *cp == '\n' || *cp == '#')
+					*cp-- = '\0';
+				else
+					break;
+			}
+
+			/* Skip empty lines */
+			if (*line == '\0')
 				continue;
-			while ((line = Linebuf_getline(lb)) != NULL)
-				do_host(line);
-			Linebuf_free(lb);
+
+			do_host(line);
 		}
+
+		if (ferror(fp))
+			fatal("%s: %s: %s", __progname, argv[j],
+			    strerror(errno));
+
+		fclose(fp);
 	}
 
 	while (optind < argc)

@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: var.c,v 1.85 2009/05/13 10:47:54 espie Exp $	*/
+/*	$OpenBSD: var.c,v 1.87 2010/07/19 19:46:44 espie Exp $	*/
 /*	$NetBSD: var.c,v 1.18 1997/03/18 19:24:46 christos Exp $	*/
 
 /*
@@ -855,7 +854,7 @@ pop_used(Var *v)
 }
 
 static char *
-get_expanded_value(const char *name, const char *ename, int idx, uint32_t k, 
+get_expanded_value(const char *name, const char *ename, int idx, uint32_t k,
     SymTable *ctxt, bool err, bool *freePtr)
 {
 	char *val;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.h,v 1.93 2009/03/25 21:19:20 joris Exp $	*/
+/*	$OpenBSD: rcs.h,v 1.96 2010/09/03 08:37:52 tobias Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -128,7 +128,6 @@ typedef struct rcs_num {
 
 struct rcs_access {
 	char			*ra_name;
-	uid_t			 ra_uid;
 	TAILQ_ENTRY(rcs_access)	 ra_list;
 };
 
@@ -142,12 +141,12 @@ struct rcs_lock {
 	char	*rl_name;
 	RCSNUM	*rl_num;
 
-	TAILQ_ENTRY(rcs_lock)	rl_list;
+	TAILQ_ENTRY(rcs_lock)	 rl_list;
 };
 
 struct rcs_branch {
 	RCSNUM			*rb_num;
-	TAILQ_ENTRY(rcs_branch)	rb_list;
+	TAILQ_ENTRY(rcs_branch)	 rb_list;
 };
 
 TAILQ_HEAD(rcs_dlist, rcs_delta);
@@ -170,7 +169,7 @@ struct rcs_delta {
 
 
 typedef struct rcs_file {
-	int	fd;
+	int	 rf_fd;
 	int	 rf_dead;
 	char	*rf_path;
 	mode_t	 rf_mode;
@@ -191,8 +190,8 @@ typedef struct rcs_file {
 	void	*rf_pdata;
 } RCSFILE;
 
-struct cvs_line;
-struct cvs_lines;
+struct rcs_line;
+struct rcs_lines;
 
 RCSFILE			*rcs_open(const char *, int, int, ...);
 void			 rcs_close(RCSFILE *);
@@ -236,10 +235,10 @@ RCSNUM			*rcs_tag_resolve(RCSFILE *, const char *);
 void			 rcs_write(RCSFILE *);
 int			 rcs_rev_write_stmp(RCSFILE *,  RCSNUM *, char *, int);
 void			 rcs_rev_write_fd(RCSFILE *, RCSNUM *, int, int);
-struct cvs_lines	*rcs_rev_getlines(RCSFILE *, RCSNUM *,
-			     struct cvs_line ***);
+struct rcs_lines	*rcs_rev_getlines(RCSFILE *, RCSNUM *,
+			     struct rcs_line ***);
 void			 rcs_annotate_getlines(RCSFILE *, RCSNUM *,
-			     struct cvs_line ***);
+			     struct rcs_line ***);
 BUF			*rcs_rev_getbuf(RCSFILE *, RCSNUM *, int);
 void			 rcs_delta_stats(struct rcs_delta *, int *, int *);
 

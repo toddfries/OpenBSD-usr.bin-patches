@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: for.c,v 1.40 2009/05/13 10:47:54 espie Exp $	*/
+/*	$OpenBSD: for.c,v 1.42 2010/07/19 19:46:44 espie Exp $	*/
 /*	$NetBSD: for.c,v 1.4 1996/11/06 17:59:05 christos Exp $ */
 
 /*
@@ -176,7 +175,7 @@ For_Eval(const char *line)
 		LstNode ln;
 		(void)fprintf(stderr, "For: Iterator ");
 		for (ln = Lst_First(&arg->vars); ln != NULL; ln = Lst_Adv(ln))
-			(void)fprintf(stderr, "%s ", 
+			(void)fprintf(stderr, "%s ",
 			    Var_LoopVarName(Lst_Datum(ln)));
 		(void)fprintf(stderr, "List %s\n", sub);
 	}

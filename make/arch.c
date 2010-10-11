@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: arch.c,v 1.76 2009/08/16 09:53:43 espie Exp $ */
+/*	$OpenBSD: arch.c,v 1.79 2010/07/19 19:46:43 espie Exp $ */
 /*	$NetBSD: arch.c,v 1.17 1996/11/06 17:58:59 christos Exp $	*/
 
 /*
@@ -112,6 +111,10 @@
 #ifdef TARGET_MACHINE_ARCH
 #undef MACHINE_ARCH
 #define MACHINE_ARCH TARGET_MACHINE_ARCH
+#endif
+#ifdef TARGET_MACHINE_CPU
+#undef MACHINE_CPU
+#define MACHINE_CPU TARGET_MACHINE_CPU
 #endif
 
 static struct ohash archives;	/* Archives we've already examined.  */

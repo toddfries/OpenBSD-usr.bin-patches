@@ -1,4 +1,4 @@
-/*	$OpenBSD: hunt.c,v 1.14 2009/10/27 23:59:44 deraadt Exp $	*/
+/*	$OpenBSD: hunt.c,v 1.19 2010/07/03 03:38:22 nicm Exp $	*/
 /*	$NetBSD: hunt.c,v 1.6 1997/04/20 00:02:10 mellon Exp $	*/
 
 /*
@@ -30,10 +30,12 @@
  * SUCH DAMAGE.
  */
 
+#include <util.h>
+
 #include "tip.h"
 
-static	jmp_buf deadline;
-static	int deadfl;
+static jmp_buf	deadline;
+static int	deadflag;
 
 static void	dead(int);
 
@@ -41,59 +43,81 @@ static void	dead(int);
 static void
 dead(int signo)
 {
-	deadfl = 1;
+	deadflag = 1;
 	longjmp(deadline, 1);
 }
 
-long
-hunt(char *name)
+/* Find and open the host. Returns the fd, or exits on error. */
+int
+hunt(char *hosts)
 {
-	char *cp;
-	sig_t f;
+	char   	       *copy, *last, *host, *device;
+	struct termios	tio;
+	int		fd, tried;
+	sig_t		old_alrm;
 
-	f = signal(SIGALRM, dead);
-	while ((cp = getremote(name))) {
-		deadfl = 0;
-		uucplock = strrchr(cp, '/');
+	if (hosts == NULL) {
+		hosts = getenv("HOST");
+		if (hosts == NULL)
+			errx(3, "no host specified");
+	}
+
+	if ((copy = strdup(hosts)) == NULL)
+		err(1, "strdup");
+	last = copy;
+
+	old_alrm = signal(SIGALRM, dead);
+
+	tried = 0;
+	while ((host = strsep(&last, ",")) != NULL) {
+		device = getremote(host);
+
+		uucplock = strrchr(device, '/');
 		if (uucplock == NULL)
-			uucplock = cp;
+			uucplock = strdup(device);
 		else
-			uucplock++;
-
-		if (uu_lock(uucplock) < 0)
+			uucplock = strdup(uucplock + 1);
+		if (uucplock == NULL)
+			err(1, "strdup");
+		if (uu_lock(uucplock) != UU_LOCK_OK)
 			continue;
-		/*
-		 * Straight through call units, such as the BIZCOMP,
-		 * VADIC and the DF, must indicate they're hardwired in
-		 *  order to get an open file descriptor placed in FD.
-		 * Otherwise, as for a DN-11, the open will have to
-		 *  be done in the "open" routine.
-		 */
-		if (!HW)
-			break;
+
+		deadflag = 0;
 		if (setjmp(deadline) == 0) {
 			alarm(10);
-			FD = open(cp, (O_RDWR |
-			    (boolean(value(DC)) ? O_NONBLOCK : 0)));
+
+			fd = open(device,
+			    O_RDWR | (vgetnum(DC) ? O_NONBLOCK : 0));
+			if (fd < 0)
+				perror(device);
 		}
 		alarm(0);
-		if (FD < 0) {
-			perror(cp);
-			deadfl = 1;
-		}
-		if (!deadfl) {
-			struct termios cntrl;
 
-			tcgetattr(FD, &cntrl);
-			if (!boolean(value(DC)))
-				cntrl.c_cflag |= HUPCL;
-			tcsetattr(FD, TCSAFLUSH, &cntrl);
-			ioctl(FD, TIOCEXCL, 0);
-			signal(SIGALRM, SIG_DFL);
-			return ((long)cp);
+		tried++;
+		if (fd >= 0 && !deadflag) {
+			tcgetattr(fd, &tio);
+			if (!vgetnum(DC))
+				tio.c_cflag |= HUPCL;
+			if (tcsetattr(fd, TCSAFLUSH, &tio) != 0)
+				errx(1, "tcsetattr");
+
+			if (ioctl(fd, TIOCEXCL) != 0)
+				errx(1, "ioctl");
+
+			signal(SIGALRM, old_alrm);
+			return (fd);
 		}
-		(void)uu_unlock(uucplock);
+
+		uu_unlock(uucplock);
+		free(uucplock);
 	}
-	signal(SIGALRM, f);
-	return (deadfl ? -1 : (long)cp);
+	free(copy);
+
+	signal(SIGALRM, old_alrm);
+	if (tried == 0) {
+		printf("all ports busy\n");
+		exit(3);
+	}
+	printf("link down\n");
+	exit(3);
 }

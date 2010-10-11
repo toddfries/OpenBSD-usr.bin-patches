@@ -1,4 +1,4 @@
-/*	$OpenBSD: aproc.h,v 1.27 2009/11/03 21:31:37 ratchov Exp $	*/
+/*	$OpenBSD: aproc.h,v 1.37 2010/06/04 06:15:28 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -120,8 +120,8 @@ struct aproc_ops {
 struct aproc {
 	char *name;				/* for debug purposes */
 	struct aproc_ops *ops;			/* call-backs */
-	LIST_HEAD(, abuf) ibuflist;		/* list of inputs */
-	LIST_HEAD(, abuf) obuflist;		/* list of outputs */
+	LIST_HEAD(, abuf) ins;			/* list of inputs */
+	LIST_HEAD(, abuf) outs;			/* list of outputs */
 	unsigned refs;				/* extern references */
 #define APROC_ZOMB	1			/* destroyed but not freed */
 #define APROC_QUIT	2			/* try to terminate if unused */
@@ -130,30 +130,38 @@ struct aproc {
 	union {					/* follow type-specific data */
 		struct {			/* file/device io */
 			struct file *file;	/* file to read/write */
+			unsigned partial;	/* bytes of partial frame */
 		} io;
 		struct {
 			unsigned idle;		/* frames since idleing */
+			unsigned round;		/* block size, for xruns */
 			int lat;		/* current latency */
 			int maxlat;		/* max latency allowed */
-			struct aproc *ctl;
+			unsigned abspos;	/* frames produced */
+			struct aproc *ctl;	/* MIDI control/sync */
+			struct aproc *mon;	/* snoop output */
 		} mix;
 		struct {
 			unsigned idle;		/* frames since idleing */
+			unsigned round;		/* block size, for xruns */
 			int lat;		/* current latency */
 			int maxlat;		/* max latency allowed */
+			unsigned abspos;	/* frames consumed */
 			struct aproc *ctl;
 		} sub;
+		struct {
+			int delta;		/* time position */
+			unsigned bufsz;		/* buffer size (latency) */
+			unsigned pending;	/* uncommited samples */
+		} mon;
 		struct {
 #define RESAMP_NCTX	2
 			unsigned ctx_start;
 			short ctx[NCHAN_MAX * RESAMP_NCTX];
 			unsigned iblksz, oblksz;
 			int diff;
-			int idelta, odelta;	/* remainder of resamp_[io]pos */
+			int idelta, odelta;	/* remainder of resamp_xpos */
 		} resamp;
-		struct {
-			short ctx[NCHAN_MAX];
-		} cmap;
 		struct {
 			int bfirst;		/* bytes to skip at startup */
 			unsigned bps;		/* bytes per sample */
@@ -167,6 +175,7 @@ struct aproc {
 			struct timo timo;	/* timout for throtteling */
 		} thru;
 		struct {
+			struct dev *dev;	/* controlled device */
 #define CTL_NSLOT	8
 #define CTL_NAMEMAX	8
 			unsigned serial;
@@ -191,6 +200,9 @@ struct aproc {
 				struct ctl_ops {
 					void (*vol)(void *, unsigned);
 					void (*start)(void *);
+					void (*stop)(void *);
+					void (*loc)(void *, unsigned);
+					void (*quit)(void *);
 				} *ops;
 				void *arg;
 				unsigned unit;
@@ -203,6 +215,18 @@ struct aproc {
 	} u;
 };
 
+/*
+ * Check if the given pointer is a valid aproc structure.
+ *
+ * aproc structures are not free()'d immediately, because
+ * there may be pointers to them, instead the APROC_ZOMB flag
+ * is set which means that they should not be used. When
+ * aprocs reference counter reaches zero, they are actually
+ * freed
+ */
+#define APROC_OK(p) ((p) && !((p)->flags & APROC_ZOMB))
+
+
 struct aproc *aproc_new(struct aproc_ops *, char *);
 void aproc_del(struct aproc *);
 void aproc_dbg(struct aproc *);
@@ -210,30 +234,41 @@ void aproc_setin(struct aproc *, struct abuf *);
 void aproc_setout(struct aproc *, struct abuf *);
 int aproc_depend(struct aproc *, struct aproc *);
 
-struct aproc *rpipe_new(struct file *);
-int rpipe_in(struct aproc *, struct abuf *);
-int rpipe_out(struct aproc *, struct abuf *);
-void rpipe_done(struct aproc *);
-void rpipe_eof(struct aproc *, struct abuf *);
-void rpipe_hup(struct aproc *, struct abuf *);
+void aproc_ipos(struct aproc *, struct abuf *, int);
+void aproc_opos(struct aproc *, struct abuf *, int);
 
-struct aproc *wpipe_new(struct file *);
-void wpipe_done(struct aproc *);
-int wpipe_in(struct aproc *, struct abuf *);
-int wpipe_out(struct aproc *, struct abuf *);
-void wpipe_eof(struct aproc *, struct abuf *);
-void wpipe_hup(struct aproc *, struct abuf *);
-
-struct aproc *mix_new(char *, int, struct aproc *);
-struct aproc *sub_new(char *, int, struct aproc *);
+struct aproc *rfile_new(struct file *);
+struct aproc *wfile_new(struct file *);
+struct aproc *mix_new(char *, int, unsigned);
+struct aproc *sub_new(char *, int, unsigned);
 struct aproc *resamp_new(char *, unsigned, unsigned);
-struct aproc *cmap_new(char *, struct aparams *, struct aparams *);
 struct aproc *enc_new(char *, struct aparams *);
 struct aproc *dec_new(char *, struct aparams *);
+struct aproc *join_new(char *);
+struct aproc *mon_new(char *, unsigned);
 
-void mix_pushzero(struct aproc *);
+int rfile_in(struct aproc *, struct abuf *);
+int rfile_out(struct aproc *, struct abuf *);
+void rfile_eof(struct aproc *, struct abuf *);
+void rfile_hup(struct aproc *, struct abuf *);
+void rfile_done(struct aproc *);
+int rfile_do(struct aproc *, unsigned, unsigned *);
+
+int wfile_in(struct aproc *, struct abuf *);
+int wfile_out(struct aproc *, struct abuf *);
+void wfile_eof(struct aproc *, struct abuf *);
+void wfile_hup(struct aproc *, struct abuf *);
+void wfile_done(struct aproc *);
+int wfile_do(struct aproc *, unsigned, unsigned *);
+
 void mix_setmaster(struct aproc *);
 void mix_clear(struct aproc *);
+void mix_prime(struct aproc *);
+void mix_quit(struct aproc *);
+void mix_drop(struct abuf *, int);
+void sub_silence(struct abuf *, int);
 void sub_clear(struct aproc *);
+void mon_snoop(struct aproc *, struct abuf *, unsigned, unsigned);
+void mon_clear(struct aproc *);
 
 #endif /* !defined(APROC_H) */

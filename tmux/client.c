@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.35 2009/12/03 22:50:09 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.44 2010/08/23 17:36:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,7 +17,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -94,11 +93,11 @@ server_started:
 	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
 		fatal("fcntl failed");
 	imsg_init(&client_ibuf, fd);
+	event_set(&client_event, fd, EV_READ, client_callback, NULL);
 
 	if (cmdflags & CMD_SENDENVIRON)
 		client_send_environ();
-	if (isatty(STDIN_FILENO))
-		client_send_identify(flags);
+	client_send_identify(flags);
 
 	return (&client_ibuf);
 
@@ -115,12 +114,9 @@ void
 client_send_identify(int flags)
 {
 	struct msg_identify_data	data;
-	struct winsize			ws;
 	char			       *term;
 	int				fd;
 
-	if (ioctl(STDIN_FILENO, TIOCGWINSZ, &ws) == -1)
-		fatal("ioctl(TIOCGWINSZ)");
 	data.flags = flags;
 
 	if (getcwd(data.cwd, sizeof data.cwd) == NULL)
@@ -135,6 +131,14 @@ client_send_identify(int flags)
 		fatal("dup failed");
 	imsg_compose(&client_ibuf,
 	    MSG_IDENTIFY, PROTOCOL_VERSION, -1, fd, &data, sizeof data);
+
+	if ((fd = dup(STDOUT_FILENO)) == -1)
+		fatal("dup failed");
+	imsg_compose(&client_ibuf, MSG_STDOUT, PROTOCOL_VERSION, -1, fd, NULL, 0);
+
+	if ((fd = dup(STDERR_FILENO)) == -1)
+		fatal("dup failed");
+	imsg_compose(&client_ibuf, MSG_STDERR, PROTOCOL_VERSION, -1, fd, NULL, 0);
 }
 
 void
@@ -172,35 +176,19 @@ client_update_event(void)
 __dead void
 client_main(void)
 {
-	struct event		ev_sigcont, ev_sigterm, ev_sigwinch;
-	struct sigaction	sigact;
-
 	logfile("client");
 
 	/* Note: event_init() has already been called. */
 
 	/* Set up signals. */
-	memset(&sigact, 0, sizeof sigact);
-	sigemptyset(&sigact.sa_mask);
-	sigact.sa_flags = SA_RESTART;
-	sigact.sa_handler = SIG_IGN;
-	if (sigaction(SIGINT, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGPIPE, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR1, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGUSR2, &sigact, NULL) != 0)
-		fatal("sigaction failed");
-	if (sigaction(SIGTSTP, &sigact, NULL) != 0)
-		fatal("sigaction failed");
+	set_signals(client_signal);
 
-	signal_set(&ev_sigcont, SIGCONT, client_signal, NULL);
-	signal_add(&ev_sigcont, NULL);
-	signal_set(&ev_sigterm, SIGTERM, client_signal, NULL);
-	signal_add(&ev_sigterm, NULL);
-	signal_set(&ev_sigwinch, SIGWINCH, client_signal, NULL);
-	signal_add(&ev_sigwinch, NULL);
+	/*
+	 * Send a resize message immediately in case the terminal size has
+	 * changed between the identify message to the server and the MSG_READY
+	 * telling us to move into the client code.
+	 */
+	 client_write_server(MSG_RESIZE, NULL, 0);
 
 	/*
 	 * imsg_read in the first client poll loop (before the terminal has
@@ -229,6 +217,11 @@ client_signal(int sig, unused short events, unused void *data)
 	struct sigaction	sigact;
 
 	switch (sig) {
+	case SIGHUP:
+		client_exitmsg = "lost tty";
+		client_exitval = 1;
+		client_write_server(MSG_EXITING, NULL, 0);
+		break;
 	case SIGTERM:
 		client_exitmsg = "terminated";
 		client_exitval = 1;
@@ -305,7 +298,8 @@ client_dispatch(void)
 			client_exitmsg = "detached";
 			break;
 		case MSG_EXIT:
-			if (datalen != 0)
+			if (datalen != 0 &&
+			    datalen != sizeof (struct msg_exit_data))
 				fatalx("bad MSG_EXIT size");
 
 			client_write_server(MSG_EXITING, NULL, 0);

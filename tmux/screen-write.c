@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.41 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.43 2010/06/21 00:11:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -23,7 +23,7 @@
 #include "tmux.h"
 
 void	screen_write_initctx(struct screen_write_ctx *, struct tty_ctx *, int);
-void	screen_write_overwrite(struct screen_write_ctx *);
+void	screen_write_overwrite(struct screen_write_ctx *, u_int);
 int	screen_write_combine(
 	    struct screen_write_ctx *, const struct utf8_data *);
 
@@ -1009,17 +1009,18 @@ screen_write_cell(struct screen_write_ctx *ctx,
 	}
 
 	/* Check this will fit on the current line and wrap if not. */
-	if (s->cx > screen_size_x(s) - width) {
+	if ((s->mode & MODE_WRAP) && s->cx > screen_size_x(s) - width) {
 		screen_write_linefeed(ctx, 1);
 		s->cx = 0;	/* carriage return */
 	}
 
 	/* Sanity checks. */
-	if (s->cx > screen_size_x(s) - 1 || s->cy > screen_size_y(s) - 1)
+	if (((s->mode & MODE_WRAP) && s->cx > screen_size_x(s) - 1)
+	    || s->cy > screen_size_y(s) - 1)
 		return;
 
 	/* Handle overwriting of UTF-8 characters. */
-	screen_write_overwrite(ctx);
+	screen_write_overwrite(ctx, width);
 
 	/*
 	 * If the new character is UTF-8 wide, fill in padding cells. Have
@@ -1122,12 +1123,11 @@ screen_write_combine(
  * by the same character.
  */
 void
-screen_write_overwrite(struct screen_write_ctx *ctx)
+screen_write_overwrite(struct screen_write_ctx *ctx, u_int width)
 {
 	struct screen		*s = ctx->s;
 	struct grid		*gd = s->grid;
 	const struct grid_cell	*gc;
-	const struct grid_utf8	*gu;
 	u_int			 xx;
 
 	gc = grid_view_peek_cell(gd, s->cx, s->cy);
@@ -1147,30 +1147,17 @@ screen_write_overwrite(struct screen_write_ctx *ctx)
 
 		/* Overwrite the character at the start of this padding. */
 		grid_view_set_cell(gd, xx, s->cy, &grid_default_cell);
+	}
 
-		/* Overwrite following padding cells. */
-		xx = s->cx;
-		while (++xx < screen_size_x(s)) {
-			gc = grid_view_peek_cell(gd, xx, s->cy);
-			if (!(gc->flags & GRID_FLAG_PADDING))
-				break;
-			grid_view_set_cell(gd, xx, s->cy, &grid_default_cell);
-		}
-	} else if (gc->flags & GRID_FLAG_UTF8) {
-		gu = grid_view_peek_utf8(gd, s->cx, s->cy);
-		if (gu->width > 1) {
-			/*
-			 * An UTF-8 wide cell; overwrite following padding
-			 * cells only.
-			 */
-			xx = s->cx;
-			while (++xx < screen_size_x(s)) {
-				gc = grid_view_peek_cell(gd, xx, s->cy);
-				if (!(gc->flags & GRID_FLAG_PADDING))
-					break;
-				grid_view_set_cell(
-				    gd, xx, s->cy, &grid_default_cell);
-			}
-		}
+	/*
+	 * Overwrite any padding cells that belong to a UTF-8 character
+	 * we'll be overwriting with the current character.
+	 */
+	xx = s->cx + width - 1;
+	while (++xx < screen_size_x(s)) {
+		gc = grid_view_peek_cell(gd, xx, s->cy);
+		if (!(gc->flags & GRID_FLAG_PADDING))
+			break;
+		grid_view_set_cell(gd, xx, s->cy, &grid_default_cell);
 	}
 }

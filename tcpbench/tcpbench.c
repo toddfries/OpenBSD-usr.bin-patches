@@ -56,7 +56,7 @@
 sig_atomic_t done = 0;
 sig_atomic_t proc_slice = 0;
 
-static u_int  rdomain;
+static u_int  rtableid;
 static char **kflag;
 static size_t Bflag;
 static int    Sflag;
@@ -137,9 +137,9 @@ usage(void)
 	fprintf(stderr,
 	    "usage: tcpbench -l\n"
 	    "       tcpbench [-v] [-B buf] [-k kvars] [-n connections] [-p port]\n"
-	    "                [-r rate] [-S space] [-V rdomain] hostname\n"
+	    "                [-r rate] [-S space] [-V rtable] hostname\n"
 	    "       tcpbench -s [-v] [-B buf] [-k kvars] [-p port]\n"
-	    "                [-r rate] [-S space] [-V rdomain]\n");
+	    "                [-r rate] [-S space] [-V rtable]\n");
 	exit(1);
 }
 
@@ -193,9 +193,9 @@ print_header(void)
 }
 
 static void
-kget(kvm_t *kh, u_long addr, void *buf, int size)
+kget(kvm_t *kh, u_long addr, void *buf, size_t size)
 {
-	if (kvm_read(kh, addr, buf, size) != size)
+	if (kvm_read(kh, addr, buf, size) != (ssize_t)size)
 		errx(1, "kvm_read: %s", kvm_geterr(kh));
 }
 
@@ -333,7 +333,7 @@ kupdate_stats(kvm_t *kh, u_long tcbaddr,
 static void
 check_kvar(const char *var)
 {
-	size_t i;
+	u_int i;
 
 	for (i = 0; allowed_kvars[i] != NULL; i++)
 		if (strcmp(allowed_kvars[i], var) == 0)
@@ -344,7 +344,7 @@ check_kvar(const char *var)
 static void
 list_kvars(void)
 {
-	size_t i;
+	u_int i;
 
 	fprintf(stderr, "Supported kernel variables:\n");
 	for (i = 0; allowed_kvars[i] != NULL; i++)
@@ -355,7 +355,7 @@ static char **
 check_prepare_kvars(char *list)
 {
 	char *item, **ret = NULL;
-	size_t n = 0;
+	u_int n = 0;
 
 	while ((item = strsep(&list, ", \t\n")) != NULL) {
 		check_kvar(item);
@@ -552,12 +552,12 @@ serverbind(struct pollfd *pfd, nfds_t max_nfds, struct addrinfo *aitop)
 				warn("socket");
 			continue;
 		}
-		if (rdomain && ai->ai_family == AF_INET) {
-			if (setsockopt(sock, IPPROTO_IP, SO_RDOMAIN,
-			    &rdomain, sizeof(rdomain)) == -1)
-				err(1, "setsockopt SO_RDOMAIN");
-		} else if (rdomain)
-			warnx("rdomain only supported on AF_INET");
+		if (rtableid && ai->ai_family == AF_INET) {
+			if (setsockopt(sock, IPPROTO_IP, SO_RTABLE,
+			    &rtableid, sizeof(rtableid)) == -1)
+				err(1, "setsockopt SO_RTABLE");
+		} else if (rtableid)
+			warnx("rtable only supported on AF_INET");
 		if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 		    &on, sizeof(on)) == -1)
 			warn("reuse port");
@@ -757,12 +757,12 @@ clientconnect(struct addrinfo *aitop, struct pollfd *pfd, int nconn)
 					warn("socket");
 				continue;
 			}
-			if (rdomain && ai->ai_family == AF_INET) {
-				if (setsockopt(sock, IPPROTO_IP, SO_RDOMAIN,
-				    &rdomain, sizeof(rdomain)) == -1)
-					err(1, "setsockopt SO_RDOMAIN");
-			} else if (rdomain)
-				warnx("rdomain only supported on AF_INET");
+			if (rtableid && ai->ai_family == AF_INET) {
+				if (setsockopt(sock, IPPROTO_IP, SO_RTABLE,
+				    &rtableid, sizeof(rtableid)) == -1)
+					err(1, "setsockopt SO_RTABLE");
+			} else if (rtableid)
+				warnx("rtable only supported on AF_INET");
 			if (Sflag) {
 				if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
 				    &Sflag, sizeof(Sflag)) == -1)
@@ -803,7 +803,7 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, struct addrinfo *aitop, int nconn)
 	struct statctx *psc;
 	struct pollfd *pfd;
 	char *buf;
-	int i, sock = -1;
+	int i;
 	ssize_t n;
 
 	if ((pfd = calloc(nconn, sizeof(*pfd))) == NULL)
@@ -814,7 +814,7 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, struct addrinfo *aitop, int nconn)
 	clientconnect(aitop, pfd, nconn);
 
 	for (i = 0; i < nconn; i++) {
-		stats_prepare(psc + i, sock, kvmh, ktcbtab);
+		stats_prepare(psc + i, pfd[i].fd, kvmh, ktcbtab);
 		mainstats.nconns++;
 	}
 
@@ -860,7 +860,6 @@ clientloop(kvm_t *kvmh, u_long ktcbtab, struct addrinfo *aitop, int nconn)
 		warnx("Terminated by signal %d", done);
 
 	free(buf);
-	close(sock);
 	exit(0);
 }
 
@@ -891,7 +890,7 @@ main(int argc, char **argv)
 	int nconn = 1;
 
 	Bflag = DEFAULT_BUF;
-	Sflag = sflag = vflag = rdomain = 0;
+	Sflag = sflag = vflag = rtableid = 0;
 	kflag = NULL;
 	rflag = DEFAULT_STATS_INTERVAL;
 
@@ -937,10 +936,10 @@ main(int argc, char **argv)
 			vflag++;
 			break;
 		case 'V':
-			rdomain = (unsigned int)strtonum(optarg, 0,
+			rtableid = (unsigned int)strtonum(optarg, 0,
 			    RT_TABLEID_MAX, &errstr);
 			if (errstr)
-				errx(1, "rdomain value is %s: %s",
+				errx(1, "rtable value is %s: %s",
 				    errstr, optarg);
 			break;
 		case 'n':

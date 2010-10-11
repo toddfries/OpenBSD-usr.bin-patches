@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbufs.c,v 1.26 2009/11/23 21:44:33 henning Exp $ */
+/*	$OpenBSD: mbufs.c,v 1.29 2010/09/23 10:49:55 dlg Exp $ */
 /*
  * Copyright (c) 2008 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -19,6 +19,7 @@
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/mbuf.h>
+#include <sys/pool.h>
 #include <net/if.h>
 
 #include <err.h>
@@ -254,7 +255,7 @@ read_mb(void)
 	size = sizeof(struct pool);
 
 	if (sysctl(mib, 4, &mbpool, &size, NULL, 0) < 0) {
-		error("sysctl(KERN_POOL_POOL, %d)", i);
+		error("sysctl(KERN_POOL_POOL, %d)", mib[3]);
 		goto exit;
 	}
 
@@ -348,9 +349,9 @@ showmbuf(struct if_info *ifi, int p, int showif)
 #if NOTYET
 	print_fld_uint(FLD_MB_RXDELAY, ifi->data.ifi_rxdelay);
 	print_fld_uint(FLD_MB_TXDELAY, ifi->data.ifi_txdelay);
-#endif
 	if (ifi->data.ifi_livelocks)
 		print_fld_size(FLD_MB_LLOCKS, ifi->data.ifi_livelocks);
+#endif
 
 	if (p >= 0 && p < mclpool_count) {
 		struct mclpool *mp = &ifi->data.ifi_mclpool[p];

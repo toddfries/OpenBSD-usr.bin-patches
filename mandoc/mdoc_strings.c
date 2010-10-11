@@ -1,6 +1,6 @@
-/*	$Id: mdoc_strings.c,v 1.10 2009/10/27 21:40:07 schwarze Exp $ */
+/*	$Id: mdoc_strings.c,v 1.19 2010/07/31 23:42:04 schwarze Exp $ */
 /*
- * Copyright (c) 2008 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,48 +22,49 @@
 #include <string.h>
 #include <time.h>
 
+#include "mandoc.h"
 #include "libmdoc.h"
 
-/* FIXME: this file is poorly named. */
-
-struct mdoc_secname {
-	const char	*name;	/* Name of section. */
-	enum mdoc_sec	 sec;	/* Corresponding section. */
+static	const char * const secnames[SEC__MAX] = {
+	NULL,
+	"NAME",
+	"LIBRARY",
+	"SYNOPSIS",
+	"DESCRIPTION",
+	"IMPLEMENTATION NOTES",
+	"RETURN VALUES",
+	"ENVIRONMENT",
+	"FILES",
+	"EXIT STATUS",
+	"EXAMPLES",
+	"DIAGNOSTICS",
+	"COMPATIBILITY",
+	"ERRORS",
+	"SEE ALSO",
+	"STANDARDS",
+	"HISTORY",
+	"AUTHORS",
+	"CAVEATS",
+	"BUGS",
+	"SECURITY CONSIDERATIONS",
+	NULL
 };
 
-#define	SECNAME_MAX	(20)
-
-static	const struct mdoc_secname secnames[SECNAME_MAX] = {
-	{ "NAME", SEC_NAME },
-	{ "LIBRARY", SEC_LIBRARY },
-	{ "SYNOPSIS", SEC_SYNOPSIS },
-	{ "DESCRIPTION", SEC_DESCRIPTION },
-	{ "IMPLEMENTATION NOTES", SEC_IMPLEMENTATION },
-	{ "EXIT STATUS", SEC_EXIT_STATUS },
-	{ "RETURN VALUES", SEC_RETURN_VALUES },
-	{ "ENVIRONMENT", SEC_ENVIRONMENT },
-	{ "FILES", SEC_FILES },
-	{ "EXAMPLES", SEC_EXAMPLES },
-	{ "DIAGNOSTICS", SEC_DIAGNOSTICS },
-	{ "COMPATIBILITY", SEC_COMPATIBILITY },
-	{ "ERRORS", SEC_ERRORS },
-	{ "SEE ALSO", SEC_SEE_ALSO },
-	{ "STANDARDS", SEC_STANDARDS },
-	{ "HISTORY", SEC_HISTORY },
-	{ "AUTHORS", SEC_AUTHORS },
-	{ "CAVEATS", SEC_CAVEATS },
-	{ "BUGS", SEC_BUGS },
-	{ "SECURITY CONSIDERATIONS", SEC_SECURITY }
-};
-
-
-int
+/* 
+ * FIXME: this is repeated in print_text() (html.c) and term_word()
+ * (term.c).
+ */
+enum mdelim
 mdoc_iscdelim(char p)
 {
 
 	switch (p) {
-	case('|'):
+	case('('):
 		/* FALLTHROUGH */
+	case('['):
+		return(DELIM_OPEN);
+	case('|'):
+		return(DELIM_MIDDLE);
 	case('.'):
 		/* FALLTHROUGH */
 	case(','):
@@ -76,76 +77,52 @@ mdoc_iscdelim(char p)
 		/* FALLTHROUGH */
 	case('!'):
 		/* FALLTHROUGH */
-	case('('):
-		/* FALLTHROUGH */
 	case(')'):
 		/* FALLTHROUGH */
-	case('['):
-		/* FALLTHROUGH */
 	case(']'):
-		/* FALLTHROUGH */
-	case('{'):
-		/* FALLTHROUGH */
-	case('}'):
-		return(1);
+		return(DELIM_CLOSE);
 	default:
 		break;
 	}
 
-	return(0);
+	return(DELIM_NONE);
 }
 
 
-int
+enum mdelim
 mdoc_isdelim(const char *p)
 {
 
-	if (0 == *p)
-		return(0);
-	if (0 != *(p + 1))
-		return(0);
-	return(mdoc_iscdelim(*p));
+	if ('\0' == p[0])
+		return(DELIM_NONE);
+	if ('\0' == p[1])
+		return(mdoc_iscdelim(p[0]));
+
+	/*
+	 * XXX; account for groff bubu where the \*(Ba reserved string
+	 * is treated in exactly the same way as the vertical bar.  This
+	 * is the only function that checks for this.
+	 */
+	return(strcmp(p, "\\*(Ba") ? DELIM_NONE : DELIM_MIDDLE);
 }
 
 
 enum mdoc_sec 
-mdoc_atosec(const char *p)
+mdoc_str2sec(const char *p)
 {
 	int		 i;
 
-	for (i = 0; i < SECNAME_MAX; i++) 
-		if (0 == strcmp(p, secnames[i].name))
-			return(secnames[i].sec);
+	for (i = 0; i < (int)SEC__MAX; i++) 
+		if (secnames[i] && 0 == strcmp(p, secnames[i]))
+			return((enum mdoc_sec)i);
 
 	return(SEC_CUSTOM);
 }
 
 
-time_t
-mdoc_atotime(const char *p)
-{
-	struct tm	 tm;
-	char		*pp;
-
-	bzero(&tm, sizeof(struct tm));
-
-	if (0 == strcmp(p, "$" "Mdocdate$"))
-		return(time(NULL));
-	if ((pp = strptime(p, "$" "Mdocdate: %b %d %Y $", &tm)) && 0 == *pp)
-		return(mktime(&tm));
-	/* XXX - this matches "June 1999", which is wrong. */
-	if ((pp = strptime(p, "%b %d %Y", &tm)) && 0 == *pp)
-		return(mktime(&tm));
-	if ((pp = strptime(p, "%b %d, %Y", &tm)) && 0 == *pp)
-		return(mktime(&tm));
-
-	return(0);
-}
-
-
 /* FIXME: move this into an editable .in file. */
 size_t
-mdoc_macro2len(int macro)
+mdoc_macro2len(enum mdoct macro)
 {
 
 	switch (macro) {

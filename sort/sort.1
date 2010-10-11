@@ -1,4 +1,4 @@
-.\"	$OpenBSD: sort.1,v 1.34 2009/08/16 09:41:08 sobrado Exp $
+.\"	$OpenBSD: sort.1,v 1.39 2010/09/03 11:09:29 jmc Exp $
 .\"
 .\" Copyright (c) 1991, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -32,15 +32,15 @@
 .\"
 .\"     @(#)sort.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: August 16 2009 $
+.Dd $Mdocdate: September 3 2010 $
 .Dt SORT 1
 .Os
 .Sh NAME
 .Nm sort
-.Nd sort or merge text files
+.Nd sort, merge, or sequence check text files
 .Sh SYNOPSIS
 .Nm sort
-.Op Fl bcdfHimnrsuz
+.Op Fl bCcdfHimnrsuz
 .Sm off
 .Op Fl k\ \& Ar field1 Op , Ar field2
 .Sm on
@@ -54,7 +54,15 @@
 .Sh DESCRIPTION
 The
 .Nm
-utility sorts text files by lines.
+utility sorts text files by lines,
+operating in one of three modes: sort, merge, or check.
+In sort mode, the specified files are combined and sorted
+by line.
+Merge mode is the same as sort mode except that the input
+files are assumed to be pre-sorted.
+In check mode, a single input file is checked to ensure that
+it is correctly sorted.
+.Pp
 Comparisons are based on one or more sort keys extracted
 from each line of input, and are performed lexicographically.
 By default, if keys are not given,
@@ -63,19 +71,24 @@ regards each input line as a single field.
 .Pp
 The options are as follows:
 .Bl -tag -width Ds
-.It Fl c
+.It Fl C
 Check that the single input file is sorted.
-If the file is not sorted,
-.Nm
-produces the appropriate error messages and exits with code 1; otherwise,
-.Nm
-returns 0.
-.Nm
-.Fl c
-produces no output, except the error messages on
-.Em stderr .
+If it is, exit 0; if it's not, exit 1.
+In either case, produce no output.
+.It Fl c
+Like
+.Fl C ,
+but additionally write a message to
+.Em stderr
+if the input file is not sorted.
 .It Fl m
 Merge only; the input files are assumed to be pre-sorted.
+This option is overridden by the
+.Fl C
+or
+.Fl c
+options,
+if they are also present.
 .It Fl o Ar output
 The argument given is the name of an
 .Ar output
@@ -95,18 +108,35 @@ does not exist.
 .It Fl u
 Unique: suppress all but one in each set of lines having equal keys.
 If used with the
+.Fl C
+or
 .Fl c
-option, also check that there are no lines with duplicate keys.
+options, also check that there are no lines with duplicate keys.
+.El
+.Pp
+The following options override the default ordering rules globally:
+.Bl -tag -width indent
+.It Fl H
+Use a merge sort instead of a radix sort.
+This option should be used for files larger than 60Mb.
+.It Fl s
+Enable stable sort.
+Uses additional resources (see
+.Xr sradixsort 3 ) .
 .El
 .Pp
 The following options override the default ordering rules.
-When ordering options appear independent of key field
-specifications, the requested field ordering rules are
-applied globally to all sort keys.
+If ordering options appear before the first
+.Fl k
+option, they apply globally to all sort keys.
 When attached to a specific key (see
 .Fl k ) ,
 the ordering options override
 all global ordering options for that key.
+Note that the ordering options intended to apply globally should not
+appear after
+.Fl k
+or results may be unexpected.
 .Bl -tag -width indent
 .It Fl d
 Only blank space and alphanumeric characters
@@ -116,9 +146,6 @@ are used in making comparisons.
 .It Fl f
 Considers all lowercase characters that have uppercase
 equivalents to be the same for purposes of comparison.
-.It Fl H
-Use a merge sort instead of a radix sort.
-This option should be used for files larger than 60Mb.
 .It Fl i
 Ignore all non-printable characters.
 .It Fl n
@@ -136,10 +163,6 @@ option no longer implies the
 option.)
 .It Fl r
 Reverse the sense of comparisons.
-.It Fl s
-Enable stable sort.
-Uses additional resources (see
-.Xr sradixsort 3 ) .
 .El
 .Pp
 The treatment of field separators can be altered using these options:
@@ -161,29 +184,11 @@ option can be attached independently to each
 argument of the
 .Fl k
 option (see below).
-Note that the
+Note that
 .Fl b
-option has no effect unless key fields are specified.
-.It Xo
-.Sm off
-.Fl k\ \& Ar field1 Op , Ar field2
-.Sm on
-.Xc
-Designates the starting position,
-.Ar field1 ,
-and optional ending position,
-.Ar field2 ,
-of a key field.
-The
-.Fl k
-option may be specified multiple times,
-in which case subsequent keys are compared after earlier keys compare equal.
-The
-.Fl k
-option replaces the obsolescent options
-.Cm \(pl Ns Ar pos1
-and
-.Fl Ns Ar pos2 .
+should not appear after
+.Fl k ,
+and that it has no effect unless key fields are specified.
 .It Fl R Ar char
 .Ar char
 is used as the record separator character.
@@ -212,6 +217,30 @@ delimit an empty field; further, the initial blank space
 considered part of a field when determining key offsets.
 .It Fl z
 Uses the nul character as the record separator.
+.El
+.Pp
+Sort keys are specified with:
+.Bl -tag -width indent
+.It Xo
+.Sm off
+.Fl k\ \& Ar field1 Op , Ar field2
+.Sm on
+.Xc
+Designates the starting position,
+.Ar field1 ,
+and optional ending position,
+.Ar field2 ,
+of a key field.
+The
+.Fl k
+option may be specified multiple times,
+in which case subsequent keys are compared after earlier keys compare equal.
+The
+.Fl k
+option replaces the obsolescent options
+.Cm \(pl Ns Ar pos1
+and
+.Fl Ns Ar pos2 .
 .El
 .Pp
 The following operands are available:
@@ -335,21 +364,6 @@ option is still supported, except for
 which has no
 .Fl k
 equivalent.
-.Pp
-The
-.Nm
-utility shall exit with one of the following values:
-.Pp
-.Bl -tag -width flag -compact
-.It 0
-Normal behavior.
-.It 1
-On disorder (or non-uniqueness) with the
-.Fl c
-option.
-.It 2
-An error occurred.
-.El
 .Sh ENVIRONMENT
 .Bl -tag -width Fl
 .It Ev TMPDIR
@@ -364,12 +378,33 @@ option.
 .Bl -tag -width Pa -compact
 .It Pa /var/tmp/sort.*
 default temporary directories
-.It Pa Ar output Ns #PID
+.It Pa output Ns #PID
 temporary name for
 .Ar output
 if
 .Ar output
 already exists
+.El
+.Sh EXIT STATUS
+The
+.Nm
+utility exits with one of the following values:
+.Pp
+.Bl -tag -width Ds -offset indent -compact
+.It 0
+Normal behavior.
+.It 1
+The input file is not sorted and
+.Fl C
+or
+.Fl c
+was given, or there are duplicate keys and
+.Fl Cu
+or
+.Fl cu
+was given.
+.It 2
+An error occurred.
 .El
 .Sh SEE ALSO
 .Xr comm 1 ,

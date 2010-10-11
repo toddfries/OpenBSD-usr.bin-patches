@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.h,v 1.5 2009/11/03 21:31:37 ratchov Exp $	*/
+/*	$OpenBSD: midi.h,v 1.9 2010/06/04 06:15:28 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -17,8 +17,10 @@
 #ifndef MIDI_H
 #define MIDI_H
 
+struct dev;
+
 struct aproc *thru_new(char *);
-struct aproc *ctl_new(char *);
+struct aproc *ctl_new(char *, struct dev *);
 
 int ctl_slotnew(struct aproc *, char *, struct ctl_ops *, void *, int);
 void ctl_slotdel(struct aproc *, int);
@@ -26,5 +28,9 @@ void ctl_slotvol(struct aproc *, int, unsigned);
 int  ctl_slotstart(struct aproc *, int);
 void ctl_slotstop(struct aproc *, int);
 void ctl_ontick(struct aproc *, int);
+
+void ctl_stop(struct aproc *);
+void ctl_start(struct aproc *);
+int ctl_idle(struct aproc *);
 
 #endif /* !defined(MIDI_H) */

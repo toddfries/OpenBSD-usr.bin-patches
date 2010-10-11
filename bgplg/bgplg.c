@@ -1,4 +1,4 @@
-/*	$OpenBSD: bgplg.c,v 1.7 2007/10/10 13:23:40 claudio Exp $	*/
+/*	$OpenBSD: bgplg.c,v 1.9 2010/04/02 21:20:49 sthen Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006 Reyk Floeter <reyk@vantronix.net>
@@ -39,6 +39,8 @@
 #define BGPCTL		"/bin/bgpctl", "-s", BGPDSOCK
 #define PING		"/bin/ping"
 #define TRACEROUTE	"/bin/traceroute"
+#define PING6		"/bin/ping6"
+#define TRACEROUTE6	"/bin/traceroute6"
 #define CONTENT_TYPE	"text/html"
 
 static struct cmd cmds[] = CMDS;
@@ -235,6 +237,7 @@ lg_incl(const char *file)
 		fwrite(buf, len, 1, stdout);
 	} while(len == BUFSIZ);
 
+	close(fd);
 	return (0);
 }
 

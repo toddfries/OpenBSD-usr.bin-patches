@@ -1,4 +1,4 @@
-/*	$OpenBSD: extern.h,v 1.39 2009/05/05 19:35:30 martynas Exp $	*/
+/*	$OpenBSD: extern.h,v 1.41 2010/06/29 23:12:33 halex Exp $	*/
 /*	$NetBSD: extern.h,v 1.17 1997/08/18 10:20:19 lukem Exp $	*/
 
 /*
@@ -128,7 +128,6 @@ void	sendrequest(const char *, const char *, const char *, int);
 
 extern jmp_buf	abortprox;
 extern int	abrtflag;
-extern struct	cmd cmdtab[];
 extern FILE    *cout;
 extern int	data;
 extern char    *home;
@@ -138,6 +137,7 @@ extern int	proxy;
 extern char	reply_string[];
 extern off_t	restart_point;
 extern int	keep_alive_timeout;
+extern int	pipeout;
 
 #ifndef SMALL
 extern int	NCMDS;

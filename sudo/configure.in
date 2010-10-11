@@ -1,10 +1,9 @@
 dnl
 dnl Process this file with GNU autoconf to produce a configure script.
-dnl $Sudo: configure.in,v 1.549 2009/06/13 20:52:50 millert Exp $
 dnl
-dnl Copyright (c) 1994-1996,1998-2009 Todd C. Miller <Todd.Miller@courtesan.com>
+dnl Copyright (c) 1994-1996,1998-2010 Todd C. Miller <Todd.Miller@courtesan.com>
 dnl
-AC_INIT([sudo], [1.7.2], [http://www.sudo.ws/bugs/], [sudo])
+AC_INIT([sudo], [1.7.2p8], [http://www.sudo.ws/bugs/], [sudo])
 AC_CONFIG_HEADER(config.h pathnames.h)
 dnl
 dnl This won't work before AC_INIT
@@ -14,6 +13,7 @@ dnl
 dnl Variables that get substituted in the Makefile and man pages
 dnl
 AC_SUBST(HAVE_BSM_AUDIT)
+AC_SUBST(SHELL)
 AC_SUBST(LIBTOOL)
 AC_SUBST(CFLAGS)
 AC_SUBST(PROGS)
@@ -85,6 +85,7 @@ AC_SUBST(ldap_conf)
 AC_SUBST(ldap_secret)
 AC_SUBST(nsswitch_conf)
 AC_SUBST(netsvc_conf)
+AC_SUBST(secure_path)
 dnl
 dnl Initial values for above
 dnl
@@ -113,6 +114,7 @@ tty_tickets=off
 insults=off
 root_sudo=on
 path_info=on
+secure_path="not set"
 INSTALL_NOEXEC=
 devdir='$(srcdir)'
 dnl
@@ -988,13 +990,16 @@ fi
 AC_MSG_CHECKING(whether to override the user's path)
 AC_ARG_WITH(secure-path, [AS_HELP_STRING([--with-secure-path], [override the user's path with a built-in one])],
 [case $with_secure_path in
-    yes)	AC_DEFINE_UNQUOTED(SECURE_PATH, "/bin:/usr/ucb:/usr/bin:/usr/sbin:/sbin:/usr/etc:/etc")
-		AC_MSG_RESULT([:/usr/ucb:/usr/bin:/usr/sbin:/sbin:/usr/etc:/etc])
+    yes)	with_secure_path="/bin:/usr/ucb:/usr/bin:/usr/sbin:/sbin:/usr/etc:/etc"
+		AC_DEFINE_UNQUOTED(SECURE_PATH, "$with_secure_path")
+		AC_MSG_RESULT([$with_secure_path])
+		secure_path="set to $with_secure_path"
 		;;
     no)		AC_MSG_RESULT(no)
 		;;
     *)		AC_DEFINE_UNQUOTED(SECURE_PATH, "$with_secure_path")
 		AC_MSG_RESULT([$with_secure_path])
+		secure_path="set to F<$with_secure_path>"
 		;;
 esac], AC_MSG_RESULT(no))
 
@@ -1040,7 +1045,7 @@ AC_ARG_WITH(libvas, [AS_HELP_STRING([--with-libvas=NAME], [Name of the libvas sh
     yes)	with_libvas=libvas.so
 		;;
     no)		;;
-    *)		AC_DEFINE_UNQUOTED([LIBVAS_SO], ["$with_with_libvas"], [The name of libvas.so])
+    *)		AC_DEFINE_UNQUOTED([LIBVAS_SO], ["$with_libvas"], [The name of libvas.so])
 		;;
 esac
 if test X"$with_libvas" != X"no"; then
@@ -1052,6 +1057,10 @@ if test X"$with_libvas" != X"no"; then
 		       [Path to look for libvas in [default=/opt/quest/lib]])],
        [LIBVAS_RPATH=$withval],
        [LIBVAS_RPATH=/opt/quest/lib])
+    dnl
+    dnl Some platforms require libdl for dlopen()
+    dnl
+    AC_CHECK_LIB([dl], [main])
 fi
 ])
 
@@ -1836,7 +1845,7 @@ dnl
 AC_FUNC_GETGROUPS
 AC_CHECK_FUNCS(strchr strrchr memchr memcpy memset sysconf tzset \
 	       strftime setrlimit initgroups getgroups fstat gettimeofday \
-	       setlocale getaddrinfo setsid setenv)
+	       setlocale getaddrinfo setsid setenv setrlimit64)
 AC_CHECK_FUNCS(unsetenv, SUDO_FUNC_UNSETENV_VOID)
 SUDO_FUNC_PUTENV_CONST
 if test -z "$SKIP_SETRESUID"; then
@@ -1972,10 +1981,15 @@ dnl and we do the actual tests here.
 dnl
 if test ${with_pam-"no"} != "no"; then
     dnl
-    dnl Linux may need this
+    dnl Some platforms need libdl for dlopen
     dnl
-    AC_CHECK_LIB([dl], [main], [SUDO_LIBS="${SUDO_LIBS} -lpam -ldl"], [SUDO_LIBS="${SUDO_LIBS} -lpam"])
-    ac_cv_lib_dl=ac_cv_lib_dl_main
+    case "$LIBS" in
+	*-ldl*)	SUDO_LIBS="${SUDO_LIBS} -lpam"
+		;;
+	*)	AC_CHECK_LIB([dl], [main], [SUDO_LIBS="${SUDO_LIBS} -lpam -ldl"], [SUDO_LIBS="${SUDO_LIBS} -lpam"])
+		ac_cv_lib_dl=ac_cv_lib_dl_main
+		;;
+    esac
 
     dnl
     dnl Some PAM implementations (MacOS X for example) put the PAM headers
@@ -2234,25 +2248,23 @@ if test ${with_kerb5-'no'} != "no" -a -z "$KRB5CONFIG"; then
 	], [
 	    AC_MSG_RESULT(no)
 	    SUDO_LIBS="${SUDO_LIBS} -lkrb5 -lk5crypto -lcom_err"
-	    AC_CHECK_LIB(krb5support, main, [SUDO_LIBS="${SUDO_LIBS} -lkrb5support,"])
+	    AC_CHECK_LIB(krb5support, main, [SUDO_LIBS="${SUDO_LIBS} -lkrb5support"])
     ])
     AUTH_OBJS="$AUTH_OBJS kerb5.o"
     _LIBS="$LIBS"
     LIBS="${LIBS} ${SUDO_LIBS}"
-    AC_CHECK_FUNCS(krb5_verify_user krb5_init_secure_context krb5_get_init_creds_opt_alloc)
-    AC_CACHE_CHECK(whether krb5_get_init_creds_opt_free takes a two argument2,
-	sudo_cv_krb5_get_init_creds_opt_free_two_args, [
-	    AC_TRY_COMPILE([#include <krb5.h>],
-		[
-		    krb5_context context = NULL;
-		    krb5_get_init_creds_opt *opts = NULL;
-		    krb5_get_init_creds_opt_free(context, opts);
-		],
-		[sudo_cv_krb5_get_init_creds_opt_free_two_args=yes],
-		[sudo_cv_krb5_get_init_creds_opt_free_two_args=no]
-	    )
-	]
-    )
+    AC_CHECK_FUNCS(krb5_verify_user krb5_init_secure_context)
+    AC_CHECK_FUNCS(krb5_get_init_creds_opt_alloc, [
+	AC_CACHE_CHECK([whether krb5_get_init_creds_opt_free takes a context],
+	    sudo_cv_krb5_get_init_creds_opt_free_two_args, [
+		AC_TRY_COMPILE([#include <krb5.h>],
+		    [krb5_get_init_creds_opt_free(NULL, NULL);],
+		    [sudo_cv_krb5_get_init_creds_opt_free_two_args=yes],
+		    [sudo_cv_krb5_get_init_creds_opt_free_two_args=no]
+		)
+	    ]
+	)
+    ])
     if test X"$sudo_cv_krb5_get_init_creds_opt_free_two_args" = X"yes"; then
   	AC_DEFINE(HAVE_KRB5_GET_INIT_CREDS_OPT_FREE_TWO_ARGS)
     fi
@@ -2442,9 +2454,9 @@ if test ${with_ldap-'no'} != "no"; then
 	SUDO_APPEND_LIBPATH(LDFLAGS, [${with_ldap}/lib])
 	CPPFLAGS="${CPPFLAGS} -I${with_ldap}/include"
 	with_ldap=yes
-	LDAP=""
     fi
     SUDO_OBJS="${SUDO_OBJS} ldap.o"
+    LDAP=""
 
     AC_MSG_CHECKING([for LDAP libraries])
     LDAP_LIBS=""
@@ -2522,7 +2534,12 @@ if test X"$LIBVAS_RPATH" != X""; then
     if test -n "$blibpath"; then
 	blibpath_add="${blibpath_add}:$LIBVAS_RPATH"
     else
-	LDFLAGS="$LDFLAGS -R$LIBVAS_RPATH"
+	case "$host" in
+	    *-*-hpux*)	LDFLAGS="$LDFLAGS -Wl,+b,$LIBVAS_RPATH"
+			;;
+	    *)		LDFLAGS="$LDFLAGS -Wl,-R$LIBVAS_RPATH"
+			;;
+	esac
     fi
 fi
 
@@ -2634,6 +2651,7 @@ AH_TEMPLATE(CLASSIC_INSULTS, [Define to 1 if you want the insults from the "clas
 AH_TEMPLATE(CSOPS_INSULTS, [Define to 1 if you want insults culled from the twisted minds of CSOps.])
 AH_TEMPLATE(DONT_LEAK_PATH_INFO, [Define to 1 if you want sudo to display "command not allowed" instead of "command not found" when a command cannot be found.])
 AH_TEMPLATE(ENV_EDITOR, [Define to 1 if you want visudo to honor the EDITOR and VISUAL env variables.])
+AH_TEMPLATE(ENV_DEBUG, [Whether to enable environment debugging.])
 AH_TEMPLATE(FQDN, [Define to 1 if you want to require fully qualified hosts in sudoers.])
 AH_TEMPLATE(GOONS_INSULTS, [Define to 1 if you want insults from the "Goon Show".])
 AH_TEMPLATE(HAL_INSULTS, [Define to 1 if you want 2001-like insults.])
@@ -2663,7 +2681,7 @@ AH_TEMPLATE(HAVE_ISSECURE, [Define to 1 if you have the `issecure' function. (Su
 AH_TEMPLATE(HAVE_KERB4, [Define to 1 if you use Kerberos IV.])
 AH_TEMPLATE(HAVE_KERB5, [Define to 1 if you use Kerberos V.])
 AH_TEMPLATE(HAVE_KRB5_GET_INIT_CREDS_OPT_ALLOC, [Define to 1 if you have the `krb5_get_init_creds_opt_alloc' function.])
-AH_TEMPLATE(HAVE_KRB5_GET_INIT_CREDS_OPT_FREE_TWO_ARGS, [Define to 1 if your `krb5_get_init_creds_opt_alloc' function takes two arguments.])
+AH_TEMPLATE(HAVE_KRB5_GET_INIT_CREDS_OPT_FREE_TWO_ARGS, [Define to 1 if your `krb5_get_init_creds_opt_free' function takes two arguments.])
 AH_TEMPLATE(HAVE_KRB5_INIT_SECURE_CONTEXT, [Define to 1 if you have the `krb5_init_secure_context' function.])
 AH_TEMPLATE(HAVE_KRB5_VERIFY_USER, [Define to 1 if you have the `krb5_verify_user' function.])
 AH_TEMPLATE(HAVE_LBER_H, [Define to 1 if your LDAP needs <lber.h>. (OpenLDAP does not)])

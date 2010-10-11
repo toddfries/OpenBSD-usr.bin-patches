@@ -1,6 +1,6 @@
-/*	$Id: man_macro.c,v 1.9 2009/10/27 21:40:07 schwarze Exp $ */
+/*	$Id: man_macro.c,v 1.20 2010/07/25 18:05:54 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -19,24 +19,31 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "libman.h"
 
-#define	REW_REWIND	(0)		/* See rew_scope(). */
-#define	REW_NOHALT	(1)		/* See rew_scope(). */
-#define	REW_HALT	(2)		/* See rew_scope(). */
+enum	rew {
+	REW_REWIND,
+	REW_NOHALT,
+	REW_HALT
+};
 
-static	int		 in_line_eoln(MACRO_PROT_ARGS);
-static	int		 blk_imp(MACRO_PROT_ARGS);
 static	int		 blk_close(MACRO_PROT_ARGS);
+static	int		 blk_exp(MACRO_PROT_ARGS);
+static	int		 blk_imp(MACRO_PROT_ARGS);
+static	int		 in_line_eoln(MACRO_PROT_ARGS);
 
-static	int		 rew_scope(enum man_type, struct man *, int);
-static	int 		 rew_dohalt(int, enum man_type, 
+static	int		 rew_scope(enum man_type, 
+				struct man *, enum mant);
+static	enum rew	 rew_dohalt(enum mant, enum man_type, 
 				const struct man_node *);
-static	int		 rew_block(int, enum man_type, 
+static	enum rew	 rew_block(enum mant, enum man_type, 
 				const struct man_node *);
+static	int		 rew_warn(struct man *, 
+				struct man_node *, enum mandocerr);
 
 const	struct man_macro __man_macros[MAN_MAX] = {
-	{ in_line_eoln, 0 }, /* br */
+	{ in_line_eoln, MAN_NSCOPED }, /* br */
 	{ in_line_eoln, 0 }, /* TH */
 	{ blk_imp, MAN_SCOPED }, /* SH */
 	{ blk_imp, MAN_SCOPED }, /* SS */
@@ -57,31 +64,59 @@ const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, MAN_SCOPED }, /* I */
 	{ in_line_eoln, 0 }, /* IR */
 	{ in_line_eoln, 0 }, /* RI */
-	{ in_line_eoln, 0 }, /* na */
+	{ in_line_eoln, MAN_NSCOPED }, /* na */
 	{ in_line_eoln, 0 }, /* i */
-	{ in_line_eoln, 0 }, /* sp */
+	{ in_line_eoln, MAN_NSCOPED }, /* sp */
 	{ in_line_eoln, 0 }, /* nf */
 	{ in_line_eoln, 0 }, /* fi */
 	{ in_line_eoln, 0 }, /* r */
 	{ blk_close, 0 }, /* RE */
-	{ blk_imp, MAN_EXPLICIT }, /* RS */
+	{ blk_exp, MAN_EXPLICIT }, /* RS */
 	{ in_line_eoln, 0 }, /* DT */
 	{ in_line_eoln, 0 }, /* UC */
 	{ in_line_eoln, 0 }, /* PD */
+	{ in_line_eoln, MAN_NSCOPED }, /* Sp */
+	{ in_line_eoln, 0 }, /* Vb */
+	{ in_line_eoln, 0 }, /* Ve */
+	{ in_line_eoln, 0 }, /* AT */
+	{ in_line_eoln, 0 }, /* in */
 };
 
 const	struct man_macro * const man_macros = __man_macros;
 
 
+/*
+ * Warn when "n" is an explicit non-roff macro.
+ */
+static int
+rew_warn(struct man *m, struct man_node *n, enum mandocerr er)
+{
+
+	if (er == MANDOCERR_MAX || MAN_BLOCK != n->type)
+		return(1);
+	if (MAN_VALID & n->flags)
+		return(1);
+	if ( ! (MAN_EXPLICIT & man_macros[n->tok].flags))
+		return(1);
+	return(man_nmsg(m, n, er));
+}
+
+
+/*
+ * Rewind scope.  If a code "er" != MANDOCERR_MAX has been provided, it
+ * will be used if an explicit block scope is being closed out.
+ */
 int
-man_unscope(struct man *m, const struct man_node *n)
+man_unscope(struct man *m, const struct man_node *n, 
+		enum mandocerr er)
 {
 
 	assert(n);
-	m->next = MAN_NEXT_SIBLING;
 
 	/* LINTED */
 	while (m->last != n) {
+		if ( ! rew_warn(m, m->last, er))
+			return(0);
 		if ( ! man_valid_post(m))
 			return(0);
 		if ( ! man_action_post(m))
@@ -90,14 +125,22 @@ man_unscope(struct man *m, const struct man_node *n)
 		assert(m->last);
 	}
 
+	if ( ! rew_warn(m, m->last, er))
+		return(0);
 	if ( ! man_valid_post(m))
 		return(0);
-	return(man_action_post(m));
+	if ( ! man_action_post(m))
+		return(0);
+
+	m->next = MAN_ROOT == m->last->type ? 
+		MAN_NEXT_CHILD : MAN_NEXT_SIBLING;
+
+	return(1);
 }
 
 
-static int
-rew_block(int ntok, enum man_type type, const struct man_node *n)
+static enum rew
+rew_block(enum mant ntok, enum man_type type, const struct man_node *n)
 {
 
 	if (MAN_BLOCK == type && ntok == n->parent->tok && 
@@ -112,22 +155,33 @@ rew_block(int ntok, enum man_type type, const struct man_node *n)
  * section (all less sections), and scoped to subsections (all less
  * sections and subsections).
  */
-static int 
-rew_dohalt(int tok, enum man_type type, const struct man_node *n)
+static enum rew 
+rew_dohalt(enum mant tok, enum man_type type, const struct man_node *n)
 {
-	int		 c;
+	enum rew	 c;
 
+	/* We cannot progress beyond the root ever. */
 	if (MAN_ROOT == n->type)
 		return(REW_HALT);
+
 	assert(n->parent);
+
+	/* Normal nodes shouldn't go to the level of the root. */
 	if (MAN_ROOT == n->parent->type)
 		return(REW_REWIND);
+
+	/* Already-validated nodes should be closed out. */
 	if (MAN_VALID & n->flags)
 		return(REW_NOHALT);
 
-	/* Rewind to ourselves, first. */
+	/* First: rewind to ourselves. */
 	if (type == n->type && tok == n->tok)
 		return(REW_REWIND);
+
+	/* 
+	 * Next follow the implicit scope-smashings as defined by man.7:
+	 * section, sub-section, etc.
+	 */
 
 	switch (tok) {
 	case (MAN_SH):
@@ -168,10 +222,10 @@ rew_dohalt(int tok, enum man_type type, const struct man_node *n)
  * scopes.  When a scope is closed, it must be validated and actioned.
  */
 static int
-rew_scope(enum man_type type, struct man *m, int tok)
+rew_scope(enum man_type type, struct man *m, enum mant tok)
 {
 	struct man_node	*n;
-	int		 c;
+	enum rew	 c;
 
 	/* LINTED */
 	for (n = m->last; n; n = n->parent) {
@@ -187,18 +241,24 @@ rew_scope(enum man_type type, struct man *m, int tok)
 			break;
 	}
 
-	/* Rewind until the current point. */
-
+	/* 
+	 * Rewind until the current point.  Warn if we're a roff
+	 * instruction that's mowing over explicit scopes.
+	 */
 	assert(n);
-	return(man_unscope(m, n));
+
+	return(man_unscope(m, n, MANDOCERR_MAX));
 }
 
 
+/*
+ * Close out a generic explicit macro.
+ */
 /* ARGSUSED */
 int
 blk_close(MACRO_PROT_ARGS)
 {
-	int 		 	 ntok;
+	enum mant	 	 ntok;
 	const struct man_node	*nn;
 
 	switch (tok) {
@@ -215,16 +275,62 @@ blk_close(MACRO_PROT_ARGS)
 			break;
 
 	if (NULL == nn)
-		if ( ! man_pwarn(m, line, ppos, WNOSCOPE))
+		if ( ! man_pmsg(m, line, ppos, MANDOCERR_NOSCOPE))
 			return(0);
 
 	if ( ! rew_scope(MAN_BODY, m, ntok))
 		return(0);
 	if ( ! rew_scope(MAN_BLOCK, m, ntok))
 		return(0);
-	m->next = MAN_NEXT_SIBLING;
+
 	return(1);
 }
+
+
+/* ARGSUSED */
+int
+blk_exp(MACRO_PROT_ARGS)
+{
+	int		 w, la;
+	char		*p;
+
+	/* 
+	 * Close out prior scopes.  "Regular" explicit macros cannot be
+	 * nested, but we allow roff macros to be placed just about
+	 * anywhere.
+	 */
+
+	if ( ! rew_scope(MAN_BODY, m, tok))
+		return(0);
+	if ( ! rew_scope(MAN_BLOCK, m, tok))
+		return(0);
+
+	if ( ! man_block_alloc(m, line, ppos, tok))
+		return(0);
+	if ( ! man_head_alloc(m, line, ppos, tok))
+		return(0);
+
+	for (;;) {
+		la = *pos;
+		w = man_args(m, line, pos, buf, &p);
+
+		if (-1 == w)
+			return(0);
+		if (0 == w)
+			break;
+
+		if ( ! man_word_alloc(m, line, la, p))
+			return(0);
+	}
+
+	assert(m);
+	assert(tok != MAN_MAX);
+
+	if ( ! rew_scope(MAN_HEAD, m, tok))
+		return(0);
+	return(man_body_alloc(m, line, ppos, tok));
+}
+
 
 
 /*
@@ -233,6 +339,7 @@ blk_close(MACRO_PROT_ARGS)
  * scopes, such as `SH' closing out an `SS', are defined in the rew
  * routines.
  */
+/* ARGSUSED */
 int
 blk_imp(MACRO_PROT_ARGS)
 {
@@ -286,11 +393,11 @@ blk_imp(MACRO_PROT_ARGS)
 
 	if ( ! rew_scope(MAN_HEAD, m, tok))
 		return(0);
-
 	return(man_body_alloc(m, line, ppos, tok));
 }
 
 
+/* ARGSUSED */
 int
 in_line_eoln(MACRO_PROT_ARGS)
 {
@@ -311,19 +418,33 @@ in_line_eoln(MACRO_PROT_ARGS)
 			return(0);
 		if (0 == w)
 			break;
-
 		if ( ! man_word_alloc(m, line, la, p))
 			return(0);
 	}
 
+	/*
+	 * If no arguments are specified and this is MAN_SCOPED (i.e.,
+	 * next-line scoped), then set our mode to indicate that we're
+	 * waiting for terms to load into our context.
+	 */
+
 	if (n == m->last && MAN_SCOPED & man_macros[tok].flags) {
+		assert( ! (MAN_NSCOPED & man_macros[tok].flags));
 		m->flags |= MAN_ELINE;
 		return(1);
 	} 
 
+	/* Set ignorable context, if applicable. */
+
+	if (MAN_NSCOPED & man_macros[tok].flags) {
+		assert( ! (MAN_SCOPED & man_macros[tok].flags));
+		m->flags |= MAN_ILINE;
+	}
+	
 	/*
-	 * Note that when TH is pruned, we'll be back at the root, so
-	 * make sure that we don't clobber as its sibling.
+	 * Rewind our element scope.  Note that when TH is pruned, we'll
+	 * be back at the root, so make sure that we don't clobber as
+	 * its sibling.
 	 */
 
 	for ( ; m->last; m->last = m->last->parent) {
@@ -347,8 +468,9 @@ in_line_eoln(MACRO_PROT_ARGS)
 		return(0);
 	if (m->last->type != MAN_ROOT && ! man_action_post(m))
 		return(0);
-	if (m->last->type != MAN_ROOT)
-		m->next = MAN_NEXT_SIBLING;
+
+	m->next = MAN_ROOT == m->last->type ?
+		MAN_NEXT_CHILD : MAN_NEXT_SIBLING;
 
 	return(1);
 }
@@ -357,20 +479,7 @@ in_line_eoln(MACRO_PROT_ARGS)
 int
 man_macroend(struct man *m)
 {
-	struct man_node	*n;
 
-	n = MAN_VALID & m->last->flags ?
-		m->last->parent : m->last;
-
-	for ( ; n; n = n->parent) {
-		if (MAN_BLOCK != n->type)
-			continue;
-		if ( ! (MAN_EXPLICIT & man_macros[n->tok].flags))
-			continue;
-		if ( ! man_nwarn(m, n, WEXITSCOPE))
-			return(0);
-	}
-
-	return(man_unscope(m, m->first));
+	return(man_unscope(m, m->first, MANDOCERR_SCOPEEXIT));
 }
 

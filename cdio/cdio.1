@@ -1,4 +1,4 @@
-.\" $OpenBSD: cdio.1,v 1.54 2009/06/09 22:20:44 jmc Exp $
+.\" $OpenBSD: cdio.1,v 1.57 2010/09/19 21:30:04 jmc Exp $
 .\"
 .\" Copyright (c) 1995 Serge V. Vakulenko
 .\" All rights reserved.
@@ -29,7 +29,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: June 9 2009 $
+.Dd $Mdocdate: September 19 2010 $
 .Dt CDIO 1
 .Os
 .Sh NAME
@@ -38,8 +38,7 @@
 .Sh SYNOPSIS
 .Nm cdio
 .Op Fl sv
-.Oo Fl d Ar host :
-.Ar port Oc
+.Op Fl d Ar host : Ns Ar port
 .Op Fl f Ar device
 .Op Ar command args ...
 .Sh DESCRIPTION
@@ -74,7 +73,9 @@ Silent mode.
 Do not print table headers or human-readable comments.
 .It Fl v
 Verbose mode.
-Print as much information as possible.
+A second occurrence of
+.Fl v
+causes even more information to be printed.
 .El
 .Pp
 The available commands are listed below.
@@ -137,6 +138,15 @@ A synonym for
 Print the list of available commands.
 .It Ic info
 Print the Table Of Contents (TOC).
+If
+.Fl v
+is also specified,
+the current features and current profile is printed.
+If
+.Fl v
+is specified twice,
+the complete list of supported profiles
+and a hex dump of each current feature is printed.
 .It Ic next
 Play the next track.
 If we're at the last track, stop.
@@ -144,8 +154,10 @@ If we're at the last track, stop.
 Stop playing.
 Do not stop the disc.
 .It Xo Ic play
-.Oo Ar track1 Ns Op Ar .index1
-.Op Ar track2 Ns Op Ar .index2 Oc
+.Oo
+.Ar track1 Ns Op Ar .index1
+.Op Ar track2 Ns Op Ar .index2
+.Oc
 .Xc
 Play from
 .Ar track1
@@ -155,12 +167,14 @@ an optional index point can be specified for each track.
 If only one track is specified, play from that track to the end of the disc.
 If no tracks are specified, play the whole disc.
 .It Xo Ic play
-.Oo Op Ar tr1
+.Oo
+.Op Ar tr1
 .Ar m1 : Ns Ar s1 Ns Oo
 .Ar .f1 Oc
 .Op Ar tr2
 .Oo Ar m2 : Ns Ar s2 Ns
-.Op Ar .f2 Oc Oc
+.Op Ar .f2
+.Oc Oc
 .Xc
 Play from the absolute address
 (MSF) defined by

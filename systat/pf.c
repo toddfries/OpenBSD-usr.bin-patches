@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.1 2008/06/12 22:26:01 canacar Exp $ */
+/*	$OpenBSD: pf.c,v 1.3 2010/07/19 18:57:32 lum Exp $ */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -19,34 +19,27 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/param.h>
-#include <sys/proc.h>
 #include <net/if.h>
 #include <netinet/in.h>
 #include <netinet/in_systm.h>
 #include <netinet/ip.h>
-#include <netinet/ip_icmp.h>
-#include <netinet/icmp6.h>
 #include <net/pfvar.h>
-#include <arpa/inet.h>
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
-#include <netdb.h>
-#include <stdarg.h>
 #include <errno.h>
 #include <err.h>
-#include <ifaddrs.h>
 #include <unistd.h>
-#include <net/pfvar.h>
+#include <syslog.h>
 #include "pfctl_parser.h"
-#include "engine.h"
 #include "systat.h"
 
 void print_pf(void);
 int read_pf(void);
 int select_pf(void);
+void print_fld_double(field_def *, double);
 
 const char	*pf_reasons[PFRES_MAX+1] = PFRES_NAMES;
 const char	*pf_lcounters[LCNT_MAX+1] = LCNT_NAMES;
@@ -245,17 +238,29 @@ print_pf(void)
 	ADD_LINE_A("pf", "Since", tm);
 
 	switch (s->debug) {
-	case PF_DEBUG_NONE:
-		debug = "None";
+	case LOG_EMERG:
+		debug = "emerg";
 		break;
-	case PF_DEBUG_URGENT:
-		debug = "Urgent";
+	case LOG_ALERT:
+		debug = "alert";
 		break;
-	case PF_DEBUG_MISC:
-		debug = "Misc";
+	case LOG_CRIT:
+		debug = "crit";
 		break;
-	case PF_DEBUG_NOISY:
-		debug = "Loud";
+	case LOG_ERR:
+		debug = "err";
+		break;
+	case LOG_WARNING:
+		debug = "warning";
+		break;
+	case LOG_NOTICE:
+		debug = "notice";
+		break;
+	case LOG_INFO:
+		debug = "info";
+		break;
+	case LOG_DEBUG:
+		debug = "debug";
 		break;
 	}
 	ADD_LINE_S("pf", "Debug", debug);

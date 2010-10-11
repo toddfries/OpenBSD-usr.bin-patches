@@ -1,4 +1,4 @@
-/*	$OpenBSD: ci.c,v 1.205 2009/02/25 23:16:20 ray Exp $	*/
+/*	$OpenBSD: ci.c,v 1.211 2010/09/08 15:15:50 tobias Exp $	*/
 /*
  * Copyright (c) 2005, 2006 Niall O'Higgins <niallo@openbsd.org>
  * All rights reserved.
@@ -136,7 +136,7 @@ checkin_main(int argc, char **argv)
 		case 'd':
 			if (rcs_optarg == NULL)
 				pb.date = DATE_MTIME;
-			else if ((pb.date = rcs_date_parse(rcs_optarg)) <= 0)
+			else if ((pb.date = date_parse(rcs_optarg)) == -1)
 				errx(1, "invalid date");
 			break;
 		case 'f':
@@ -242,10 +242,6 @@ checkin_main(int argc, char **argv)
 	if ((pb.username = getlogin()) == NULL)
 		err(1, "getlogin");
 
-	/* If -x flag was not given, use default. */
-	if (rcs_suffixes == NULL)
-		rcs_suffixes = RCS_DEFAULT_SUFFIX;
-
 	for (i = 0; i < argc; i++) {
 		/*
 		 * The pb.flags and pb.openflags may change during
@@ -344,13 +340,11 @@ checkin_diff_file(struct checkin_params *pb)
 {
 	char *path1, *path2;
 	BUF *b1, *b2, *b3;
-	char rbuf[RCS_REV_BUFSZ];
 
 	b1 = b2 = b3 = NULL;
 	path1 = path2 = NULL;
-	rcsnum_tostr(pb->frev, rbuf, sizeof(rbuf));
 
-	if ((b1 = rcs_buf_load(pb->filename, BUF_AUTOEXT)) == NULL) {
+	if ((b1 = buf_load(pb->filename)) == NULL) {
 		warnx("failed to load file: `%s'", pb->filename);
 		goto out;
 	}
@@ -359,22 +353,19 @@ checkin_diff_file(struct checkin_params *pb)
 		warnx("failed to load revision");
 		goto out;
 	}
-
-	if ((b3 = rcs_buf_alloc(128, BUF_AUTOEXT)) == NULL) {
-		warnx("failed to allocated buffer for diff");
-		goto out;
-	}
+	b2 = rcs_kwexp_buf(b2, pb->file, pb->frev);
+	b3 = buf_alloc(128);
 
 	(void)xasprintf(&path1, "%s/diff1.XXXXXXXXXX", rcs_tmpdir);
-	rcs_buf_write_stmp(b1, path1);
+	buf_write_stmp(b1, path1);
 
-	rcs_buf_free(b1);
+	buf_free(b1);
 	b1 = NULL;
 
 	(void)xasprintf(&path2, "%s/diff2.XXXXXXXXXX", rcs_tmpdir);
-	rcs_buf_write_stmp(b2, path2);
+	buf_write_stmp(b2, path2);
 
-	rcs_buf_free(b2);
+	buf_free(b2);
 	b2 = NULL;
 
 	diff_format = D_RCSDIFF;
@@ -384,11 +375,11 @@ checkin_diff_file(struct checkin_params *pb)
 	return (b3);
 out:
 	if (b1 != NULL)
-		rcs_buf_free(b1);
+		buf_free(b1);
 	if (b2 != NULL)
-		rcs_buf_free(b2);
+		buf_free(b2);
 	if (b3 != NULL)
-		rcs_buf_free(b3);
+		buf_free(b3);
 	if (path1 != NULL)
 		xfree(path1);
 	if (path2 != NULL)
@@ -452,7 +443,7 @@ checkin_update(struct checkin_params *pb)
 	pb->frev = pb->file->rf_head;
 
 	/* Load file contents */
-	if ((bp = rcs_buf_load(pb->filename, BUF_AUTOEXT)) == NULL)
+	if ((bp = buf_load(pb->filename)) == NULL)
 		return (-1);
 
 	/* If this is a zero-ending RCSNUM eg 4.0, increment it (eg to 4.1) */
@@ -512,7 +503,7 @@ checkin_update(struct checkin_params *pb)
 	 * If -f is not specified and there are no differences, tell
 	 * the user and revert to latest version.
 	 */
-	if (!(pb->flags & FORCE) && (rcs_buf_len(pb->deltatext) < 1)) {
+	if (!(pb->flags & FORCE) && (buf_len(pb->deltatext) < 1)) {
 		if (checkin_revert(pb) == -1)
 			return (-1);
 		else
@@ -628,7 +619,7 @@ checkin_init(struct checkin_params *pb)
 	}
 
 	/* Load file contents */
-	if ((bp = rcs_buf_load(pb->filename, BUF_AUTOEXT)) == NULL)
+	if ((bp = buf_load(pb->filename)) == NULL)
 		return (-1);
 
 	/* Get default values from working copy if -k specified */
@@ -868,11 +859,11 @@ checkin_keywordscan(BUF *data, RCSNUM **rev, time_t *date, char **author,
 	char *kwstr;
 	unsigned char *c, *end, *start;
 
-	end = rcs_buf_get(data) + rcs_buf_len(data) - 1;
+	end = buf_get(data) + buf_len(data) - 1;
 	kwstr = NULL;
 
-	left = rcs_buf_len(data);
-	for (c = rcs_buf_get(data);
+	left = buf_len(data);
+	for (c = buf_get(data);
 	    c <= end && (c = memchr(c, '$', left)) != NULL;
 	    left = end - c + 1) {
 		size_t len;
@@ -919,12 +910,13 @@ checkin_keywordscan(BUF *data, RCSNUM **rev, time_t *date, char **author,
 		}
 
 		len = c - start + 1;
-		buf = rcs_buf_alloc(len + 1, 0);
-		rcs_buf_append(buf, start, len);
+		buf = buf_alloc(len + 1);
+		buf_append(buf, start, len);
 
 		/* XXX - Not binary safe. */
-		rcs_buf_putc(buf, '\0');
-		checkin_parsekeyword(rcs_buf_get(buf), rev, date, author, state);
+		buf_putc(buf, '\0');
+		checkin_parsekeyword(buf_get(buf), rev, date, author, state);
+		buf_free(buf);
 loopend:;
 	}
 	if (kwstr == NULL)
@@ -998,7 +990,7 @@ checkin_parsekeyword(char *keystring, RCSNUM **rev, time_t *date,
 		if (i < 5)
 			break;
 		(void)xasprintf(&datestring, "%s %s", tokens[3], tokens[4]);
-		if ((*date = rcs_date_parse(datestring)) <= 0)
+		if ((*date = date_parse(datestring)) == -1)
 			errx(1, "could not parse date");
 		xfree(datestring);
 
@@ -1025,7 +1017,7 @@ checkin_parsekeyword(char *keystring, RCSNUM **rev, time_t *date,
 		if (i < 3)
 			break;
 		(void)xasprintf(&datestring, "%s %s", tokens[1], tokens[2]);
-		if ((*date = rcs_date_parse(datestring)) <= 0)
+		if ((*date = date_parse(datestring)) == -1)
 			errx(1, "could not parse date");
 		xfree(datestring);
 		break;

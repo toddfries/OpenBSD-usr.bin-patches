@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-choose-window.c,v 1.12 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: cmd-choose-window.c,v 1.14 2010/06/21 01:27:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -81,11 +81,11 @@ cmd_choose_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		idx++;
 
 		flag = ' ';
-		if (session_alert_has(s, wm, WINDOW_ACTIVITY))
+		if (wm->flags & WINLINK_ACTIVITY)
 			flag = '#';
-		else if (session_alert_has(s, wm, WINDOW_BELL))
+		else if (wm->flags & WINLINK_BELL)
 			flag = '!';
-		else if (session_alert_has(s, wm, WINDOW_CONTENT))
+		else if (wm->flags & WINLINK_CONTENT)
 			flag = '+';
 		else if (wm == s->curw)
 			flag = '*';
@@ -101,8 +101,9 @@ cmd_choose_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 			left = right = "";
 
 		window_choose_add(wl->window->active,
-		    wm->idx, "%3d: %s%c [%ux%u] (%u panes)%s%s%s",
+		    wm->idx, "%3d: %s%c [%ux%u] (%u panes%s)%s%s%s",
 		    wm->idx, w->name, flag, w->sx, w->sy, window_count_panes(w),
+		    w->active->fd == -1 ? ", dead" : "",
 		    left, title, right);
 	}
 

@@ -52,10 +52,6 @@
 #include "sudo.h"
 #include "redblack.h"
 
-#ifndef lint
-__unused static const char rcsid[] = "$Sudo: pwutil.c,v 1.23 2009/05/25 12:02:41 millert Exp $";
-#endif /* lint */
-
 #ifdef MYPW
 extern void (*my_setgrent) __P((void));
 extern void (*my_endgrent) __P((void));
@@ -110,7 +106,7 @@ cmp_pwnam(v1, v2)
 {
     const struct passwd *pw1 = (const struct passwd *) v1;
     const struct passwd *pw2 = (const struct passwd *) v2;
-    return(strcmp(pw1->pw_name, pw2->pw_name));
+    return(strcasecmp(pw1->pw_name, pw2->pw_name));
 }
 
 #define FIELD_SIZE(src, name, size)			\
@@ -412,7 +408,7 @@ cmp_grnam(v1, v2)
 {
     const struct group *grp1 = (const struct group *) v1;
     const struct group *grp2 = (const struct group *) v2;
-    return(strcmp(grp1->gr_name, grp2->gr_name));
+    return(strcasecmp(grp1->gr_name, grp2->gr_name));
 }
 
 struct group *

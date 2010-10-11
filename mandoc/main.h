@@ -1,6 +1,6 @@
-/*	$Id: main.h,v 1.1 2009/10/21 19:13:50 schwarze Exp $ */
+/*	$Id: main.h,v 1.7 2010/07/25 18:05:54 schwarze Exp $ */
 /*
- * Copyright (c) 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +22,9 @@ __BEGIN_DECLS
 struct	mdoc;
 struct	man;
 
+#define	UNCONST(a)	((void *)(uintptr_t)(const void *)(a))
+
+
 /* 
  * Definitions for main.c-visible output device functions, e.g., -Thtml
  * and -Tascii.  Note that ascii_alloc() is named as such in
@@ -30,6 +33,7 @@ struct	man;
  */
 
 void		 *html_alloc(char *);
+void		 *xhtml_alloc(char *);
 void		  html_mdoc(void *, const struct mdoc *);
 void		  html_man(void *, const struct man *);
 void		  html_free(void *);
@@ -37,10 +41,15 @@ void		  html_free(void *);
 void		  tree_mdoc(void *, const struct mdoc *);
 void		  tree_man(void *, const struct man *);
 
-void		 *ascii_alloc(void);
+void		 *ascii_alloc(char *);
+void		  ascii_free(void *);
+
+void		 *pdf_alloc(char *);
+void		 *ps_alloc(char *);
+void		  pspdf_free(void *);
+
 void		  terminal_mdoc(void *, const struct mdoc *);
 void		  terminal_man(void *, const struct man *);
-void		  terminal_free(void *);
 
 __END_DECLS
 

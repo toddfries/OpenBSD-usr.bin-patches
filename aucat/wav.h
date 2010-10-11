@@ -1,4 +1,4 @@
-/*	$OpenBSD: wav.h,v 1.4 2009/07/25 10:52:19 ratchov Exp $	*/
+/*	$OpenBSD: wav.h,v 1.11 2010/07/31 08:48:01 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -28,27 +28,41 @@ struct wav {
 #define HDR_RAW		1	/* no headers, ie openbsd native ;-) */
 #define HDR_WAV		2	/* microsoft riff wave */
 	unsigned hdr;		/* HDR_RAW or HDR_WAV */
+	unsigned xrun;		/* xrun policy */
 	struct aparams hpar;	/* parameters to write on the header */
 	off_t rbytes;		/* bytes to read, -1 if no limit */
 	off_t wbytes;		/* bytes to write, -1 if no limit */
+	off_t startpos;		/* beginning of the data chunk */
+	off_t endpos;		/* end of the data chunk */
+	off_t mmcpos;		/* play/rec start point set by MMC */
 	short *map;		/* mulaw/alaw -> s16 conversion table */
+	int slot;		/* mixer ctl slot number */
+	int mmc;		/* use MMC control */
+	int join;		/* join/expand channels */
+	unsigned vol;		/* current volume */
+	unsigned maxweight;	/* dynamic range when vol == 127 */
+#define WAV_INIT	0	/* not trying to do anything */
+#define WAV_START	1	/* buffer allocated */
+#define WAV_READY	2	/* buffer filled enough */
+#define WAV_RUN		3	/* buffer attached to device */
+#define WAV_FAILED	4	/* failed to seek */
+	unsigned pstate;	/* one of above */
+	unsigned mode;		/* bitmap of MODE_* */
+	struct dev *dev;	/* device playing or recording */
 };
 
 extern struct fileops wav_ops;
 
-struct wav *wav_new_in(struct fileops *, int, char *,
-    struct aparams *, unsigned);
-struct wav *wav_new_out(struct fileops *, int, char *,
-    struct aparams *, unsigned);
+struct wav *wav_new_in(struct fileops *, struct dev *,
+    unsigned, char *, unsigned, struct aparams *, unsigned, unsigned, int, int);
+struct wav *wav_new_out(struct fileops *, struct dev *,
+    unsigned, char *, unsigned, struct aparams *, unsigned, int, int);
 unsigned wav_read(struct file *, unsigned char *, unsigned);
 unsigned wav_write(struct file *, unsigned char *, unsigned);
 void wav_close(struct file *);
-int wav_readhdr(int, struct aparams *, off_t *, short **);
-int wav_writehdr(int, struct aparams *);
+int wav_readhdr(int, struct aparams *, off_t *, off_t *, short **);
+int wav_writehdr(int, struct aparams *, off_t *, off_t);
 void wav_conv(unsigned char *, unsigned, short *);
-
-/* legacy */
-int legacy_play(char *, char *);
 
 extern short wav_ulawmap[256];
 extern short wav_alawmap[256];

@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.166 2009/06/27 09:29:06 andreas Exp $ */
+/* $OpenBSD: packet.c,v 1.170 2010/08/31 11:54:45 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -630,6 +630,12 @@ void
 packet_put_bignum2(BIGNUM * value)
 {
 	buffer_put_bignum2(&active_state->outgoing_packet, value);
+}
+
+void
+packet_put_ecpoint(const EC_GROUP *curve, const EC_POINT *point)
+{
+	buffer_put_ecpoint(&active_state->outgoing_packet, curve, point);
 }
 
 /*
@@ -1297,7 +1303,7 @@ packet_read_poll2(u_int32_t *seqnr_p)
 		macbuf = mac_compute(mac, active_state->p_read.seqnr,
 		    buffer_ptr(&active_state->incoming_packet),
 		    buffer_len(&active_state->incoming_packet));
-		if (memcmp(macbuf, buffer_ptr(&active_state->input),
+		if (timingsafe_bcmp(macbuf, buffer_ptr(&active_state->input),
 		    mac->mac_len) != 0) {
 			logit("Corrupted MAC on input.");
 			if (need > PACKET_MAX_SIZE)
@@ -1501,6 +1507,12 @@ packet_get_bignum2(BIGNUM * value)
 	buffer_get_bignum2(&active_state->incoming_packet, value);
 }
 
+void
+packet_get_ecpoint(const EC_GROUP *curve, EC_POINT *point)
+{
+	buffer_get_ecpoint(&active_state->incoming_packet, curve, point);
+}
+
 void *
 packet_get_raw(u_int *length_ptr)
 {
@@ -1534,6 +1546,13 @@ void *
 packet_get_string_ptr(u_int *length_ptr)
 {
 	return buffer_get_string_ptr(&active_state->incoming_packet, length_ptr);
+}
+
+/* Ensures the returned string has no embedded \0 characters in it. */
+char *
+packet_get_cstring(u_int *length_ptr)
+{
+	return buffer_get_cstring(&active_state->incoming_packet, length_ptr);
 }
 
 /*

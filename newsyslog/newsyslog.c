@@ -1,4 +1,4 @@
-/*	$OpenBSD: newsyslog.c,v 1.86 2009/10/27 23:59:40 deraadt Exp $	*/
+/*	$OpenBSD: newsyslog.c,v 1.88 2010/07/24 00:54:46 nicm Exp $	*/
 
 /*
  * Copyright (c) 1999, 2002, 2003 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -407,8 +407,8 @@ send_signal(char *pidfile, int signal)
 	else if (noaction)
 		(void)printf("kill -%s %ld\n", sys_signame[signal], (long)pid);
 	else if (kill(pid, signal))
-		warnx("warning - could not send SIG%s to daemon",
-		    sys_signame[signal]);
+		warnx("warning - could not send SIG%s to PID from pid file %s",
+		    sys_signame[signal], pidfile);
 }
 
 void
@@ -750,22 +750,25 @@ void
 rotate(struct conf_entry *ent, const char *oldlog)
 {
 	char file1[MAXPATHLEN], file2[MAXPATHLEN], *suffix;
-	int numdays = ent->numlogs;
+	int numdays = ent->numlogs - 1;
+	int done = 0;
 
-	/* Remove oldest log (may not exist) */
-	(void)snprintf(file1, sizeof(file1), "%s.%d", oldlog, numdays);
-	(void)snprintf(file2, sizeof(file2), "%s.%d%s", oldlog, numdays,
-	    COMPRESS_POSTFIX);
-
-	if (noaction) {
-		printf("\trm -f %s %s\n", file1, file2);
-	} else {
-		(void)unlink(file1);
-		(void)unlink(file2);
-	}
+	/* Remove old logs */
+	do {
+		(void)snprintf(file1, sizeof(file1), "%s.%d", oldlog, numdays);
+		(void)snprintf(file2, sizeof(file2), "%s.%d%s", oldlog,
+		    numdays, COMPRESS_POSTFIX);
+		if (noaction) {
+			printf("\trm -f %s %s\n", file1, file2);
+			done = access(file1, 0) && access(file2, 0);
+		} else {
+			done = unlink(file1) && unlink(file2);
+		}
+		numdays++;
+	} while (done == 0);
 
 	/* Move down log files */
-	while (numdays--) {
+	for (numdays = ent->numlogs - 2; numdays >= 0; numdays--) {
 		/*
 		 * If both the compressed archive and the non-compressed archive
 		 * exist, we decide which to rotate based on the CE_COMPACT flag

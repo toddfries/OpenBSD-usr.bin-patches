@@ -1,4 +1,4 @@
-/*	$OpenBSD: stat.c,v 1.14 2009/06/24 09:44:25 sobrado Exp $ */
+/*	$OpenBSD: stat.c,v 1.16 2010/09/01 06:35:05 lum Exp $ */
 /*	$NetBSD: stat.c,v 1.19 2004/06/20 22:20:16 jmc Exp $ */
 
 /*
@@ -29,11 +29,6 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef lint
-static const char rccs_id[] =
-    "$OpenBSD: stat.c,v 1.14 2009/06/24 09:44:25 sobrado Exp $";
-#endif
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -146,7 +141,6 @@ int	format1(const struct stat *,	/* stat info */
 	    int, int);
 
 char *timefmt;
-int linkfail;
 
 #define addchar(s, c, nl) \
 	do { \
@@ -169,7 +163,6 @@ main(int argc, char *argv[])
 	usestat = 0;
 	nonl = 0;
 	quiet = 0;
-	linkfail = 0;
 	statfmt = NULL;
 	timefmt = NULL;
 
@@ -271,7 +264,6 @@ main(int argc, char *argv[])
 
 		if (rc == -1) {
 			errs = 1;
-			linkfail = 1;
 			if (!quiet)
 				warn("%s",
 				    argc == 0 ? "(stdin)" : argv[0]);
@@ -695,16 +687,14 @@ format1(const struct stat *st,
 			snprintf(path, sizeof(path), " -> ");
 			l = readlink(file, path + 4, sizeof(path) - 4 - 1);
 			if (l == -1) {
-				linkfail = 1;
 				l = 0;
 				path[0] = '\0';
 			}
 			path[l + 4] = '\0';
 			sdata = path + (ofmt == FMTF_STRING ? 0 : 4);
-		} else {
-			linkfail = 1;
+		} else
 			sdata = "";
-		}
+
 		formats = FMTF_STRING;
 		if (ofmt == 0)
 			ofmt = FMTF_STRING;

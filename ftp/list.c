@@ -1,4 +1,4 @@
-/*	$OpenBSD: list.c,v 1.3 2009/05/05 19:35:30 martynas Exp $	*/
+/*	$OpenBSD: list.c,v 1.5 2010/07/03 00:21:14 halex Exp $	*/
 
 /*
  * Copyright (c) 2008 Martynas Venckus <martynas@openbsd.org>
@@ -34,6 +34,8 @@ parse_unix(char **line, char *type)
 			*type = *tok;
 
 		if (field == 7) {
+			if (line == NULL || *line == NULL)
+				break;
 			while (**line == ' ' || **line == '\t')
 				(*line)++;
 			break;
@@ -58,6 +60,8 @@ parse_windows(char **line, char *type)
 			*type = 'd';
 
 		if (field == 2) {
+			if (line == NULL || *line == NULL)
+				break;
 			while (**line == ' ' || **line == '\t')
 				(*line)++;
 			break;
@@ -71,9 +75,9 @@ void
 parse_list(char **line, char *type)
 {
 	if (**line >= '0' && **line <= '9')
-		return parse_windows(line, type);
-
-	return parse_unix(line, type);
+		parse_windows(line, type);
+	else
+		parse_unix(line, type);
 }
 
 #endif /* !SMALL */

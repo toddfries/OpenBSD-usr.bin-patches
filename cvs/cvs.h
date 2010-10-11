@@ -1,4 +1,4 @@
-/*	$OpenBSD: cvs.h,v 1.176 2009/03/25 21:19:20 joris Exp $	*/
+/*	$OpenBSD: cvs.h,v 1.179 2010/09/29 18:14:52 nicm Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -274,12 +274,13 @@ typedef struct cvs_entries {
 extern char *checkout_target_dir;
 extern char *cvs_join_rev1;
 extern char *cvs_join_rev2;
+extern int   backup_local_changes;
 
 extern struct module_checkout *current_module;
 extern char *module_repo_root;
 
 extern struct ignore_head checkout_ign_pats;
-extern struct cvs_wklhead temp_files;
+extern struct wklhead temp_files;
 extern volatile sig_atomic_t sig_received;
 extern volatile sig_atomic_t cvs_quit;
 extern struct cvsroot *current_cvsroot;
@@ -356,7 +357,7 @@ const char	*cvs_var_get(const char *);
 void		 cvs_cleanup(void);
 
 /* date.y */
-time_t		 cvs_date_parse(const char *);
+time_t		 date_parse(const char *);
 
 /* entries.c */
 struct cvs_ent	*cvs_ent_parse(const char *);
@@ -388,6 +389,7 @@ void	cvs_checkout_file(struct cvs_file *, RCSNUM *, char *, int);
 void	cvs_remove_local(struct cvs_file *);
 void	cvs_add_local(struct cvs_file *);
 int	update_has_conflict_markers(struct cvs_file *);
+void	cvs_backup_file(struct cvs_file *);
 
 #define CO_MERGE	0x01
 #define CO_SETSTICKY	0x02

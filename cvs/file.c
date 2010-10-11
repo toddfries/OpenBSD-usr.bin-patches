@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.258 2009/03/28 16:47:33 joris Exp $	*/
+/*	$OpenBSD: file.c,v 1.261 2010/09/27 14:08:41 joshe Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
@@ -596,7 +596,8 @@ walkrepo:
 		xsnprintf(fpath, sizeof(fpath), "%s/%s", cf->file_path,
 		    CVS_PATH_STATICENTRIES);
 
-		if (stat(fpath, &st) == -1 || build_dirs == 1)
+		if (!(cmdp->cmd_flags & CVS_USE_WDIR) ||
+		    stat(fpath, &st) == -1 || build_dirs == 1)
 			cvs_repository_getdir(repo, cf->file_path, &fl, &dl,
 			    (cr->flags & CR_RECURSE_DIRS) ?
 			    REPOSITORY_DODIRS : 0);
@@ -808,14 +809,14 @@ cvs_file_classify(struct cvs_file *cf, const char *tag)
 	    cf->file_ent != NULL && !RCSNUM_ISBRANCH(cf->file_ent->ce_rev) &&
 	    cf->file_ent->ce_status != CVS_ENT_ADDED) {
 		b1 = rcs_rev_getbuf(cf->file_rcs, cf->file_ent->ce_rev, 0);
-		b2 = cvs_buf_load_fd(cf->fd);
+		b2 = buf_load_fd(cf->fd);
 
-		if (cvs_buf_differ(b1, b2))
+		if (buf_differ(b1, b2))
 			ismodified = 1;
 		else
 			ismodified = 0;
-		cvs_buf_free(b1);
-		cvs_buf_free(b2);
+		buf_free(b1);
+		buf_free(b2);
 	}
 
 	if (cf->file_rcs != NULL && cf->file_rcsrev != NULL &&
@@ -956,9 +957,6 @@ cvs_file_classify(struct cvs_file *cf, const char *tag)
 						cf->file_status = FILE_MERGE;
 					else
 						cf->file_status = FILE_PATCH;
-				} else if (cf->file_ent->ce_conflict != NULL &&
-				    cf->file_status != FILE_MODIFIED) {
-					cf->file_status = FILE_CONFLICT;
 				}
 			}
 		}

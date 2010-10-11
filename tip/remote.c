@@ -1,4 +1,4 @@
-/*	$OpenBSD: remote.c,v 1.18 2009/10/27 23:59:44 deraadt Exp $	*/
+/*	$OpenBSD: remote.c,v 1.33 2010/08/01 20:27:51 nicm Exp $	*/
 /*	$NetBSD: remote.c,v 1.5 1997/04/20 00:02:45 mellon Exp $	*/
 
 /*
@@ -34,34 +34,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "pathnames.h"
 #include "tip.h"
-
-/*
- * Attributes to be gleened from remote host description
- *   data base.
- */
-static char **caps[] = {
-	&AT, &DV, &CM, &CU, &EL, &IE, &OE, &PN, &PR, &DI,
-	&ES, &EX, &FO, &RC, &RE, &PA
-};
-
-static char *capstrings[] = {
-	"at", "dv", "cm", "cu", "el", "ie", "oe", "pn", "pr",
-	"di", "es", "ex", "fo", "rc", "re", "pa", 0
-};
 
 static char	*db_array[3] = { _PATH_REMOTE, 0, 0 };
 
 #define cgetflag(f)	(cgetcap(bp, f, ':') != NULL)
 
-static void	getremcap(char *);
-
-static void
-getremcap(char *host)
+char *
+getremote(char *host)
 {
-	char **p, ***q, *bp, *rempath;
-	int   stat;
+	char   *bp, *rempath, *strval;
+	int	stat;
+	long	val;
 
 	rempath = getenv("REMOTE");
 	if (rempath != NULL) {
@@ -75,16 +59,15 @@ getremcap(char *host)
 	}
 
 	if ((stat = cgetent(&bp, db_array, host)) < 0) {
-		if ((DV != NULL) ||
-		    (host[0] == '/' && access(DV = host, R_OK | W_OK) == 0)) {
-			CU = DV;
-			HO = host;
-			HW = 1;
-			DU = 0;
-			if (!BR)
-				BR = DEFBR;
-			FS = DEFFS;
-			return;
+		if (vgetstr(DEVICE) != NULL ||
+		    (host[0] == '/' && access(host, R_OK | W_OK) == 0)) {
+			if (vgetstr(DEVICE) == NULL)
+				vsetstr(DEVICE, host);
+			vsetstr(HOST, host);
+			if (!vgetnum(BAUDRATE))
+				vsetnum(BAUDRATE, DEFBR);
+			vsetnum(FRAMESIZE, DEFFS);
+			return (vgetstr(DEVICE));
 		}
 		switch (stat) {
 		case -1:
@@ -104,123 +87,111 @@ getremcap(char *host)
 		exit(3);
 	}
 
-	for (p = capstrings, q = caps; *p != NULL; p++, q++)
-		if (**q == NULL)
-			cgetstr(bp, *p, *q);
-	if (!BR && (cgetnum(bp, "br", &BR) == -1))
-		BR = DEFBR;
-	if (!LD && (cgetnum(bp, "ld", &LD) == -1))
-		LD = TTYDISC;
-	if (cgetnum(bp, "fs", &FS) == -1)
-		FS = DEFFS;
-	if (DU < 0)
-		DU = 0;
+	/* String options. Use if not already set. */
+	if (vgetstr(DEVICE) == NULL && cgetstr(bp, "dv", &strval) >= 0)
+		vsetstr(DEVICE, strval);
+	if (vgetstr(CONNECT) == NULL && cgetstr(bp, "cm", &strval) >= 0)
+		vsetstr(CONNECT, strval);
+	if (vgetstr(DISCONNECT) == NULL && cgetstr(bp, "di", &strval) >= 0)
+		vsetstr(DISCONNECT, strval);
+	if (vgetstr(EOL) == NULL && cgetstr(bp, "el", &strval) >= 0)
+		vsetstr(EOL, strval);
+	if (vgetstr(EOFREAD) == NULL && cgetstr(bp, "ie", &strval) >= 0)
+		vsetstr(EOFREAD, strval);
+	if (vgetstr(EOFWRITE) == NULL && cgetstr(bp, "oe", &strval) >= 0)
+		vsetstr(EOFWRITE, strval);
+	if (vgetstr(EXCEPTIONS) == NULL && cgetstr(bp, "ex", &strval) >= 0)
+		vsetstr(EXCEPTIONS, strval);
+	if (vgetstr(RECORD) == NULL && cgetstr(bp, "re", &strval) >= 0)
+		vsetstr(RECORD, strval);
+	if (vgetstr(PARITY) == NULL && cgetstr(bp, "pa", &strval) >= 0)
+		vsetstr(PARITY, strval);
+
+	/* Numbers with default values. Set if currently zero (XXX ugh). */
+	if (vgetnum(BAUDRATE) == 0) {
+		if (cgetnum(bp, "br", &val) < 0)
+			vsetnum(BAUDRATE, DEFBR);
+		else
+			vsetnum(BAUDRATE, val);
+	}
+	if (vgetnum(LINEDISC) == 0) { /* XXX relies on TTYDISC == 0 */
+		if (cgetnum(bp, "ld", &val) < 0)
+			vsetnum(LINEDISC, TTYDISC);
+		else
+			vsetnum(LINEDISC, val);
+	}
+	if (vgetnum(FRAMESIZE) == 0) {
+		if (cgetnum(bp, "fs", &val) < 0)
+			vsetnum(FRAMESIZE, DEFFS);
+		else
+			vsetnum(FRAMESIZE, val);
+	}
+
+	/* Numbers - default values already set in vinit() or zero. */
+	if (cgetnum(bp, "es", &val) >= 0)
+		vsetnum(ESCAPE, val);
+	if (cgetnum(bp, "fo", &val) >= 0)
+		vsetnum(FORCE, val);
+	if (cgetnum(bp, "pr", &val) >= 0)
+		vsetnum(PROMPT, val);
+	if (cgetnum(bp, "rc", &val) >= 0)
+		vsetnum(RAISECHAR, val);
+
+	/* Numbers - default is zero. */
+	if (cgetnum(bp, "dl", &val) < 0)
+		vsetnum(LDELAY, 0);
 	else
-		DU = cgetflag("du");
-	if (DV == NULL) {
+		vsetnum(LDELAY, val);
+	if (cgetnum(bp, "cl", &val) < 0)
+		vsetnum(CDELAY, 0);
+	else
+		vsetnum(CDELAY, val);
+	if (cgetnum(bp, "et", &val) < 0)
+		vsetnum(ETIMEOUT, 0);
+	else
+		vsetnum(ETIMEOUT, val);
+
+	/* Flag options. */
+	if (cgetflag("hd")) /* XXX overrides command line */
+		vsetnum(HALFDUPLEX, 1);
+	if (cgetflag("ra"))
+		vsetnum(RAISE, 1);
+	if (cgetflag("ec"))
+		vsetnum(ECHOCHECK, 1);
+	if (cgetflag("be"))
+		vsetnum(BEAUTIFY, 1);
+	if (cgetflag("nb"))
+		vsetnum(BEAUTIFY, 0);
+	if (cgetflag("sc"))
+		vsetnum(SCRIPT, 1);
+	if (cgetflag("tb"))
+		vsetnum(TABEXPAND, 1);
+	if (cgetflag("vb")) /* XXX overrides command line */
+		vsetnum(VERBOSE, 1);
+	if (cgetflag("nv")) /* XXX overrides command line */
+		vsetnum(VERBOSE, 0);
+	if (cgetflag("ta"))
+		vsetnum(TAND, 1);
+	if (cgetflag("nt"))
+		vsetnum(TAND, 0);
+	if (cgetflag("rw"))
+		vsetnum(RAWFTP, 1);
+	if (cgetflag("hd"))
+		vsetnum(HALFDUPLEX, 1);
+	if (cgetflag("dc"))
+		vsetnum(DC, 1);
+	if (cgetflag("hf"))
+		vsetnum(HARDWAREFLOW, 1);
+
+	if (vgetstr(RECORD) == NULL)
+		vsetstr(RECORD, "tip.record");
+	if (vgetstr(EXCEPTIONS) == NULL)
+		vsetstr(EXCEPTIONS, "\t\n\b\f");
+
+	vsetstr(HOST, host);
+	if (vgetstr(DEVICE) == NULL) {
 		fprintf(stderr, "%s: missing device spec\n", host);
 		exit(3);
 	}
-	if (DU && CU == NULL)
-		CU = DV;
-	if (DU && PN == NULL) {
-		fprintf(stderr, "%s: missing phone number\n", host);
-		exit(3);
-	}
-	if (DU && AT == NULL) {
-		fprintf(stderr, "%s: missing acu type\n", host);
-		exit(3);
-	}
-
-	HD = cgetflag("hd");
-
-	/*
-	 * This effectively eliminates the "hw" attribute
-	 *   from the description file
-	 */
-	if (!HW)
-		HW = (CU == NULL) || (DU && equal(DV, CU));
-	HO = host;
-	/*
-	 * see if uppercase mode should be turned on initially
-	 */
-	if (cgetflag("ra"))
-		setboolean(value(RAISE), 1);
-	if (cgetflag("ec"))
-		setboolean(value(ECHOCHECK), 1);
-	if (cgetflag("be"))
-		setboolean(value(BEAUTIFY), 1);
-	if (cgetflag("nb"))
-		setboolean(value(BEAUTIFY), 0);
-	if (cgetflag("sc"))
-		setboolean(value(SCRIPT), 1);
-	if (cgetflag("tb"))
-		setboolean(value(TABEXPAND), 1);
-	if (cgetflag("vb"))
-		setboolean(value(VERBOSE), 1);
-	if (cgetflag("nv"))
-		setboolean(value(VERBOSE), 0);
-	if (cgetflag("ta"))
-		setboolean(value(TAND), 1);
-	if (cgetflag("nt"))
-		setboolean(value(TAND), 0);
-	if (cgetflag("rw"))
-		setboolean(value(RAWFTP), 1);
-	if (cgetflag("hd"))
-		setboolean(value(HALFDUPLEX), 1);
-	if (cgetflag("dc"))
-		setboolean(value(DC), 1);
-	if (cgetflag("hf"))
-		setboolean(value(HARDWAREFLOW), 1);
-	if (RE == NULL)
-		RE = (char *)"tip.record";
-	if (EX == NULL)
-		EX = (char *)"\t\n\b\f";
-	if (ES != NULL)
-		vstring("es", ES);
-	if (FO != NULL)
-		vstring("fo", FO);
-	if (PR != NULL)
-		vstring("pr", PR);
-	if (RC != NULL)
-		vstring("rc", RC);
-	if (cgetnum(bp, "dl", &DL) == -1)
-		DL = 0;
-	if (cgetnum(bp, "cl", &CL) == -1)
-		CL = 0;
-	if (cgetnum(bp, "et", &ET) == -1)
-		ET = 10;
-}
-
-char *
-getremote(char *host)
-{
-	char *cp;
-	static char *next;
-	static int lookedup = 0;
-
-	if (!lookedup) {
-		if (host == NULL && (host = getenv("HOST")) == NULL) {
-			fprintf(stderr, "%s: no host specified\n", __progname);
-			exit(3);
-		}
-		getremcap(host);
-		next = DV;
-		lookedup++;
-	}
-	/*
-	 * We return a new device each time we're called (to allow
-	 *   a rotary action to be simulated)
-	 */
-	if (next == NULL)
-		return (NULL);
-	if ((cp = strchr(next, ',')) == NULL) {
-		DV = next;
-		next = NULL;
-	} else {
-		*cp++ = '\0';
-		DV = next;
-		next = cp;
-	}
-	return (DV);
+	return (vgetstr(DEVICE));
 }

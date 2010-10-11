@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.16 2009/12/03 22:50:10 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.20 2010/06/27 02:56:59 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -45,7 +45,7 @@ struct cmd_split_window_data {
 
 const struct cmd_entry cmd_split_window_entry = {
 	"split-window", "splitw",
-	"[-dhv] [-p percentage|-l size] [-t target-window] [command]",
+	"[-dhv] [-p percentage|-l size] [-t target-pane] [command]",
 	0, "",
 	cmd_split_window_init,
 	cmd_split_window_parse,
@@ -149,15 +149,16 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct session			*s;
 	struct winlink			*wl;
 	struct window			*w;
-	struct window_pane		*wp;
+	struct window_pane		*wp, *new_wp = NULL;
 	struct environ			 env;
 	char		 		*cmd, *cwd, *cause;
 	const char			*shell;
 	u_int				 hlimit;
 	int				 size;
 	enum layout_type		 type;
+	struct layout_cell		*lc;
 
-	if ((wl = cmd_find_window(ctx, data->target, &s)) == NULL)
+	if ((wl = cmd_find_pane(ctx, data->target, &s, &wp)) == NULL)
 		return (-1);
 	w = wl->window;
 
@@ -169,10 +170,13 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	cmd = data->cmd;
 	if (cmd == NULL)
 		cmd = options_get_string(&s->options, "default-command");
-	if (ctx->cmdclient == NULL || ctx->cmdclient->cwd == NULL)
-		cwd = options_get_string(&s->options, "default-path");
-	else
-		cwd = ctx->cmdclient->cwd;
+	cwd = options_get_string(&s->options, "default-path");
+	if (*cwd == '\0') {
+		if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
+			cwd = ctx->cmdclient->cwd;
+		else
+			cwd = s->cwd;
+	}
 
 	type = LAYOUT_TOPBOTTOM;
 	if (data->flag_horizontal)
@@ -183,9 +187,9 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		size = data->size;
 	else if (data->percentage != -1) {
 		if (type == LAYOUT_TOPBOTTOM)
-			size = (w->active->sy * data->percentage) / 100;
+			size = (wp->sy * data->percentage) / 100;
 		else
-			size = (w->active->sx * data->percentage) / 100;
+			size = (wp->sx * data->percentage) / 100;
 	}
 	hlimit = options_get_number(&s->options, "history-limit");
 
@@ -193,18 +197,20 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (*shell == '\0' || areshell(shell))
 		shell = _PATH_BSHELL;
 
-	wp = window_add_pane(w, hlimit);
-	if (window_pane_spawn(wp, cmd, shell, cwd, &env, s->tio, &cause) != 0)
-		goto error;
-	if (layout_split_pane(w->active, type, size, wp) != 0) {
+	if ((lc = layout_split_pane(wp, type, size)) == NULL) {
 		cause = xstrdup("pane too small");
 		goto error;
 	}
+	new_wp = window_add_pane(w, hlimit);
+	if (window_pane_spawn(
+	    new_wp, cmd, shell, cwd, &env, s->tio, &cause) != 0)
+		goto error;
+	layout_assign_pane(lc, new_wp);
 
 	server_redraw_window(w);
 
 	if (!data->flag_detached) {
-		window_set_active_pane(w, wp);
+		window_set_active_pane(w, new_wp);
 		session_select(s, wl->idx);
 		server_redraw_session(s);
 	} else
@@ -215,8 +221,8 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 error:
 	environ_free(&env);
-	if (wp != NULL)
-		window_remove_pane(w, wp);
+	if (new_wp != NULL)
+		window_remove_pane(w, new_wp);
 	ctx->error(ctx, "create pane failed: %s", cause);
 	xfree(cause);
 	return (-1);

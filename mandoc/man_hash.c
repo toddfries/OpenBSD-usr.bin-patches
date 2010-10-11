@@ -1,6 +1,6 @@
-/*	$Id: man_hash.c,v 1.7 2009/10/19 10:20:24 schwarze Exp $ */
+/*	$Id: man_hash.c,v 1.13 2010/07/31 23:42:04 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009 Kristaps Dzonsons <kristaps@kth.se>
+ * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,13 +17,32 @@
 #include <sys/types.h>
 
 #include <assert.h>
+#include <ctype.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "mandoc.h"
 #include "libman.h"
 
-static	u_char		table[26 * 6];
+#define	HASH_DEPTH	 8
+
+#define	HASH_ROW(x) do { \
+		if (isupper((u_char)(x))) \
+			(x) -= 65; \
+		else \
+			(x) -= 97; \
+		(x) *= HASH_DEPTH; \
+	} while (/* CONSTCOND */ 0)
+
+/*
+ * Lookup table is indexed first by lower-case first letter (plus one
+ * for the period, which is stored in the last row), then by lower or
+ * uppercase second letter.  Buckets correspond to the index of the
+ * macro (the integer value of the enum stored as a char to save a bit
+ * of space).
+ */
+static	u_char		 table[26 * HASH_DEPTH];
 
 /*
  * XXX - this hash has global scope, so if intended for use as a library
@@ -36,39 +55,45 @@ man_hash_init(void)
 
 	memset(table, UCHAR_MAX, sizeof(table));
 
-	for (i = 0; i < MAN_MAX; i++) {
+	assert(/* LINTED */ 
+			MAN_MAX < UCHAR_MAX);
+
+	for (i = 0; i < (int)MAN_MAX; i++) {
 		x = man_macronames[i][0];
-		assert((x >= 65 && x <= 90) ||
-				(x >= 97 && x <= 122));
 
-		x -= (x <= 90) ? 65 : 97;
-		x *= 6;
+		assert(isalpha((u_char)x));
 
-		for (j = 0; j < 6; j++)
+		HASH_ROW(x);
+
+		for (j = 0; j < HASH_DEPTH; j++)
 			if (UCHAR_MAX == table[x + j]) {
 				table[x + j] = (u_char)i;
 				break;
 			}
-		assert(j < 6);
+
+		assert(j < HASH_DEPTH);
 	}
 }
 
-int
+
+enum mant
 man_hash_find(const char *tmp)
 {
-	int		 x, i, tok;
+	int		 x, y, i;
+	enum mant	 tok;
 
-	if (0 == (x = tmp[0]))
+	if ('\0' == (x = tmp[0]))
 		return(MAN_MAX);
-	if ( ! ((x >= 65 && x <= 90) || (x >= 97 && x <= 122)))
+	if ( ! (isalpha((u_char)x)))
 		return(MAN_MAX);
 
-	x -= (x <= 90) ? 65 : 97;
-	x *= 6;
+	HASH_ROW(x);
 
-	for (i = 0; i < 6; i++) {
-		if (UCHAR_MAX == (tok = table[x + i]))
+	for (i = 0; i < HASH_DEPTH; i++) {
+		if (UCHAR_MAX == (y = table[x + i]))
 			return(MAN_MAX);
+
+		tok = (enum mant)y;
 		if (0 == strcmp(tmp, man_macronames[tok]))
 			return(tok);
 	}

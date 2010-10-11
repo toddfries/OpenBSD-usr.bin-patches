@@ -1,5 +1,4 @@
-/*	$OpenPackages$ */
-/*	$OpenBSD: lowparse.c,v 1.22 2007/09/22 10:43:38 espie Exp $ */
+/*	$OpenBSD: lowparse.c,v 1.24 2010/07/19 19:46:44 espie Exp $ */
 
 /* low-level parsing functions. */
 
@@ -238,7 +237,7 @@ Parse_ReadNextConditionalLine(Buffer linebuf)
 					current->lineno++;
 			}
 			if (c == EOF) {
-				Parse_Error(PARSE_FATAL, 
+				Parse_Error(PARSE_FATAL,
 				    "Unclosed conditional");
 				return NULL;
 			}
@@ -454,7 +453,7 @@ Parse_ReportErrors(void)
 		while (Parse_NextFile())
 			;
 #endif
-		fprintf(stderr, 
+		fprintf(stderr,
 		    "Fatal errors encountered -- cannot continue\n");
 		exit(1);
 	} else
