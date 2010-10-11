@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.h,v 1.10 2010/08/31 20:42:45 tobias Exp $	*/
+/*	$OpenBSD: rcs.h,v 1.12 2010/10/05 15:16:48 tobias Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -43,6 +43,7 @@
 #define RCS_HEAD_REV		((RCSNUM *)(-1))
 
 
+#define RCS_STATE_INVALCHAR	"$,:;@"
 #define RCS_SYM_INVALCHAR	"$,.:;@"
 
 #define RCS_MAGIC_BRANCH	".0."
@@ -244,7 +245,6 @@ int			 rcs_rev_remove(RCSFILE *, RCSNUM *);
 int			 rcs_state_set(RCSFILE *, RCSNUM *, const char *);
 const char		*rcs_state_get(RCSFILE *, RCSNUM *);
 int			 rcs_state_check(const char *);
-RCSNUM			*rcs_tag_resolve(RCSFILE *, const char *);
 const char		*rcs_errstr(int);
 void			 rcs_write(RCSFILE *);
 void			 rcs_delta_stats(struct rcs_delta *, int *, int *);
