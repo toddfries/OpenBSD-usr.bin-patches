@@ -1,4 +1,4 @@
-/*	$Id: mandoc.h,v 1.12 2010/08/20 00:53:35 schwarze Exp $ */
+/*	$Id: mandoc.h,v 1.14 2010/09/27 21:25:28 schwarze Exp $ */
 /*
  * Copyright (c) 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -63,7 +63,6 @@ enum	mandocerr {
 	MANDOCERR_SECMSEC, /* section not in conventional manual section */
 	MANDOCERR_EOLNSPACE, /* end of line whitespace */
 	MANDOCERR_SCOPENEST, /* blocks badly nested */
-	MANDOCERR_SCOPEEXIT, /* scope open on exit */
 
 	MANDOCERR_ERROR, /* ===== end of errors ===== */
 
@@ -89,6 +88,7 @@ enum	mandocerr {
 	MANDOCERR_ARGCOUNT, /* argument count wrong */
 	MANDOCERR_NOSCOPE, /* no such block is open */
 	MANDOCERR_SCOPEREP, /* scope already open */
+	MANDOCERR_SCOPEEXIT, /* scope open on exit */
 	/* FIXME: merge following with MANDOCERR_ARGCOUNT */
 	MANDOCERR_NOARGS, /* macro requires line argument(s) */
 	MANDOCERR_NOBODY, /* macro requires body argument(s) */
@@ -99,6 +99,7 @@ enum	mandocerr {
 	MANDOCERR_FONTTYPE, /* missing font type */
 	MANDOCERR_ARGSLOST, /* line argument(s) will be lost */
 	MANDOCERR_BODYLOST, /* body argument(s) will be lost */
+	MANDOCERR_IGNPAR, /* paragraph macro ignored */
 
 	MANDOCERR_FATAL, /* ===== end of fatal errors ===== */
 
@@ -108,7 +109,6 @@ enum	mandocerr {
 	MANDOCERR_BADDISP, /* unsupported display type */
 	MANDOCERR_SCOPEFATAL, /* blocks badly nested */
 	MANDOCERR_SYNTNOSCOPE, /* no scope to rewind: syntax violated */
-	MANDOCERR_SYNTSCOPE, /* scope broken, syntax violated */
 	MANDOCERR_SYNTLINESCOPE, /* line scope broken, syntax violated */
 	MANDOCERR_SYNTARGVCOUNT, /* argument count wrong, violates syntax */
 	MANDOCERR_SYNTCHILD, /* child violates parent syntax */

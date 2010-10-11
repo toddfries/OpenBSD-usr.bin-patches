@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.68 2010/08/20 00:53:35 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.70 2010/09/27 21:25:28 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -60,10 +60,10 @@ static	int	 err_count(struct mdoc *, const char *,
 static	int	 berr_ge1(POST_ARGS);
 static	int	 bwarn_ge1(POST_ARGS);
 static	int	 ebool(POST_ARGS);
-static	int	 eerr_eq0(POST_ARGS);
 static	int	 eerr_eq1(POST_ARGS);
 static	int	 eerr_ge1(POST_ARGS);
 static	int	 eerr_le1(POST_ARGS);
+static	int	 ewarn_eq0(POST_ARGS);
 static	int	 ewarn_ge1(POST_ARGS);
 static	int	 herr_eq0(POST_ARGS);
 static	int	 herr_ge1(POST_ARGS);
@@ -96,6 +96,7 @@ static	int	 pre_display(PRE_ARGS);
 static	int	 pre_dt(PRE_ARGS);
 static	int	 pre_it(PRE_ARGS);
 static	int	 pre_os(PRE_ARGS);
+static	int	 pre_pp(PRE_ARGS);
 static	int	 pre_rv(PRE_ARGS);
 static	int	 pre_sh(PRE_ARGS);
 static	int	 pre_ss(PRE_ARGS);
@@ -113,7 +114,7 @@ static	v_post	 posts_it[] = { post_it, NULL };
 static	v_post	 posts_lb[] = { eerr_eq1, post_lb, NULL };
 static	v_post	 posts_nd[] = { berr_ge1, NULL };
 static	v_post	 posts_nm[] = { post_nm, NULL };
-static	v_post	 posts_notext[] = { eerr_eq0, NULL };
+static	v_post	 posts_notext[] = { ewarn_eq0, NULL };
 static	v_post	 posts_rs[] = { berr_ge1, herr_eq0, post_rs, NULL };
 static	v_post	 posts_sh[] = { herr_ge1, bwarn_ge1, post_sh, NULL };
 static	v_post	 posts_sp[] = { eerr_le1, NULL };
@@ -125,8 +126,8 @@ static	v_post	 posts_vt[] = { post_vt, NULL };
 static	v_post	 posts_wline[] = { bwarn_ge1, herr_eq0, NULL };
 static	v_post	 posts_wtext[] = { ewarn_ge1, NULL };
 static	v_pre	 pres_an[] = { pre_an, NULL };
-static	v_pre	 pres_bd[] = { pre_display, pre_bd, NULL };
-static	v_pre	 pres_bl[] = { pre_bl, NULL };
+static	v_pre	 pres_bd[] = { pre_display, pre_bd, pre_pp, NULL };
+static	v_pre	 pres_bl[] = { pre_bl, pre_pp, NULL };
 static	v_pre	 pres_d1[] = { pre_display, NULL };
 static	v_pre	 pres_dd[] = { pre_dd, NULL };
 static	v_pre	 pres_dt[] = { pre_dt, NULL };
@@ -135,6 +136,7 @@ static	v_pre	 pres_ex[] = { NULL, NULL };
 static	v_pre	 pres_fd[] = { NULL, NULL };
 static	v_pre	 pres_it[] = { pre_it, NULL };
 static	v_pre	 pres_os[] = { pre_os, NULL };
+static	v_pre	 pres_pp[] = { pre_pp, NULL };
 static	v_pre	 pres_rv[] = { pre_rv, NULL };
 static	v_pre	 pres_sh[] = { pre_sh, NULL };
 static	v_pre	 pres_ss[] = { pre_ss, NULL };
@@ -146,7 +148,7 @@ const	struct valids mdoc_valids[MDOC_MAX] = {
 	{ pres_os, NULL },			/* Os */
 	{ pres_sh, posts_sh },			/* Sh */ 
 	{ pres_ss, posts_ss },			/* Ss */ 
-	{ NULL, posts_notext },			/* Pp */ 
+	{ pres_pp, posts_notext },		/* Pp */ 
 	{ pres_d1, posts_wline },		/* D1 */
 	{ pres_d1, posts_wline },		/* Dl */
 	{ pres_bd, posts_bd_bk },		/* Bd */
@@ -259,7 +261,7 @@ const	struct valids mdoc_valids[MDOC_MAX] = {
 	{ NULL, NULL },				/* Dx */
 	{ NULL, posts_text },			/* %Q */
 	{ NULL, posts_notext },			/* br */
-	{ NULL, posts_sp },			/* sp */
+	{ pres_pp, posts_sp },			/* sp */
 	{ NULL, posts_text1 },			/* %U */
 	{ NULL, NULL },				/* Ta */
 };
@@ -388,10 +390,10 @@ CHECK_CHILD_DEFN(err, lt, <)			/* err_child_lt() */
 CHECK_CHILD_DEFN(warn, lt, <)			/* warn_child_lt() */
 CHECK_BODY_DEFN(ge1, warn, warn_child_gt, 0)	/* bwarn_ge1() */
 CHECK_BODY_DEFN(ge1, err, err_child_gt, 0)	/* berr_ge1() */
+CHECK_ELEM_DEFN(eq0, warn, warn_child_eq, 0)	/* ewarn_eq0() */
 CHECK_ELEM_DEFN(ge1, warn, warn_child_gt, 0)	/* ewarn_ge1() */
 CHECK_ELEM_DEFN(eq1, err, err_child_eq, 1)	/* eerr_eq1() */
 CHECK_ELEM_DEFN(le1, err, err_child_lt, 2)	/* eerr_le1() */
-CHECK_ELEM_DEFN(eq0, err, err_child_eq, 0)	/* eerr_eq0() */
 CHECK_ELEM_DEFN(ge1, err, err_child_gt, 0)	/* eerr_ge1() */
 CHECK_HEAD_DEFN(eq0, err, err_child_eq, 0)	/* herr_eq0() */
 CHECK_HEAD_DEFN(le1, warn, warn_child_lt, 2)	/* hwarn_le1() */
@@ -1459,5 +1461,28 @@ post_sh_head(POST_ARGS)
 		break;
 	}
 
+	return(1);
+}
+
+
+static int
+pre_pp(PRE_ARGS)
+{
+
+	if (NULL == mdoc->last)
+		return(1);
+
+	/* Don't allow prior `Lp' or `Pp'. */
+
+	if (MDOC_Pp != mdoc->last->tok && MDOC_Lp != mdoc->last->tok)
+		return(1);
+
+	if (MDOC_Bl == n->tok && n->data.Bl->comp)
+		return(1);
+	if (MDOC_Bd == n->tok && n->data.Bd->comp)
+		return(1);
+
+	mdoc_nmsg(mdoc, mdoc->last, MANDOCERR_IGNPAR);
+	mdoc_node_delete(mdoc, mdoc->last);
 	return(1);
 }
