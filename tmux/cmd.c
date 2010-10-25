@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.43 2010/07/14 18:37:49 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.45 2010/10/23 13:04:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -54,6 +54,7 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_kill_server_entry,
 	&cmd_kill_session_entry,
 	&cmd_kill_window_entry,
+	&cmd_last_pane_entry,
 	&cmd_last_window_entry,
 	&cmd_link_window_entry,
 	&cmd_list_buffers_entry,
@@ -340,15 +341,11 @@ cmd_current_session(struct cmd_ctx *ctx)
 	}
 
 	/* Use the session from the TMUX environment variable. */
-	if (data != NULL && data->pid != -1) {
-		if (data->pid != getpid())
-			return (NULL);
-		if (data->idx > ARRAY_LENGTH(&sessions))
-			return (NULL);
-		if ((s = ARRAY_ITEM(&sessions, data->idx)) == NULL)
-			return (NULL);
+	if (data != NULL &&
+	    data->pid == getpid() &&
+	    data->idx <= ARRAY_LENGTH(&sessions) &&
+	    (s = ARRAY_ITEM(&sessions, data->idx)) != NULL)
 		return (s);
-	}
 
 	return (cmd_choose_session(&sessions));
 }

@@ -1,4 +1,4 @@
-/*	$Id: mdoc_html.c,v 1.33 2010/09/27 21:25:28 schwarze Exp $ */
+/*	$Id: mdoc_html.c,v 1.37 2010/10/23 23:30:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -87,6 +87,7 @@ static	int		  mdoc_ex_pre(MDOC_ARGS);
 static	void		  mdoc_fo_post(MDOC_ARGS);
 static	int		  mdoc_fo_pre(MDOC_ARGS);
 static	int		  mdoc_ic_pre(MDOC_ARGS);
+static	int		  mdoc_igndelim_pre(MDOC_ARGS);
 static	int		  mdoc_in_pre(MDOC_ARGS);
 static	int		  mdoc_it_block_pre(MDOC_ARGS, enum mdoc_list,
 				int, struct roffsu *, struct roffsu *);
@@ -105,7 +106,6 @@ static	int		  mdoc_nm_pre(MDOC_ARGS);
 static	int		  mdoc_ns_pre(MDOC_ARGS);
 static	int		  mdoc_pa_pre(MDOC_ARGS);
 static	void		  mdoc_pf_post(MDOC_ARGS);
-static	int		  mdoc_pf_pre(MDOC_ARGS);
 static	void		  mdoc_quote_post(MDOC_ARGS);
 static	int		  mdoc_quote_pre(MDOC_ARGS);
 static	int		  mdoc_rs_pre(MDOC_ARGS);
@@ -195,12 +195,12 @@ static	const struct htmlmdoc mdocs[MDOC_MAX] = {
 	{NULL, NULL}, /* Eo */
 	{mdoc_xx_pre, NULL}, /* Fx */
 	{mdoc_ms_pre, NULL}, /* Ms */
-	{NULL, NULL}, /* No */
+	{mdoc_igndelim_pre, NULL}, /* No */
 	{mdoc_ns_pre, NULL}, /* Ns */
 	{mdoc_xx_pre, NULL}, /* Nx */
 	{mdoc_xx_pre, NULL}, /* Ox */
 	{NULL, NULL}, /* Pc */
-	{mdoc_pf_pre, mdoc_pf_post}, /* Pf */
+	{mdoc_igndelim_pre, mdoc_pf_post}, /* Pf */
 	{mdoc_quote_pre, mdoc_quote_post}, /* Po */
 	{mdoc_quote_pre, mdoc_quote_post}, /* Pq */
 	{NULL, NULL}, /* Qc */
@@ -245,6 +245,8 @@ static	const struct htmlmdoc mdocs[MDOC_MAX] = {
 	{mdoc_sp_pre, NULL}, /* sp */ 
 	{mdoc__x_pre, mdoc__x_post}, /* %U */ 
 	{NULL, NULL}, /* Ta */ 
+	{NULL, NULL}, /* TS */ 
+	{NULL, NULL}, /* TE */ 
 };
 
 
@@ -839,7 +841,7 @@ mdoc_xx_pre(MDOC_ARGS)
 
 	switch (n->tok) {
 	case (MDOC_Bsx):
-		pp = "BSDI BSD/OS";
+		pp = "BSD/OS";
 		break;
 	case (MDOC_Dx):
 		pp = "DragonFly";
@@ -1319,6 +1321,8 @@ mdoc_bd_pre(MDOC_ARGS)
 		 * anyway, so don't sweat it.
 		 */
 		switch (nn->tok) {
+		case (MDOC_Sm):
+			/* FALLTHROUGH */
 		case (MDOC_br):
 			/* FALLTHROUGH */
 		case (MDOC_sp):
@@ -1599,7 +1603,16 @@ mdoc_sm_pre(MDOC_ARGS)
 
 	assert(n->child && MDOC_TEXT == n->child->type);
 	if (0 == strcmp("on", n->child->string)) {
-		/* FIXME: no p->col to check... */
+		/* 
+		 * FIXME: no p->col to check.  Thus, if we have
+		 *  .Bd -literal
+		 *  .Sm off
+		 *  1 2
+		 *  .Sm on
+		 *  3
+		 *  .Ed
+		 * the "3" is preceded by a space.
+		 */
 		h->flags &= ~HTML_NOSPACE;
 		h->flags &= ~HTML_NONOSPACE;
 	} else
@@ -1907,7 +1920,7 @@ mdoc_ms_pre(MDOC_ARGS)
 
 /* ARGSUSED */
 static int
-mdoc_pf_pre(MDOC_ARGS)
+mdoc_igndelim_pre(MDOC_ARGS)
 {
 
 	h->flags |= HTML_IGNDELIM;
@@ -1920,7 +1933,6 @@ static void
 mdoc_pf_post(MDOC_ARGS)
 {
 
-	h->flags &= ~HTML_IGNDELIM;
 	h->flags |= HTML_NOSPACE;
 }
 
@@ -2153,6 +2165,7 @@ mdoc_quote_pre(MDOC_ARGS)
 		/* FALLTHROUGH */
 	case (MDOC_Op):
 		print_text(h, "\\(lB");
+		h->flags |= HTML_NOSPACE;
 		PAIR_CLASS_INIT(&tag, "opt");
 		print_otag(h, TAG_SPAN, 1, &tag);
 		break;

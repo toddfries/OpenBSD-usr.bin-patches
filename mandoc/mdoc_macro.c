@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.56 2010/09/26 20:19:58 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.59 2010/10/24 18:15:43 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -30,6 +30,7 @@ enum	rew {	/* see rew_dohalt() */
 	REWIND_NONE,
 	REWIND_THIS,
 	REWIND_MORE,
+	REWIND_FORCE,
 	REWIND_LATER,
 	REWIND_ERROR
 };
@@ -134,8 +135,8 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ blk_part_exp, MDOC_CALLABLE | MDOC_PARSED | MDOC_EXPLICIT }, /* Eo */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Fx */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Ms */
-	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* No */
-	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Ns */
+	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED | MDOC_IGNDELIM }, /* No */
+	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED | MDOC_IGNDELIM }, /* Ns */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Nx */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Ox */
 	{ blk_exp_close, MDOC_EXPLICIT | MDOC_CALLABLE | MDOC_PARSED }, /* Pc */
@@ -184,6 +185,8 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_eoln, 0 }, /* sp */
 	{ in_line_eoln, 0 }, /* %U */
 	{ phrase_ta, MDOC_CALLABLE | MDOC_PARSED }, /* Ta */
+	{ blk_part_exp, MDOC_EXPLICIT }, /* TS */
+	{ blk_exp_close, MDOC_EXPLICIT }, /* TE */
 };
 
 const	struct mdoc_macro * const mdoc_macros = __mdoc_macros;
@@ -307,6 +310,8 @@ rew_alt(enum mdoct tok)
 		return(MDOC_So);
 	case (MDOC_Xc):
 		return(MDOC_Xo);
+	case (MDOC_TE):
+		return(MDOC_TS);
 	default:
 		return(tok);
 	}
@@ -320,6 +325,7 @@ rew_alt(enum mdoct tok)
  *   inside *p, so there is no need to rewind anything at all.
  * REWIND_THIS: *p matches tok, so rewind *p and nothing else.
  * REWIND_MORE: *p is implicit, rewind it and keep searching for tok.
+ * REWIND_FORCE: *p is explicit, but tok is full, force rewinding *p.
  * REWIND_LATER: *p is explicit and still open, postpone rewinding.
  * REWIND_ERROR: No tok block is open at all.
  */
@@ -413,16 +419,13 @@ rew_dohalt(enum mdoct tok, enum mdoc_type type,
 		return(REWIND_MORE);
 
 	/*
-	 * Partial blocks allow delayed rewinding by default.
+	 * By default, closing out full blocks
+	 * forces closing of broken explicit blocks,
+	 * while closing out partial blocks
+	 * allows delayed rewinding by default.
 	 */
-	if (&blk_full != mdoc_macros[tok].fp)
-		return (REWIND_LATER);
-
-	/*
-	 * Full blocks can only be rewound when matching
-	 * or when there is an explicit rule.
-	 */
-	return(REWIND_ERROR);
+	return (&blk_full == mdoc_macros[tok].fp ?
+	    REWIND_FORCE : REWIND_LATER);
 }
 
 
@@ -513,9 +516,7 @@ make_pending(struct mdoc_node *broken, enum mdoct tok,
 	/*
 	 * Found no matching block for tok.
 	 * Are you trying to close a block that is not open?
-	 * XXX Make this non-fatal.
 	 */
-	mdoc_pmsg(m, line, ppos, MANDOCERR_SYNTNOSCOPE);
 	return(0);
 }
 
@@ -533,17 +534,22 @@ rew_sub(enum mdoc_type t, struct mdoc *m,
 			return(1);
 		case (REWIND_THIS):
 			break;
+		case (REWIND_FORCE):
+			mdoc_vmsg(m, MANDOCERR_SCOPEBROKEN, line, ppos,
+			    "%s breaks %s", mdoc_macronames[tok],
+			    mdoc_macronames[n->tok]);
+			/* FALLTHROUGH */
 		case (REWIND_MORE):
 			n = n->parent;
 			continue;
 		case (REWIND_LATER):
-			return(make_pending(n, tok, m, line, ppos));
+			if (make_pending(n, tok, m, line, ppos) ||
+			    MDOC_BLOCK != t)
+				return(1);
+			/* FALLTHROUGH */
 		case (REWIND_ERROR):
-			/* XXX Make this non-fatal. */
-			mdoc_vmsg(m, MANDOCERR_SCOPEFATAL, line, ppos,
-			    "%s cannot break %s", mdoc_macronames[tok],
-			    mdoc_macronames[n->tok]);
-			return 0;
+			mdoc_pmsg(m, line, ppos, MANDOCERR_NOSCOPE);
+			return(1);
 		}
 		break;
 	}
@@ -671,8 +677,7 @@ blk_exp_close(MACRO_PROT_ARGS)
 			 * postpone closing out the current block
 			 * until the rew_sub() closing out the sub-block.
 			 */
-			if ( ! make_pending(later, tok, m, line, ppos))
-				return(0);
+			make_pending(later, tok, m, line, ppos);
 
 			/*
 			 * Mark the place where the formatting - but not
@@ -1278,8 +1283,7 @@ blk_part_imp(MACRO_PROT_ARGS)
 		    MDOC_EXPLICIT & mdoc_macros[n->tok].flags &&
 		    ! (MDOC_VALID & n->flags)) {
 			assert( ! (MDOC_ACTED & n->flags));
-			if ( ! make_pending(n, tok, m, line, ppos))
-				return(0);
+			make_pending(n, tok, m, line, ppos);
 			if ( ! mdoc_endbody_alloc(m, line, ppos,
 			    tok, body, ENDBODY_NOSPACE))
 				return(0);

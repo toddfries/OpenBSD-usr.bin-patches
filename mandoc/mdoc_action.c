@@ -1,4 +1,4 @@
-/*	$Id: mdoc_action.c,v 1.44 2010/07/31 21:43:07 schwarze Exp $ */
+/*	$Id: mdoc_action.c,v 1.46 2010/10/24 18:15:43 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -28,6 +28,10 @@
 #include "libmdoc.h"
 #include "libmandoc.h"
 
+#include "out.h"
+#include "term.h"
+#include "tbl.h"
+
 /* 
  * FIXME: this file is deprecated.  All future "actions" should be
  * pushed into mdoc_validate.c.
@@ -37,7 +41,7 @@
 #define	PRE_ARGS  struct mdoc *m, struct mdoc_node *n
 
 #define	NUMSIZ	  32
-#define	DATESIZ	  32
+#define	DATESIZE  32
 
 struct	actions {
 	int	(*pre)(PRE_ARGS);
@@ -70,6 +74,7 @@ static	int	  post_std(POST_ARGS);
 
 static	int	  pre_bd(PRE_ARGS);
 static	int	  pre_dl(PRE_ARGS);
+static	int	  pre_ts(PRE_ARGS);
 
 static	const struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* Ap */
@@ -194,6 +199,8 @@ static	const struct actions mdoc_actions[MDOC_MAX] = {
 	{ NULL, NULL }, /* sp */
 	{ NULL, NULL }, /* %U */
 	{ NULL, NULL }, /* Ta */
+	{ pre_ts, NULL }, /* TS */
+	{ NULL, NULL }, /* TE */
 };
 
 #define	RSORD_MAX 14
@@ -593,8 +600,7 @@ post_os(POST_ARGS)
 	struct utsname	  utsname;
 #endif
 
-	if (m->meta.os)
-		free(m->meta.os);
+	free(m->meta.os);
 
 	if ( ! concat(m, buf, n->child, BUFSIZ))
 		return(0);
@@ -610,14 +616,17 @@ post_os(POST_ARGS)
 			return(0);
 		}
 #else /*!OSNAME */
-		if (-1 == uname(&utsname))
-			return(mdoc_nmsg(m, n, MANDOCERR_UTSNAME));
+		if (uname(&utsname)) {
+			mdoc_nmsg(m, n, MANDOCERR_UNAME);
+			m->meta.os = mandoc_strdup("UNKNOWN");
+			return(post_prol(m, n));
+		}
 
 		if (strlcat(buf, utsname.sysname, BUFSIZ) >= BUFSIZ) {
 			mdoc_nmsg(m, n, MANDOCERR_MEM);
 			return(0);
 		}
-		if (strlcat(buf, " ", 64) >= BUFSIZ) {
+		if (strlcat(buf, " ", BUFSIZ) >= BUFSIZ) {
 			mdoc_nmsg(m, n, MANDOCERR_MEM);
 			return(0);
 		}
@@ -905,14 +914,14 @@ post_ar(POST_ARGS)
 static int
 post_dd(POST_ARGS)
 {
-	char		buf[DATESIZ];
+	char		buf[DATESIZE];
 
 	if (NULL == n->child) {
 		m->meta.date = time(NULL);
 		return(post_prol(m, n));
 	}
 
-	if ( ! concat(m, buf, n->child, DATESIZ))
+	if ( ! concat(m, buf, n->child, DATESIZE))
 		return(0);
 
 	m->meta.date = mandoc_a2time
@@ -969,6 +978,18 @@ pre_bd(PRE_ARGS)
 		m->flags |= MDOC_LITERAL;
 	if (DISP_unfilled == n->data.Bd->type)
 		m->flags |= MDOC_LITERAL;
+
+	return(1);
+}
+
+
+/* ARGSUSED */
+static int
+pre_ts(PRE_ARGS)
+{
+
+	if (MDOC_BLOCK == n->type)
+		n->data.TS = tbl_alloc();
 
 	return(1);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.94 2010/09/26 20:43:30 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.96 2010/10/18 20:00:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -98,8 +98,6 @@ server_create_socket(void)
 		fatal("fcntl failed");
 	if (fcntl(fd, F_SETFL, mode|O_NONBLOCK) == -1)
 		fatal("fcntl failed");
-	if (fcntl(fd, F_SETFD, FD_CLOEXEC) == -1)
-		fatal("fcntl failed");
 
 	server_update_socket();
 
@@ -108,11 +106,11 @@ server_create_socket(void)
 
 /* Fork new server. */
 int
-server_start(char *path)
+server_start(void)
 {
 	struct window_pane	*wp;
 	int	 		 pair[2];
-	char			 rpathbuf[MAXPATHLEN], *cause;
+	char			*cause;
 	struct timeval		 tv;
 	u_int			 i;
 
@@ -157,12 +155,8 @@ server_start(char *path)
 	utf8_build();
 
 	start_time = time(NULL);
-	socket_path = path;
-
-	if (realpath(socket_path, rpathbuf) == NULL)
-		strlcpy(rpathbuf, socket_path, sizeof rpathbuf);
 	log_debug("socket path %s", socket_path);
-	setproctitle("server (%s)", rpathbuf);
+	setproctitle("server (%s)", socket_path);
 
 	server_fd = server_create_socket();
 	server_client_create(pair[1]);
