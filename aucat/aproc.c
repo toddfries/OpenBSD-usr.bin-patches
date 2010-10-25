@@ -1,4 +1,4 @@
-/*	$OpenBSD: aproc.c,v 1.59 2010/05/07 07:15:50 ratchov Exp $	*/
+/*	$OpenBSD: aproc.c,v 1.62 2010/10/21 21:42:46 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -911,7 +911,7 @@ mix_out(struct aproc *p, struct abuf *obuf)
 void
 mix_eof(struct aproc *p, struct abuf *ibuf)
 {
-	struct abuf *i, *inext, *obuf = LIST_FIRST(&p->outs);
+	struct abuf *i, *obuf = LIST_FIRST(&p->outs);
 	unsigned odone;
 
 	mix_setmaster(p);
@@ -927,10 +927,13 @@ mix_eof(struct aproc *p, struct abuf *ibuf)
 		 * Find a blocked input.
 		 */
 		odone = obuf->len;
-		for (i = LIST_FIRST(&p->ins); i != NULL; i = inext) {
-			inext = LIST_NEXT(i, ient);
+		LIST_FOREACH(i, &p->ins, ient) {
+			/*
+			 * abuf_fill() may trigger mix_eof(), do the job
+			 * and possibly reorder the list
+			 */
 			if (!abuf_fill(i))
-				continue;
+				return;
 			if (MIX_ROK(i) && i->r.mix.done < obuf->w.mix.todo) {
 				abuf_run(i);
 				return;
@@ -970,9 +973,9 @@ mix_newout(struct aproc *p, struct abuf *obuf)
 #ifdef DEBUG
 	if (debug_level >= 3) {
 		aproc_dbg(p);
-		dbg_puts(": newin, will use ");
+		dbg_puts(": newout, will use ");
 		dbg_putu(obuf->len);
-		dbg_puts("\n");
+		dbg_puts(" fr\n");
 	}
 #endif
 	obuf->w.mix.todo = 0;
@@ -1042,6 +1045,10 @@ mix_setmaster(struct aproc *p)
 	 * uses channels that have no intersection, they are 
 	 * counted only once because they don't need to 
 	 * share their volume
+	 *
+	 * XXX: this is wrong, this is not optimal if we have two
+	 *      buckets of N and N' clients, in which case we should
+	 *	get 1/N and 1/N' respectively
 	 */
 	n = 0;
 	LIST_FOREACH(i, &p->ins, ient) {
@@ -1081,41 +1088,6 @@ mix_clear(struct aproc *p)
 
 	p->u.mix.lat = 0;
 	obuf->w.mix.todo = 0;
-}
-
-void
-mix_prime(struct aproc *p)
-{
-	struct abuf *obuf = LIST_FIRST(&p->outs);
-	unsigned todo, count;
-
-	for (;;) {
-		if (!ABUF_WOK(obuf))
-			break;
-		todo = p->u.mix.maxlat - p->u.mix.lat;
-		mix_bzero(obuf, todo);
-		count = obuf->w.mix.todo;
-		if (count > todo)
-			count = todo;
-		if (count == 0)
-			break;
-		obuf->w.mix.todo -= count;
-		p->u.mix.lat += count;
-		abuf_wcommit(obuf, count);
-		if (APROC_OK(p->u.mix.mon))
-			mon_snoop(p->u.mix.mon, obuf, 0, count);
-		abuf_flush(obuf);
-	}
-#ifdef DEBUG
-	if (debug_level >= 3) {
-		aproc_dbg(p);
-		dbg_puts(": prime: lat/maxlat=");
-		dbg_puti(p->u.mix.lat);
-		dbg_puts("/");
-		dbg_puti(p->u.mix.maxlat);
-		dbg_puts("\n");
-	}
-#endif
 }
 
 /*
@@ -1383,7 +1355,7 @@ sub_eof(struct aproc *p, struct abuf *ibuf)
 void
 sub_hup(struct aproc *p, struct abuf *obuf)
 {
-	struct abuf *i, *inext, *ibuf = LIST_FIRST(&p->ins);
+	struct abuf *i, *ibuf = LIST_FIRST(&p->ins);
 	unsigned idone;
 
 	if (!aproc_inuse(p)) {
@@ -1397,10 +1369,13 @@ sub_hup(struct aproc *p, struct abuf *obuf)
 		 * Find a blocked output.
 		 */
 		idone = ibuf->len;
-		for (i = LIST_FIRST(&p->outs); i != NULL; i = inext) {
-			inext = LIST_NEXT(i, oent);
+		LIST_FOREACH(i, &p->outs, oent) {
+			/*
+			 * abuf_flush() may trigger sub_hup(), do the job
+			 * and possibly reorder the list
+			 */
 			if (!abuf_flush(i))
-				continue;
+				return;
 			if (SUB_WOK(i) && i->w.sub.done < ibuf->used) {
 				abuf_run(i);
 				return;
@@ -1525,7 +1500,7 @@ resamp_bcopy(struct aproc *p, struct abuf *ibuf, struct abuf *obuf)
 #ifdef DEBUG
 	if (debug_level >= 4) {
 		aproc_dbg(p);
-		dbg_puts(": resamp starting diff = ");
+		dbg_puts(": starting diff = ");
 		dbg_puti(diff);
 		dbg_puts(", ifr = ");
 		dbg_putu(ifr);
@@ -1583,7 +1558,7 @@ resamp_bcopy(struct aproc *p, struct abuf *ibuf, struct abuf *obuf)
 #ifdef DEBUG
 	if (debug_level >= 4) {
 		aproc_dbg(p);
-		dbg_puts(": resamp done delta = ");
+		dbg_puts(": done delta = ");
 		dbg_puti(diff);
 		dbg_puts(", ifr = ");
 		dbg_putu(ifr);
@@ -2157,7 +2132,7 @@ join_new(char *name)
 #ifdef DEBUG
 	if (debug_level >= 3) {
 		aproc_dbg(p);
-		dbg_puts("\n");
+		dbg_puts(": new\n");
 	}
 #endif
 	return p;
@@ -2208,7 +2183,7 @@ mon_snoop(struct aproc *p, struct abuf *ibuf, unsigned pos, unsigned todo)
 #ifdef DEBUG
 	if (debug_level >= 4) {
 		aproc_dbg(p);
-		dbg_puts(": snoop ");
+		dbg_puts(": snooping ");
 		dbg_putu(pos);
 		dbg_puts("..");
 		dbg_putu(todo);

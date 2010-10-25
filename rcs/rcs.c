@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.c,v 1.65 2010/09/29 09:23:54 tobias Exp $	*/
+/*	$OpenBSD: rcs.c,v 1.70 2010/10/20 19:55:46 tobias Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -46,6 +46,9 @@
 
 #define RCS_KWEXP_SIZE  1024
 
+
+/* invalid characters in RCS states */
+static const char rcs_state_invch[] = RCS_STATE_INVALCHAR;
 
 /* invalid characters in RCS symbol names */
 static const char rcs_sym_invch[] = RCS_SYM_INVALCHAR;
@@ -182,7 +185,10 @@ rcs_open(const char *path, int fd, int flags, ...)
 	rfp->rf_path = xstrdup(path);
 	rfp->rf_flags = flags | RCS_SLOCK | RCS_SYNCED;
 	rfp->rf_mode = fmode;
-	rfp->rf_fd = fd;
+	if (fd == -1)
+		rfp->rf_file = NULL;
+	else if ((rfp->rf_file = fdopen(fd, "r")) == NULL)
+		err(1, "rcs_open: fdopen: `%s'", path);
 
 	TAILQ_INIT(&(rfp->rf_delta));
 	TAILQ_INIT(&(rfp->rf_access));
@@ -257,6 +263,8 @@ rcs_close(RCSFILE *rfp)
 	if (rfp->rf_branch != NULL)
 		rcsnum_free(rfp->rf_branch);
 
+	if (rfp->rf_file != NULL)
+		fclose(rfp->rf_file);
 	if (rfp->rf_path != NULL)
 		xfree(rfp->rf_path);
 	if (rfp->rf_comment != NULL)
@@ -933,24 +941,6 @@ rcs_comment_set(RCSFILE *file, const char *comment)
 		xfree(file->rf_comment);
 	file->rf_comment = tmp;
 	file->rf_flags &= ~RCS_SYNCED;
-}
-
-/*
- * rcs_tag_resolve()
- *
- * Retrieve the revision number corresponding to the tag <tag> for the RCS
- * file <file>.
- */
-RCSNUM *
-rcs_tag_resolve(RCSFILE *file, const char *tag)
-{
-	RCSNUM *num;
-
-	if ((num = rcsnum_parse(tag)) == NULL) {
-		num = rcs_sym_getrev(file, tag);
-	}
-
-	return (num);
 }
 
 int
@@ -1907,11 +1897,13 @@ rcs_deltatext_set(RCSFILE *rfp, RCSNUM *rev, BUF *bp)
 		rdp->rd_text = xmalloc(len);
 		rdp->rd_tlen = len;
 		(void)memcpy(rdp->rd_text, dtext, len);
-		xfree(dtext);
 	} else {
 		rdp->rd_text = NULL;
 		rdp->rd_tlen = 0;
 	}
+
+	if (dtext != NULL)
+		xfree(dtext);
 
 	return (0);
 }
@@ -1989,10 +1981,21 @@ rcs_state_set(RCSFILE *rfp, RCSNUM *rev, const char *state)
 int
 rcs_state_check(const char *state)
 {
-	if (strchr(state, ' ') != NULL)
+	int ret;
+	const char *cp;
+
+	ret = 0;
+	cp = state;
+	if (!isalpha(*cp++))
 		return (-1);
 
-	return (0);
+	for (; *cp != '\0'; cp++)
+		if (!isgraph(*cp) || (strchr(rcs_state_invch, *cp) != NULL)) {
+			ret = -1;
+			break;
+		}
+
+	return (ret);
 }
 
 /*

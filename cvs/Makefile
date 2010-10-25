@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.47 2008/06/21 15:39:15 joris Exp $
+#	$OpenBSD: Makefile,v 1.48 2010/10/15 08:44:12 tobias Exp $
 
 PROG=	opencvs
 MAN=	cvsintro.7 # cvs.1 cvs.5
