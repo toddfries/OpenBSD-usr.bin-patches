@@ -1,6 +1,7 @@
-/*	$Id: man_term.c,v 1.51 2010/10/28 10:42:39 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.53 2010/11/29 02:26:45 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -92,6 +93,7 @@ static	int		  pre_in(DECL_ARGS);
 static	int		  pre_literal(DECL_ARGS);
 static	int		  pre_sp(DECL_ARGS);
 static	int		  pre_TS(DECL_ARGS);
+static	int		  pre_ft(DECL_ARGS);
 
 static	void		  post_IP(DECL_ARGS);
 static	void		  post_HP(DECL_ARGS);
@@ -133,13 +135,11 @@ static	const struct termact termacts[MAN_MAX] = {
 	{ pre_ign, NULL, 0 }, /* DT */
 	{ pre_ign, NULL, 0 }, /* UC */
 	{ pre_ign, NULL, 0 }, /* PD */
- 	{ pre_sp, NULL, MAN_NOTEXT }, /* Sp */
- 	{ pre_literal, NULL, 0 }, /* Vb */
- 	{ pre_literal, NULL, 0 }, /* Ve */
 	{ pre_ign, NULL, 0 }, /* AT */
 	{ pre_in, NULL, MAN_NOTEXT }, /* in */
 	{ pre_TS, NULL, 0 }, /* TS */
 	{ NULL, NULL, 0 }, /* TE */
+	{ pre_ft, NULL, MAN_NOTEXT }, /* ft */
 };
 
 
@@ -251,16 +251,11 @@ pre_literal(DECL_ARGS)
 {
 
 	term_newln(p);
-	switch (n->tok) {
-	case (MAN_Vb):
-		/* FALLTHROUGH */
-	case (MAN_nf):
+
+	if (MAN_nf == n->tok)
 		mt->fl |= MANT_LITERAL;
-		return(MAN_Vb != n->tok);
-	default:
+	else
 		mt->fl &= ~MANT_LITERAL;
-		break;
-	}
 
 	return(1);
 }
@@ -326,6 +321,48 @@ pre_B(DECL_ARGS)
 
 	term_fontrepl(p, TERMFONT_BOLD);
 	return(1);
+}
+
+
+/* ARGSUSED */
+static int
+pre_ft(DECL_ARGS)
+{
+	const char	*cp;
+
+	if (NULL == n->child) {
+		term_fontlast(p);
+		return(0);
+	}
+
+	cp = n->child->string;
+	switch (*cp) {
+	case ('4'):
+		/* FALLTHROUGH */
+	case ('3'):
+		/* FALLTHROUGH */
+	case ('B'):
+		term_fontrepl(p, TERMFONT_BOLD);
+		break;
+	case ('2'):
+		/* FALLTHROUGH */
+	case ('I'):
+		term_fontrepl(p, TERMFONT_UNDER);
+		break;
+	case ('P'):
+		term_fontlast(p);
+		break;
+	case ('1'):
+		/* FALLTHROUGH */
+	case ('C'):
+		/* FALLTHROUGH */
+	case ('R'):
+		term_fontrepl(p, TERMFONT_NONE);
+		break;
+	default:
+		break;
+	}
+	return(0);
 }
 
 

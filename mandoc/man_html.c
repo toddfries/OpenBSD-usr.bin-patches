@@ -1,6 +1,7 @@
-/*	$Id: man_html.c,v 1.19 2010/10/15 20:45:03 schwarze Exp $ */
+/*	$Id: man_html.c,v 1.21 2010/11/29 02:26:45 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -60,6 +61,7 @@ static	int		  a2width(const struct man_node *,
 static	int		  man_alt_pre(MAN_ARGS);
 static	int		  man_br_pre(MAN_ARGS);
 static	int		  man_ign_pre(MAN_ARGS);
+static	int		  man_ft_pre(MAN_ARGS);
 static	int		  man_in_pre(MAN_ARGS);
 static	int		  man_literal_pre(MAN_ARGS);
 static	void		  man_root_post(MAN_ARGS);
@@ -108,13 +110,11 @@ static	const struct htmlman mans[MAN_MAX] = {
 	{ man_ign_pre, NULL }, /* DT */
 	{ man_ign_pre, NULL }, /* UC */
 	{ man_ign_pre, NULL }, /* PD */
-	{ man_br_pre, NULL }, /* Sp */
-	{ man_literal_pre, NULL }, /* Vb */
-	{ man_literal_pre, NULL }, /* Ve */
 	{ man_ign_pre, NULL }, /* AT */
 	{ man_in_pre, NULL }, /* in */
 	{ NULL, NULL }, /* TS */
 	{ NULL, NULL }, /* TE */
+	{ man_ft_pre, NULL }, /* ft */
 };
 
 
@@ -363,18 +363,11 @@ man_br_pre(MAN_ARGS)
 
 	SCALE_VS_INIT(&su, 1);
 
-	switch (n->tok) {
-	case (MAN_Sp):
-		SCALE_VS_INIT(&su, 0.5);
-		break;
-	case (MAN_sp):
+	if (MAN_sp == n->tok) {
 		if (n->child)
 			a2roffsu(n->child->string, &su, SCALE_VS);
-		break;
-	default:
+	} else
 		su.scale = 0;
-		break;
-	}
 
 	bufcat_su(h, "height", &su);
 	PAIR_STYLE_INIT(&tag, h);
@@ -731,20 +724,56 @@ man_I_pre(MAN_ARGS)
 
 /* ARGSUSED */
 static int
+man_ft_pre(MAN_ARGS)
+{
+	const char	 *cp;
+
+	if (NULL == n->child) {
+		print_ofont(h, h->metal);
+		return(0);
+	}
+
+	cp = n->child->string;
+	switch (*cp) {
+	case ('4'):
+		/* FALLTHROUGH */
+	case ('3'):
+		/* FALLTHROUGH */
+	case ('B'):
+		print_ofont(h, HTMLFONT_BOLD);
+		break;
+	case ('2'):
+		/* FALLTHROUGH */
+	case ('I'):
+		print_ofont(h, HTMLFONT_ITALIC);
+		break;
+	case ('P'):
+		print_ofont(h, h->metal);
+		break;
+	case ('1'):
+		/* FALLTHROUGH */
+	case ('C'):
+		/* FALLTHROUGH */
+	case ('R'):
+		print_ofont(h, HTMLFONT_NONE);
+		break;
+	default:
+		break;
+	}
+	return(0);
+}
+
+
+/* ARGSUSED */
+static int
 man_literal_pre(MAN_ARGS)
 {
 
-	switch (n->tok) {
-	case (MAN_nf):
-		/* FALLTHROUGH */
-	case (MAN_Vb):
+	if (MAN_nf == n->tok) {
 		print_otag(h, TAG_BR, 0, NULL);
 		mh->fl |= MANH_LITERAL;
-		return(MAN_Vb != n->tok);
-	default:
+	} else
 		mh->fl &= ~MANH_LITERAL;
-		break;
-	}
 
 	return(1);
 }

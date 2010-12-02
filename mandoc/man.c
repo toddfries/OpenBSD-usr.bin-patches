@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.43 2010/10/16 20:49:37 schwarze Exp $ */
+/*	$Id: man.c,v 1.48 2010/12/01 23:02:59 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -39,8 +39,8 @@ const	char *const __man_macronames[MAN_MAX] = {
 	"RI",		"na",		"i",		"sp",
 	"nf",		"fi",		"r",		"RE",
 	"RS",		"DT",		"UC",		"PD",
-	"Sp",		"Vb",		"Ve",		"AT",
-	"in",		"TS",		"TE"
+	"AT",
+	"in",		"TS",		"TE",		"ft",
 	};
 
 const	char * const *man_macronames = __man_macronames;
@@ -227,8 +227,6 @@ man_node_append(struct man *man, struct man_node *p)
 	switch (p->type) {
 	case (MAN_TEXT):
 		if ( ! man_valid_post(man))
-			return(0);
-		if ( ! man_action_post(man))
 			return(0);
 		break;
 	default:
@@ -490,9 +488,7 @@ man_pmacro(struct man *m, int ln, char *buf, int offs)
 
 	tok = (j > 0 && j < 4) ? man_hash_find(mac) : MAN_MAX;
 	if (MAN_MAX == tok) {
-		man_vmsg(m, MANDOCERR_MACRO, ln, ppos, 
-		    "unknown macro: %s%s",
-		    buf, strlen(buf) > 3 ? "..." : "");
+		man_vmsg(m, MANDOCERR_MACRO, ln, ppos, "%s", buf + ppos - 1);
 		return(1);
 	}
 
@@ -511,37 +507,22 @@ man_pmacro(struct man *m, int ln, char *buf, int offs)
 			goto err;
 
 	/* 
-	 * Remove prior ELINE macro, as it's being clobbering by a new
+	 * Remove prior ELINE macro, as it's being clobbered by a new
 	 * macro.  Note that NSCOPED macros do not close out ELINE
 	 * macros---they don't print text---so we let those slip by.
 	 */
 
 	if ( ! (MAN_NSCOPED & man_macros[tok].flags) &&
 			m->flags & MAN_ELINE) {
-		assert(MAN_TEXT != m->last->type);
-
-		/*
-		 * This occurs in the following construction:
-		 *   .B
-		 *   .br
-		 *   .B
-		 *   .br
-		 *   I hate man macros.
-		 * Flat-out disallow this madness.
-		 */
-		if (MAN_NSCOPED & man_macros[m->last->tok].flags) {
-			man_pmsg(m, ln, ppos, MANDOCERR_SYNTLINESCOPE);
-			return(0);
-		}
-
 		n = m->last;
+		assert(MAN_TEXT != n->type);
 
-		assert(n);
-		assert(NULL == n->child);
-		assert(0 == n->nchild);
+		/* .B .br .br .B: remove prior including children */
+		if (MAN_NSCOPED & man_macros[n->tok].flags)
+			n = n->parent;
 
-		if ( ! man_nmsg(m, n, MANDOCERR_LINESCOPE))
-			return(0);
+		man_vmsg(m, MANDOCERR_LINESCOPE, n->line, n->pos,
+		    "%s", man_macronames[n->tok]);
 
 		man_node_delete(m, n);
 		m->flags &= ~MAN_ELINE;
