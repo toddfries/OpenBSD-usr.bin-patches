@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.42 2010/10/16 08:31:55 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.45 2010/12/20 00:17:22 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -70,8 +70,6 @@ server_client_create(int fd)
 		fatal("gettimeofday failed");
 	memcpy(&c->activity_time, &c->creation_time, sizeof c->activity_time);
 
-	ARRAY_INIT(&c->prompt_hdata);
-
 	c->stdin_event = NULL;
 	c->stdout_event = NULL;
 	c->stderr_event = NULL;
@@ -80,6 +78,7 @@ server_client_create(int fd)
 	c->title = NULL;
 
 	c->session = NULL;
+	c->last_session = NULL;
 	c->tty.sx = 80;
 	c->tty.sy = 24;
 
@@ -161,9 +160,6 @@ server_client_lost(struct client *c)
 		xfree(c->prompt_string);
 	if (c->prompt_buffer != NULL)
 		xfree(c->prompt_buffer);
-	for (i = 0; i < ARRAY_LENGTH(&c->prompt_hdata); i++)
-		xfree(ARRAY_ITEM(&c->prompt_hdata, i));
-	ARRAY_FREE(&c->prompt_hdata);
 
 	if (c->cwd != NULL)
 		xfree(c->cwd);

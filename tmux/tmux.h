@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.248 2010/12/06 22:51:02 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.253 2010/12/20 00:19:20 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -948,7 +948,6 @@ struct session {
 	struct paste_stack buffers;
 
 #define SESSION_UNATTACHED 0x1	/* not attached to any clients */
-#define SESSION_DEAD 0x2
 	int		 flags;
 
 	struct termios	*tio;
@@ -1147,16 +1146,15 @@ struct client {
 	int		 (*prompt_callbackfn)(void *, const char *);
 	void		 (*prompt_freefn)(void *);
 	void		*prompt_data;
+	u_int            prompt_hindex;
 
 #define PROMPT_SINGLE 0x1
 	int		 prompt_flags;
 
-	u_int		 prompt_hindex;
-	ARRAY_DECL(, char *) prompt_hdata;
-
 	struct mode_key_data prompt_mdata;
 
 	struct session	*session;
+	struct session	*last_session;
 
 	int		 references;
 };
@@ -1969,6 +1967,7 @@ void clear_signals(int);
 extern struct sessions sessions;
 extern struct sessions dead_sessions;
 extern struct session_groups session_groups;
+int		 session_alive(struct session *);
 struct session	*session_find(const char *);
 struct session	*session_create(const char *, const char *, const char *,
 		     struct environ *, struct termios *, int, u_int, u_int,

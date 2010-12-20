@@ -1,4 +1,4 @@
-/* $OpenBSD: session.c,v 1.20 2010/09/08 22:02:28 nicm Exp $ */
+/* $OpenBSD: session.c,v 1.24 2010/12/20 01:28:18 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -34,6 +34,18 @@ struct session_groups session_groups;
 
 struct winlink *session_next_alert(struct winlink *);
 struct winlink *session_previous_alert(struct winlink *);
+
+/*
+ * Find if session is still alive. This is true if it is still on the global
+ * sessions list.
+ */
+int
+session_alive(struct session *s)
+{
+	u_int	idx;
+
+	return (session_index(s, &idx) == 0);
+}
 
 /* Find session by name. */
 struct session *
@@ -155,7 +167,6 @@ session_destroy(struct session *s)
 	}
 	if (i == ARRAY_LENGTH(&dead_sessions))
 		ARRAY_ADD(&dead_sessions, s);
-	s->flags |= SESSION_DEAD;
 }
 
 /* Find session index. */
@@ -185,7 +196,7 @@ session_next_session(struct session *s)
 		else
 			i++;
 		s2 = ARRAY_ITEM(&sessions, i);
-	} while (s2 == NULL || s2->flags & SESSION_DEAD);
+	} while (s2 == NULL);
 
 	return (s2);
 }
@@ -206,7 +217,7 @@ session_previous_session(struct session *s)
 		else
 			i--;
 		s2 = ARRAY_ITEM(&sessions, i);
-	} while (s2 == NULL || s2->flags & SESSION_DEAD);
+	} while (s2 == NULL);
 
 	return (s2);
 }
