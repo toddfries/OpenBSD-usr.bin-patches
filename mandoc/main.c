@@ -1,6 +1,6 @@
-/*	$Id: main.c,v 1.61 2010/12/09 23:01:18 schwarze Exp $ */
+/*	$Id: main.c,v 1.69 2011/01/20 21:33:11 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -138,10 +138,12 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 
 	/* related to missing macro arguments */
 	"skipping empty macro",
+	"argument count wrong",
 	"missing display type",
 	"list type must come first",
 	"tag lists require a width argument",
 	"missing font type",
+	"skipping end of block that is not open",
 
 	/* related to bad macro arguments */
 	"skipping argument",
@@ -161,14 +163,25 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"bad comment style",
 	"unknown escape sequence",
 	"unterminated quoted string",
-
+	
 	"generic error",
+
+	/* related to tables */
+	"bad table syntax",
+	"bad table option",
+	"bad table layout",
+	"no table layout cells specified",
+	"no table data cells specified",
+	"ignore data in cell",
+	"data block still open",
+	"ignoring extra data cells",
 
 	"input stack limit exceeded, infinite loop?",
 	"skipping bad character",
+	"escaped character not allowed in a name",
 	"skipping text before the first section header",
 	"skipping unknown macro",
-	"NOT IMPLEMENTED: skipping request",
+	"NOT IMPLEMENTED, please use groff: skipping request",
 	"line scope broken",
 	"argument count wrong",
 	"skipping end of block that is not open",
@@ -181,7 +194,6 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"missing list type",
 	"line argument(s) will be lost",
 	"body argument(s) will be lost",
-	"tbl(1) error",
 
 	"generic fatal error",
 
@@ -375,7 +387,7 @@ static void
 resize_buf(struct buf *buf, size_t initial)
 {
 
-	buf->sz = buf->sz ? 2 * buf->sz : initial;
+	buf->sz = buf->sz > initial/2 ? 2 * buf->sz : initial;
 	buf->buf = realloc(buf->buf, buf->sz);
 	if (NULL == buf->buf) {
 		perror(NULL);
@@ -508,10 +520,7 @@ fdesc(struct curparse *curp)
 	}
 
 	assert(curp->roff);
-	if ( ! roff_endparse(curp->roff)) {
-		assert(MANDOCLEVEL_FATAL <= file_status);
-		goto cleanup;
-	}
+	roff_endparse(curp->roff);
 
 	/*
 	 * With -Wstop and warnings or errors of at least
@@ -780,9 +789,17 @@ rerun:
 				continue;
 			} else
 				break;
-		case (ROFF_CONT):
+		default:
 			break;
 		}
+
+		/*
+		 * If we encounter errors in the recursive parsebuf()
+		 * call, make sure we don't continue parsing.
+		 */
+
+		if (MANDOCLEVEL_FATAL <= file_status)
+			break;
 
 		/*
 		 * If input parsers have not been allocated, do so now.
@@ -798,9 +815,20 @@ rerun:
 		 * Lastly, push down into the parsers themselves.  One
 		 * of these will have already been set in the pset()
 		 * routine.
+		 * If libroff returns ROFF_TBL, then add it to the
+		 * currently open parse.  Since we only get here if
+		 * there does exist data (see tbl_data.c), we're
+		 * guaranteed that something's been allocated.
 		 */
 
-		if (curp->man || curp->mdoc) {
+		if (ROFF_TBL == rr) {
+			assert(curp->man || curp->mdoc);
+			if (curp->man)
+				man_addspan(curp->man, roff_span(curp->roff));
+			else
+				mdoc_addspan(curp->mdoc, roff_span(curp->roff));
+
+		} else if (curp->man || curp->mdoc) {
 			rc = curp->man ?
 				man_parseln(curp->man, 
 					curp->line, ln.buf, of) :

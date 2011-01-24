@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.30 2010/12/06 22:51:02 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.34 2011/01/15 00:16:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -720,11 +720,11 @@ input_parse(struct window_pane *wp)
 		 * Execute the handler, if any. Don't switch state if it
 		 * returns non-zero.
 		 */
-		if (itr->handler && itr->handler(ictx) != 0)
+		if (itr->handler != NULL && itr->handler(ictx) != 0)
 			continue;
 
 		/* And switch state, if necessary. */
-		if (itr->state) {
+		if (itr->state != NULL) {
 			if (ictx->state->exit != NULL)
 				ictx->state->exit(ictx);
 			ictx->state = itr->state;
@@ -924,9 +924,9 @@ input_c0_dispatch(struct input_ctx *ictx)
 int
 input_esc_dispatch(struct input_ctx *ictx)
 {
-	struct screen_write_ctx	*sctx = &ictx->ctx;
-	struct screen		*s = sctx->s;
-	struct input_table_entry       *entry;
+	struct screen_write_ctx		*sctx = &ictx->ctx;
+	struct screen			*s = sctx->s;
+	struct input_table_entry	*entry;
 
 	if (ictx->flags & INPUT_DISCARD)
 		return (0);
@@ -953,7 +953,7 @@ input_esc_dispatch(struct input_ctx *ictx)
 		screen_write_insertmode(sctx, 0);
 		screen_write_kcursormode(sctx, 0);
 		screen_write_kkeypadmode(sctx, 0);
-		screen_write_mousemode(sctx, 0);
+		screen_write_mousemode_off(sctx);
 
 		screen_write_clearscreen(sctx);
 		screen_write_cursormove(sctx, 0, 0);
@@ -1156,7 +1156,13 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_cursormode(&ictx->ctx, 0);
 			break;
 		case 1000:
-			screen_write_mousemode(&ictx->ctx, 0);
+		case 1001:
+		case 1002:
+		case 1003:
+			screen_write_mousemode_off(&ictx->ctx);
+			break;
+		case 1005:
+			screen_write_utf8mousemode(&ictx->ctx, 0);
 			break;
 		case 1049:
 			window_pane_alternate_off(wp, &ictx->cell);
@@ -1192,7 +1198,18 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_cursormode(&ictx->ctx, 1);
 			break;
 		case 1000:
-			screen_write_mousemode(&ictx->ctx, 1);
+			screen_write_mousemode_on(
+			    &ictx->ctx, MODE_MOUSE_STANDARD);
+			break;
+		case 1002:
+			screen_write_mousemode_on(
+			    &ictx->ctx, MODE_MOUSE_BUTTON);
+			break;
+		case 1003:
+			screen_write_mousemode_on(&ictx->ctx, MODE_MOUSE_ANY);
+			break;
+		case 1005:
+			screen_write_utf8mousemode(&ictx->ctx, 1);
 			break;
 		case 1049:
 			window_pane_alternate_on(wp, &ictx->cell);

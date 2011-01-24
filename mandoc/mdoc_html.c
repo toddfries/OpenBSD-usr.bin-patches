@@ -1,6 +1,6 @@
-/*	$Id: mdoc_html.c,v 1.41 2010/12/19 12:18:15 schwarze Exp $ */
+/*	$Id: mdoc_html.c,v 1.48 2011/01/16 19:41:16 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -239,8 +239,6 @@ static	const struct htmlmdoc mdocs[MDOC_MAX] = {
 	{mdoc_sp_pre, NULL}, /* sp */ 
 	{mdoc__x_pre, mdoc__x_post}, /* %U */ 
 	{NULL, NULL}, /* Ta */ 
-	{NULL, NULL}, /* TS */ 
-	{NULL, NULL}, /* TE */ 
 };
 
 static	const char * const lists[LIST_MAX] = {
@@ -418,9 +416,32 @@ print_mdoc_node(MDOC_ARGS)
 		child = mdoc_root_pre(m, n, h);
 		break;
 	case (MDOC_TEXT):
+		/* No tables in this mode... */
+		assert(NULL == h->tblt);
+		if (' ' == *n->string && MDOC_LINE & n->flags)
+			print_otag(h, TAG_BR, 0, NULL);
 		print_text(h, n->string);
 		return;
+	case (MDOC_TBL):
+		/*
+		 * This will take care of initialising all of the table
+		 * state data for the first table, then tearing it down
+		 * for the last one.
+		 */
+		print_tbl(h, n->span);
+		return;
 	default:
+		/*
+		 * Close out the current table, if it's open, and unset
+		 * the "meta" table state.  This will be reopened on the
+		 * next table element.
+		 */
+		if (h->tblt) {
+			print_tblclose(h);
+			t = h->tags.head;
+		}
+
+		assert(NULL == h->tblt);
 		if (mdocs[n->tok].pre && ENDBODY_NOT == n->end)
 			child = (*mdocs[n->tok].pre)(m, n, h);
 		break;
@@ -459,15 +480,24 @@ print_mdoc_node(MDOC_ARGS)
 static void
 mdoc_root_post(MDOC_ARGS)
 {
-	struct htmlpair	 tag[2];
+	struct htmlpair	 tag[3];
 	struct tag	*t, *tt;
 	char		 b[DATESIZ];
 
 	time2a(m->date, b, DATESIZ);
 
-	PAIR_CLASS_INIT(&tag[0], "foot");
-	PAIR_SUMMARY_INIT(&tag[1], "Document Footer");
-	t = print_otag(h, TAG_TABLE, 2, tag);
+	PAIR_SUMMARY_INIT(&tag[0], "Document Footer");
+	PAIR_CLASS_INIT(&tag[1], "foot");
+	if (NULL == h->style) {
+		PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
+		t = print_otag(h, TAG_TABLE, 3, tag);
+		PAIR_INIT(&tag[0], ATTR_WIDTH, "50%");
+		print_otag(h, TAG_COL, 1, tag);
+		print_otag(h, TAG_COL, 1, tag);
+	} else
+		t = print_otag(h, TAG_TABLE, 2, tag);
+
+	t = print_otag(h, TAG_TBODY, 0, NULL);
 
 	tt = print_otag(h, TAG_TR, 0, NULL);
 
@@ -478,7 +508,11 @@ mdoc_root_post(MDOC_ARGS)
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "foot-os");
-	print_otag(h, TAG_TD, 1, tag);
+	if (NULL == h->style) {
+		PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
+		print_otag(h, TAG_TD, 2, tag);
+	} else 
+		print_otag(h, TAG_TD, 1, tag);
 
 	print_text(h, m->os);
 	print_tagq(h, t);
@@ -503,9 +537,19 @@ mdoc_root_pre(MDOC_ARGS)
 
 	snprintf(title, BUFSIZ - 1, "%s(%s)", m->title, m->msec);
 
-	PAIR_CLASS_INIT(&tag[0], "head");
-	PAIR_SUMMARY_INIT(&tag[1], "Document Header");
-	t = print_otag(h, TAG_TABLE, 2, tag);
+	PAIR_SUMMARY_INIT(&tag[0], "Document Header");
+	PAIR_CLASS_INIT(&tag[1], "head");
+	if (NULL == h->style) {
+		PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
+		t = print_otag(h, TAG_TABLE, 3, tag);
+		PAIR_INIT(&tag[0], ATTR_WIDTH, "30%");
+		print_otag(h, TAG_COL, 1, tag);
+		print_otag(h, TAG_COL, 1, tag);
+		print_otag(h, TAG_COL, 1, tag);
+	} else
+		t = print_otag(h, TAG_TABLE, 2, tag);
+
+	print_otag(h, TAG_TBODY, 0, NULL);
 
 	tt = print_otag(h, TAG_TR, 0, NULL);
 
@@ -516,13 +560,21 @@ mdoc_root_pre(MDOC_ARGS)
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "head-vol");
-	print_otag(h, TAG_TD, 1, tag);
+	if (NULL == h->style) {
+		PAIR_INIT(&tag[1], ATTR_ALIGN, "center");
+		print_otag(h, TAG_TD, 2, tag);
+	} else 
+		print_otag(h, TAG_TD, 1, tag);
 
 	print_text(h, b);
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "head-rtitle");
-	print_otag(h, TAG_TD, 1, tag);
+	if (NULL == h->style) {
+		PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
+		print_otag(h, TAG_TD, 2, tag);
+	} else 
+		print_otag(h, TAG_TD, 1, tag);
 
 	print_text(h, title);
 	print_tagq(h, t);
@@ -591,7 +643,7 @@ mdoc_fl_pre(MDOC_ARGS)
 	struct htmlpair	 tag;
 
 	PAIR_CLASS_INIT(&tag, "flag");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_B, 1, &tag);
 
 	/* `Cm' has no leading hyphen. */
 
@@ -638,7 +690,7 @@ mdoc_nm_pre(MDOC_ARGS)
 	case (MDOC_ELEM):
 		synopsis_pre(h, n);
 		PAIR_CLASS_INIT(&tag, "name");
-		print_otag(h, TAG_SPAN, 1, &tag);
+		print_otag(h, TAG_B, 1, &tag);
 		if (NULL == n->child && m->name)
 			print_text(h, m->name);
 		return(1);
@@ -730,7 +782,7 @@ mdoc_ar_pre(MDOC_ARGS)
 	struct htmlpair tag;
 
 	PAIR_CLASS_INIT(&tag, "arg");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_I, 1, &tag);
 	return(1);
 }
 
@@ -792,6 +844,7 @@ mdoc_bx_pre(MDOC_ARGS)
 	return(0);
 }
 
+/* ARGSUSED */
 static int
 mdoc_it_pre(MDOC_ARGS)
 {
@@ -806,7 +859,7 @@ mdoc_it_pre(MDOC_ARGS)
 
 	assert(bl);
 
-	type = bl->data.Bl->type;
+	type = bl->norm->Bl.type;
 
 	assert(lists[type]);
 	PAIR_CLASS_INIT(&tag[0], lists[type]);
@@ -832,10 +885,14 @@ mdoc_it_pre(MDOC_ARGS)
 		case(LIST_ohang):
 			/* FALLTHROUGH */
 		case(LIST_tag):
-			SCALE_VS_INIT(&su, ! bl->data.Bl->comp);
+			SCALE_VS_INIT(&su, ! bl->norm->Bl.comp);
 			bufcat_su(h, "margin-top", &su);
 			PAIR_STYLE_INIT(&tag[1], h);
 			print_otag(h, TAG_DT, 2, tag);
+			if (LIST_diag != type)
+				break;
+			PAIR_CLASS_INIT(&tag[0], "diag");
+			print_otag(h, TAG_B, 1, tag);
 			break;
 		case(LIST_column):
 			break;
@@ -853,7 +910,7 @@ mdoc_it_pre(MDOC_ARGS)
 		case(LIST_enum):
 			/* FALLTHROUGH */
 		case(LIST_item):
-			SCALE_VS_INIT(&su, ! bl->data.Bl->comp);
+			SCALE_VS_INIT(&su, ! bl->norm->Bl.comp);
 			bufcat_su(h, "margin-top", &su);
 			PAIR_STYLE_INIT(&tag[1], h);
 			print_otag(h, TAG_LI, 2, tag);
@@ -867,17 +924,17 @@ mdoc_it_pre(MDOC_ARGS)
 		case(LIST_ohang):
 			/* FALLTHROUGH */
 		case(LIST_tag):
-			if (NULL == bl->data.Bl->width) {
+			if (NULL == bl->norm->Bl.width) {
 				print_otag(h, TAG_DD, 1, tag);
 				break;
 			}
-			a2width(bl->data.Bl->width, &su);
+			a2width(bl->norm->Bl.width, &su);
 			bufcat_su(h, "margin-left", &su);
 			PAIR_STYLE_INIT(&tag[1], h);
 			print_otag(h, TAG_DD, 2, tag);
 			break;
 		case(LIST_column):
-			SCALE_VS_INIT(&su, ! bl->data.Bl->comp);
+			SCALE_VS_INIT(&su, ! bl->norm->Bl.comp);
 			bufcat_su(h, "margin-top", &su);
 			PAIR_STYLE_INIT(&tag[1], h);
 			print_otag(h, TAG_TD, 2, tag);
@@ -902,18 +959,19 @@ mdoc_it_pre(MDOC_ARGS)
 static int
 mdoc_bl_pre(MDOC_ARGS)
 {
-	size_t		 i;
+	int		 i;
 	struct htmlpair	 tag[3];
 	struct roffsu	 su;
+	char		 buf[BUFSIZ];
 
 	if (MDOC_BODY == n->type) {
-		if (LIST_column == n->data.Bl->type)
+		if (LIST_column == n->norm->Bl.type)
 			print_otag(h, TAG_TBODY, 0, NULL);
 		return(1);
 	}
 
 	if (MDOC_HEAD == n->type) {
-		if (LIST_column != n->data.Bl->type)
+		if (LIST_column != n->norm->Bl.type)
 			return(0);
 
 		/*
@@ -923,10 +981,10 @@ mdoc_bl_pre(MDOC_ARGS)
 		 * screen and we want to preserve that behaviour.
 		 */
 
-		for (i = 0; i < n->data.Bl->ncols; i++) {
-			a2width(n->data.Bl->cols[i], &su);
+		for (i = 0; i < (int)n->norm->Bl.ncols; i++) {
+			a2width(n->norm->Bl.cols[i], &su);
 			bufinit(h);
-			if (i < n->data.Bl->ncols - 1)
+			if (i < (int)n->norm->Bl.ncols - 1)
 				bufcat_su(h, "width", &su);
 			else
 				bufcat_su(h, "min-width", &su);
@@ -942,23 +1000,19 @@ mdoc_bl_pre(MDOC_ARGS)
 	bufcat_su(h, "margin-bottom", &su);
 	PAIR_STYLE_INIT(&tag[0], h);
 
-	assert(lists[n->data.Bl->type]);
-	bufinit(h);
-	bufcat(h, "list ");
-	bufcat(h, lists[n->data.Bl->type]);
-	PAIR_INIT(&tag[1], ATTR_CLASS, h->buf);
-	i = 2;
+	assert(lists[n->norm->Bl.type]);
+	strlcpy(buf, "list ", BUFSIZ);
+	strlcat(buf, lists[n->norm->Bl.type], BUFSIZ);
+	PAIR_INIT(&tag[1], ATTR_CLASS, buf);
 
 	/* Set the block's left-hand margin. */
 
-	if (n->data.Bl->offs) {
-		a2offs(n->data.Bl->offs, &su);
+	if (n->norm->Bl.offs) {
+		a2offs(n->norm->Bl.offs, &su);
 		bufcat_su(h, "margin-left", &su);
-		PAIR_STYLE_INIT(&tag[2], h);
-		i = 3;
 	}
 
-	switch (n->data.Bl->type) {
+	switch (n->norm->Bl.type) {
 	case(LIST_bullet):
 		/* FALLTHROUGH */
 	case(LIST_dash):
@@ -966,10 +1020,10 @@ mdoc_bl_pre(MDOC_ARGS)
 	case(LIST_hyphen):
 		/* FALLTHROUGH */
 	case(LIST_item):
-		print_otag(h, TAG_UL, i, tag);
+		print_otag(h, TAG_UL, 2, tag);
 		break;
 	case(LIST_enum):
-		print_otag(h, TAG_OL, i, tag);
+		print_otag(h, TAG_OL, 2, tag);
 		break;
 	case(LIST_diag):
 		/* FALLTHROUGH */
@@ -980,10 +1034,10 @@ mdoc_bl_pre(MDOC_ARGS)
 	case(LIST_ohang):
 		/* FALLTHROUGH */
 	case(LIST_tag):
-		print_otag(h, TAG_DL, i, tag);
+		print_otag(h, TAG_DL, 2, tag);
 		break;
 	case(LIST_column):
-		print_otag(h, TAG_TABLE, i, tag);
+		print_otag(h, TAG_TABLE, 2, tag);
 		break;
 	default:
 		abort();
@@ -1008,7 +1062,7 @@ mdoc_ex_pre(MDOC_ARGS)
 
 	print_text(h, "The");
 	for (nn = n->child; nn; nn = nn->next) {
-		t = print_otag(h, TAG_SPAN, 1, &tag);
+		t = print_otag(h, TAG_B, 1, &tag);
 		print_text(h, nn->string);
 		print_tagq(h, t);
 
@@ -1062,12 +1116,14 @@ mdoc_d1_pre(MDOC_ARGS)
 
 	/* BLOCKQUOTE needs a block body. */
 
-	if (MDOC_Dl == n->tok)
-		PAIR_CLASS_INIT(&tag[0], "lit display");
-	else
-		PAIR_CLASS_INIT(&tag[0], "display");
-
+	PAIR_CLASS_INIT(&tag[0], "display");
 	print_otag(h, TAG_DIV, 1, tag);
+
+	if (MDOC_Dl == n->tok) {
+		PAIR_CLASS_INIT(&tag[0], "lit");
+		print_otag(h, TAG_CODE, 1, tag);
+	} 
+
 	return(1);
 }
 
@@ -1090,6 +1146,7 @@ mdoc_sx_pre(MDOC_ARGS)
 	PAIR_CLASS_INIT(&tag[0], "link-sec");
 	PAIR_HREF_INIT(&tag[1], buf);
 
+	print_otag(h, TAG_I, 1, tag);
 	print_otag(h, TAG_A, 2, tag);
 	return(1);
 }
@@ -1108,7 +1165,7 @@ mdoc_bd_pre(MDOC_ARGS)
 		return(0);
 
 	if (MDOC_BLOCK == n->type) {
-		comp = n->data.Bd->comp;
+		comp = n->norm->Bd.comp;
 		for (nn = n; nn && ! comp; nn = nn->parent) {
 			if (MDOC_BLOCK != nn->type)
 				continue;
@@ -1123,14 +1180,14 @@ mdoc_bd_pre(MDOC_ARGS)
 	}
 
 	SCALE_HS_INIT(&su, 0);
-	if (n->data.Bd->offs)
-		a2offs(n->data.Bd->offs, &su);
+	if (n->norm->Bd.offs)
+		a2offs(n->norm->Bd.offs, &su);
 
 	bufcat_su(h, "margin-left", &su);
 	PAIR_STYLE_INIT(&tag[0], h);
 
-	if (DISP_unfilled != n->data.Bd->type && 
-			DISP_literal != n->data.Bd->type) {
+	if (DISP_unfilled != n->norm->Bd.type && 
+			DISP_literal != n->norm->Bd.type) {
 		PAIR_CLASS_INIT(&tag[1], "display");
 		print_otag(h, TAG_DIV, 2, tag);
 		return(1);
@@ -1186,7 +1243,7 @@ mdoc_pa_pre(MDOC_ARGS)
 	struct htmlpair	tag;
 
 	PAIR_CLASS_INIT(&tag, "file");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_I, 1, &tag);
 	return(1);
 }
 
@@ -1198,7 +1255,7 @@ mdoc_ad_pre(MDOC_ARGS)
 	struct htmlpair	tag;
 
 	PAIR_CLASS_INIT(&tag, "addr");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_I, 1, &tag);
 	return(1);
 }
 
@@ -1225,7 +1282,7 @@ mdoc_cd_pre(MDOC_ARGS)
 
 	synopsis_pre(h, n);
 	PAIR_CLASS_INIT(&tag, "config");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_B, 1, &tag);
 	return(1);
 }
 
@@ -1276,12 +1333,12 @@ mdoc_fa_pre(MDOC_ARGS)
 
 	PAIR_CLASS_INIT(&tag, "farg");
 	if (n->parent->tok != MDOC_Fo) {
-		print_otag(h, TAG_SPAN, 1, &tag);
+		print_otag(h, TAG_I, 1, &tag);
 		return(1);
 	}
 
 	for (nn = n->child; nn; nn = nn->next) {
-		t = print_otag(h, TAG_SPAN, 1, &tag);
+		t = print_otag(h, TAG_I, 1, &tag);
 		print_text(h, nn->string);
 		print_tagq(h, t);
 		if (nn->next)
@@ -1304,7 +1361,7 @@ mdoc_fd_pre(MDOC_ARGS)
 	synopsis_pre(h, n);
 
 	PAIR_CLASS_INIT(&tag, "macro");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_B, 1, &tag);
 	return(1);
 }
 
@@ -1337,7 +1394,7 @@ mdoc_ft_pre(MDOC_ARGS)
 
 	synopsis_pre(h, n);
 	PAIR_CLASS_INIT(&tag, "ftype");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_I, 1, &tag);
 	return(1);
 }
 
@@ -1362,7 +1419,7 @@ mdoc_fn_pre(MDOC_ARGS)
 	ep = strchr(sp, ' ');
 	if (NULL != ep) {
 		PAIR_CLASS_INIT(&tag[0], "ftype");
-		t = print_otag(h, TAG_SPAN, 1, tag);
+		t = print_otag(h, TAG_I, 1, tag);
 	
 		while (ep) {
 			sz = MIN((int)(ep - sp), BUFSIZ - 1);
@@ -1393,7 +1450,7 @@ mdoc_fn_pre(MDOC_ARGS)
 	}
 #endif
 
-	t = print_otag(h, TAG_SPAN, 1, tag);
+	t = print_otag(h, TAG_B, 1, tag);
 
 	if (sp) {
 		strlcpy(nbuf, sp, BUFSIZ);
@@ -1414,7 +1471,7 @@ mdoc_fn_pre(MDOC_ARGS)
 		i = 1;
 		if (MDOC_SYNPRETTY & n->flags)
 			i = 2;
-		t = print_otag(h, TAG_SPAN, i, tag);
+		t = print_otag(h, TAG_I, i, tag);
 		print_text(h, nn->string);
 		print_tagq(h, t);
 		if (nn->next)
@@ -1560,7 +1617,7 @@ mdoc_fo_pre(MDOC_ARGS)
 	assert(n->child->string);
 
 	PAIR_CLASS_INIT(&tag, "fname");
-	t = print_otag(h, TAG_SPAN, 1, &tag);
+	t = print_otag(h, TAG_B, 1, &tag);
 	print_text(h, n->child->string);
 	print_tagq(h, t);
 	return(0);
@@ -1591,7 +1648,7 @@ mdoc_in_pre(MDOC_ARGS)
 	synopsis_pre(h, n);
 
 	PAIR_CLASS_INIT(&tag[0], "includes");
-	print_otag(h, TAG_SPAN, 1, tag);
+	print_otag(h, TAG_B, 1, tag);
 
 	if (MDOC_SYNPRETTY & n->flags && MDOC_LINE & n->flags)
 		print_text(h, "#include");
@@ -1627,7 +1684,7 @@ mdoc_ic_pre(MDOC_ARGS)
 	struct htmlpair	tag;
 
 	PAIR_CLASS_INIT(&tag, "cmd");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_B, 1, &tag);
 	return(1);
 }
 
@@ -1647,7 +1704,7 @@ mdoc_rv_pre(MDOC_ARGS)
 
 	for (nn = n->child; nn; nn = nn->next) {
 		PAIR_CLASS_INIT(&tag, "fname");
-		t = print_otag(h, TAG_SPAN, 1, &tag);
+		t = print_otag(h, TAG_B, 1, &tag);
 		print_text(h, nn->string);
 		print_tagq(h, t);
 
@@ -1669,7 +1726,7 @@ mdoc_rv_pre(MDOC_ARGS)
 			"-1 is returned and the global variable");
 
 	PAIR_CLASS_INIT(&tag, "var");
-	t = print_otag(h, TAG_SPAN, 1, &tag);
+	t = print_otag(h, TAG_B, 1, &tag);
 	print_text(h, "errno");
 	print_tagq(h, t);
        	print_text(h, "is set to indicate the error.");
@@ -1684,7 +1741,7 @@ mdoc_va_pre(MDOC_ARGS)
 	struct htmlpair	tag;
 
 	PAIR_CLASS_INIT(&tag, "var");
-	print_otag(h, TAG_SPAN, 1, &tag);
+	print_otag(h, TAG_B, 1, &tag);
 	return(1);
 }
 
@@ -1713,13 +1770,11 @@ mdoc_bf_pre(MDOC_ARGS)
 	else if (MDOC_BODY != n->type)
 		return(1);
 
-	assert(n->data.Bf);
-
-	if (FONT_Em == n->data.Bf->font) 
+	if (FONT_Em == n->norm->Bf.font) 
 		PAIR_CLASS_INIT(&tag[0], "emph");
-	else if (FONT_Sy == n->data.Bf->font) 
+	else if (FONT_Sy == n->norm->Bf.font) 
 		PAIR_CLASS_INIT(&tag[0], "symb");
-	else if (FONT_Li == n->data.Bf->font) 
+	else if (FONT_Li == n->norm->Bf.font) 
 		PAIR_CLASS_INIT(&tag[0], "lit");
 	else
 		PAIR_CLASS_INIT(&tag[0], "none");
@@ -1852,6 +1907,9 @@ static int
 mdoc__x_pre(MDOC_ARGS)
 {
 	struct htmlpair	tag[2];
+	enum htmltag	t;
+
+	t = TAG_SPAN;
 
 	switch (n->tok) {
 	case(MDOC__A):
@@ -1862,6 +1920,7 @@ mdoc__x_pre(MDOC_ARGS)
 		break;
 	case(MDOC__B):
 		PAIR_CLASS_INIT(&tag[0], "ref-book");
+		t = TAG_I;
 		break;
 	case(MDOC__C):
 		PAIR_CLASS_INIT(&tag[0], "ref-city");
@@ -1871,9 +1930,11 @@ mdoc__x_pre(MDOC_ARGS)
 		break;
 	case(MDOC__I):
 		PAIR_CLASS_INIT(&tag[0], "ref-issue");
+		t = TAG_I;
 		break;
 	case(MDOC__J):
 		PAIR_CLASS_INIT(&tag[0], "ref-jrnl");
+		t = TAG_I;
 		break;
 	case(MDOC__N):
 		PAIR_CLASS_INIT(&tag[0], "ref-num");
@@ -1905,7 +1966,7 @@ mdoc__x_pre(MDOC_ARGS)
 	}
 
 	if (MDOC__U != n->tok) {
-		print_otag(h, TAG_SPAN, 1, tag);
+		print_otag(h, t, 1, tag);
 		return(1);
 	}
 

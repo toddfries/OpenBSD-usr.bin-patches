@@ -1,6 +1,6 @@
-/*	$Id: man.h,v 1.31 2010/12/19 07:53:12 schwarze Exp $ */
+/*	$Id: man.h,v 1.34 2011/01/16 02:56:47 schwarze Exp $ */
 /*
- * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -53,8 +53,6 @@ enum	mant {
 	MAN_PD,
 	MAN_AT,
 	MAN_in,
-	MAN_TS,
-	MAN_TE,
 	MAN_ft,
 	MAN_MAX
 };
@@ -68,7 +66,8 @@ enum	man_type {
 	MAN_ROOT,
 	MAN_BLOCK,
 	MAN_HEAD,
-	MAN_BODY
+	MAN_BODY,
+	MAN_TBL
 };
 
 /* 
@@ -81,10 +80,6 @@ struct	man_meta {
 	char		*vol; /* `TH' volume */
 	char		*title; /* `TH' title (e.g., FOO) */
 	char		*source; /* `TH' source (e.g., GNU) */
-};
-
-union man_data {
-	struct tbl	*TS;
 };
 
 /* 
@@ -101,13 +96,13 @@ struct	man_node {
 	enum mant	 tok; /* tok or MAN__MAX if none */
 	int		 flags;
 #define	MAN_VALID	(1 << 0) /* has been validated */
-#define	MAN_ACTED	(1 << 1) /* has been acted upon */
 #define	MAN_EOS		(1 << 2) /* at sentence boundary */
+#define	MAN_LINE	(1 << 3) /* first macro/text on line */
 	enum man_type	 type; /* AST node type */
 	char		*string; /* TEXT node argument */
 	struct man_node	*head; /* BLOCK node HEAD ptr */
 	struct man_node	*body; /* BLOCK node BODY ptr */
-	union man_data	 data;
+	const struct tbl_span *span; /* TBL */
 };
 
 /*
@@ -125,6 +120,8 @@ struct	man	 *man_alloc(struct regset *, void *, mandocmsg);
 void		  man_reset(struct man *);
 int	 	  man_parseln(struct man *, int, char *, int);
 int		  man_endparse(struct man *);
+int		  man_addspan(struct man *,
+			const struct tbl_span *);
 
 const struct man_node *man_node(const struct man *);
 const struct man_meta *man_meta(const struct man *);

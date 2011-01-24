@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect.c,v 1.230 2010/12/14 11:59:06 markus Exp $ */
+/* $OpenBSD: sshconnect.c,v 1.232 2011/01/16 11:50:36 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -133,6 +133,7 @@ ssh_proxy_connect(const char *host, u_short port, const char *proxy_command)
 
 		/* Execute the proxy command.  Note that we gave up any
 		   extra privileges above. */
+		signal(SIGPIPE, SIG_DFL);
 		execv(argv[0], argv);
 		perror(argv[0]);
 		exit(1);
@@ -1233,6 +1234,7 @@ ssh_local_cmd(const char *args)
 	char *shell;
 	pid_t pid;
 	int status;
+	void (*osighand)(int);
 
 	if (!options.permit_local_command ||
 	    args == NULL || !*args)
@@ -1241,8 +1243,10 @@ ssh_local_cmd(const char *args)
 	if ((shell = getenv("SHELL")) == NULL || *shell == '\0')
 		shell = _PATH_BSHELL;
 
+	osighand = signal(SIGCHLD, SIG_DFL);
 	pid = fork();
 	if (pid == 0) {
+		signal(SIGPIPE, SIG_DFL);
 		debug3("Executing %s -c \"%s\"", shell, args);
 		execl(shell, shell, "-c", args, (char *)NULL);
 		error("Couldn't execute %s -c \"%s\": %s",
@@ -1253,6 +1257,7 @@ ssh_local_cmd(const char *args)
 	while (waitpid(pid, &status, 0) == -1)
 		if (errno != EINTR)
 			fatal("Couldn't wait for child: %s", strerror(errno));
+	signal(SIGCHLD, osighand);
 
 	if (!WIFEXITED(status))
 		return (1);

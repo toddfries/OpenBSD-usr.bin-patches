@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.66 2010/12/11 16:13:15 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.70 2011/01/03 21:30:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -393,21 +393,8 @@ status_replace1(struct client *c,struct winlink *wl,
 		ptr = wl->window->name;
 		goto do_replace;
 	case 'F':
-		tmp[0] = ' ';
-		if (wl->flags & WINLINK_CONTENT)
-			tmp[0] = '+';
-		else if (wl->flags & WINLINK_BELL)
-			tmp[0] = '!';
-		else if (wl->flags & WINLINK_ACTIVITY)
-			tmp[0] = '#';
-		else if (wl->flags & WINLINK_SILENCE)
-			tmp[0] = '~';
-		else if (wl == s->curw)
-			tmp[0] = '*';
-		else if (wl == TAILQ_FIRST(&s->lastw))
-			tmp[0] = '-';
-		tmp[1] = '\0';
-		ptr = tmp;
+		ptr = window_printable_flags(s, wl);
+		freeptr = ptr;
 		goto do_replace;
 	case '[':
 		/*
@@ -469,7 +456,7 @@ status_replace(struct client *c,
 			break;
 		ch = *iptr++;
 
-		if (ch != '#') {
+		if (ch != '#' || *iptr == '\0') {
 			*optr++ = ch;
 			continue;
 		}
@@ -996,7 +983,7 @@ status_prompt_key(struct client *c, int key)
 		c->flags |= CLIENT_STATUS;
 		break;
 	case MODEKEYEDIT_PASTE:
-		if ((pb = paste_get_top(&c->session->buffers)) == NULL)
+		if ((pb = paste_get_top(&global_buffers)) == NULL)
 			break;
 		for (n = 0; n < pb->size; n++) {
 			ch = (u_char) pb->data[n];
@@ -1125,12 +1112,12 @@ status_prompt_add_history(const char *line)
 char *
 status_prompt_complete(const char *s)
 {
-	const struct cmd_entry 	      **cmdent;
-	const struct set_option_entry  *entry;
-	ARRAY_DECL(, const char *)	list;
-	char			       *prefix, *s2;
-	u_int				i;
-	size_t			 	j;
+	const struct cmd_entry 	  	       **cmdent;
+	const struct options_table_entry	*oe;
+	ARRAY_DECL(, const char *)		 list;
+	char					*prefix, *s2;
+	u_int					 i;
+	size_t				 	 j;
 
 	if (*s == '\0')
 		return (NULL);
@@ -1141,17 +1128,17 @@ status_prompt_complete(const char *s)
 		if (strncmp((*cmdent)->name, s, strlen(s)) == 0)
 			ARRAY_ADD(&list, (*cmdent)->name);
 	}
-	for (entry = set_option_table; entry->name != NULL; entry++) {
-		if (strncmp(entry->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, entry->name);
+	for (oe = server_options_table; oe->name != NULL; oe++) {
+		if (strncmp(oe->name, s, strlen(s)) == 0)
+			ARRAY_ADD(&list, oe->name);
 	}
-	for (entry = set_session_option_table; entry->name != NULL; entry++) {
-		if (strncmp(entry->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, entry->name);
+	for (oe = session_options_table; oe->name != NULL; oe++) {
+		if (strncmp(oe->name, s, strlen(s)) == 0)
+			ARRAY_ADD(&list, oe->name);
 	}
-	for (entry = set_window_option_table; entry->name != NULL; entry++) {
-		if (strncmp(entry->name, s, strlen(s)) == 0)
-			ARRAY_ADD(&list, entry->name);
+	for (oe = window_options_table; oe->name != NULL; oe++) {
+		if (strncmp(oe->name, s, strlen(s)) == 0)
+			ARRAY_ADD(&list, oe->name);
 	}
 
 	/* If none, bail now. */

@@ -1,4 +1,4 @@
-/*	$Id: man_macro.c,v 1.25 2010/12/19 07:53:12 schwarze Exp $ */
+/*	$Id: man_macro.c,v 1.27 2011/01/16 19:27:25 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -75,8 +75,6 @@ const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, 0 }, /* PD */
 	{ in_line_eoln, 0 }, /* AT */
 	{ in_line_eoln, 0 }, /* in */
-	{ blk_exp, MAN_EXPLICIT }, /* TS */
-	{ blk_close, 0 }, /* TE */
 	{ in_line_eoln, 0 }, /* ft */
 };
 
@@ -105,19 +103,27 @@ rew_warn(struct man *m, struct man_node *n, enum mandocerr er)
  * will be used if an explicit block scope is being closed out.
  */
 int
-man_unscope(struct man *m, const struct man_node *n, 
+man_unscope(struct man *m, const struct man_node *to, 
 		enum mandocerr er)
 {
+	struct man_node	*n;
 
-	assert(n);
+	assert(to);
 
 	/* LINTED */
-	while (m->last != n) {
+	while (m->last != to) {
+		/*
+		 * Save the parent here, because we may delete the
+		 * m->last node in the post-validation phase and reset
+		 * it to m->last->parent, causing a step in the closing
+		 * out to be lost.
+		 */
+		n = m->last->parent;
 		if ( ! rew_warn(m, m->last, er))
 			return(0);
 		if ( ! man_valid_post(m))
 			return(0);
-		m->last = m->last->parent;
+		m->last = n;
 		assert(m->last);
 	}
 
@@ -258,9 +264,6 @@ blk_close(MACRO_PROT_ARGS)
 	switch (tok) {
 	case (MAN_RE):
 		ntok = MAN_RS;
-		break;
-	case (MAN_TE):
-		ntok = MAN_TS;
 		break;
 	default:
 		abort();

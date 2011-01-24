@@ -1,6 +1,6 @@
-/*	$Id: mdoc_term.c,v 1.117 2010/12/19 12:10:33 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.124 2011/01/16 02:56:47 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -30,7 +30,6 @@
 #include "mdoc.h"
 #include "chars.h"
 #include "main.h"
-#include "tbl.h"
 
 #define	INDENT		  5
 #define	HALFINDENT	  3
@@ -65,6 +64,7 @@ static	void	  synopsis_pre(struct termp *,
 			const struct mdoc_node *);
 
 static	void	  termp____post(DECL_ARGS);
+static	void	  termp__t_post(DECL_ARGS);
 static	void	  termp_an_post(DECL_ARGS);
 static	void	  termp_bd_post(DECL_ARGS);
 static	void	  termp_bk_post(DECL_ARGS);
@@ -82,6 +82,7 @@ static	void	  termp_sh_post(DECL_ARGS);
 static	void	  termp_ss_post(DECL_ARGS);
 
 static	int	  termp__a_pre(DECL_ARGS);
+static	int	  termp__t_pre(DECL_ARGS);
 static	int	  termp_an_pre(DECL_ARGS);
 static	int	  termp_ap_pre(DECL_ARGS);
 static	int	  termp_bd_pre(DECL_ARGS);
@@ -114,7 +115,6 @@ static	int	  termp_sh_pre(DECL_ARGS);
 static	int	  termp_sm_pre(DECL_ARGS);
 static	int	  termp_sp_pre(DECL_ARGS);
 static	int	  termp_ss_pre(DECL_ARGS);
-static	int	  termp_ts_pre(DECL_ARGS);
 static	int	  termp_under_pre(DECL_ARGS);
 static	int	  termp_ud_pre(DECL_ARGS);
 static	int	  termp_vt_pre(DECL_ARGS);
@@ -172,7 +172,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ NULL, termp____post }, /* %O */
 	{ NULL, termp____post }, /* %P */
 	{ NULL, termp____post }, /* %R */
-	{ termp_under_pre, termp____post }, /* %T */
+	{ termp__t_pre, termp__t_post }, /* %T */
 	{ NULL, termp____post }, /* %V */
 	{ NULL, NULL }, /* Ac */
 	{ termp_quote_pre, termp_quote_post }, /* Ao */
@@ -244,8 +244,6 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_sp_pre, NULL }, /* sp */ 
 	{ termp_under_pre, termp____post }, /* %U */ 
 	{ NULL, NULL }, /* Ta */ 
-	{ termp_ts_pre, NULL }, /* TS */ 
-	{ NULL, NULL }, /* TE */ 
 };
 
 
@@ -310,11 +308,22 @@ print_mdoc_node(DECL_ARGS)
 
 	memset(&npair, 0, sizeof(struct termpair));
 	npair.ppair = pair;
-
-	if (MDOC_TEXT == n->type)
-		term_word(p, n->string); 
-	else if (termacts[n->tok].pre && ENDBODY_NOT == n->end)
-		chld = (*termacts[n->tok].pre)(p, &npair, m, n);
+	
+	switch (n->type) {
+	case (MDOC_TEXT):
+		if (' ' == *n->string && MDOC_LINE & n->flags)
+			term_newln(p);
+		term_word(p, n->string);
+		break;
+	case (MDOC_TBL):
+		term_tbl(p, n->span);
+		break;
+	default:
+		if (termacts[n->tok].pre && ENDBODY_NOT == n->end)
+			chld = (*termacts[n->tok].pre)
+				(p, &npair, m, n);
+		break;
+	}
 
 	/*
 	 * Keeps only work until the end of a line.  If a keep was
@@ -351,8 +360,14 @@ print_mdoc_node(DECL_ARGS)
 
 	term_fontpopq(p, font);
 
-	if (MDOC_TEXT != n->type && termacts[n->tok].post && 
-			! (MDOC_ENDED & n->flags)) {
+	switch (n->type) {
+	case (MDOC_TEXT):
+		break;
+	case (MDOC_TBL):
+		break;
+	default:
+		if ( ! termacts[n->tok].post || MDOC_ENDED & n->flags)
+			break;
 		(void)(*termacts[n->tok].post)(p, &npair, m, n);
 
 		/*
@@ -370,6 +385,7 @@ print_mdoc_node(DECL_ARGS)
 		 */
 		if (ENDBODY_NOSPACE == n->end)
 			p->flags |= TERMP_NOSPACE;
+		break;
 	}
 
 	if (MDOC_EOS & n->flags)
@@ -556,9 +572,9 @@ print_bvspace(struct termp *p,
 
 	term_newln(p);
 
-	if (MDOC_Bd == bl->tok && bl->data.Bd->comp)
+	if (MDOC_Bd == bl->tok && bl->norm->Bd.comp)
 		return;
-	if (MDOC_Bl == bl->tok && bl->data.Bl->comp)
+	if (MDOC_Bl == bl->tok && bl->norm->Bl.comp)
 		return;
 
 	/* Do not vspace directly after Ss/Sh. */
@@ -577,13 +593,13 @@ print_bvspace(struct termp *p,
 
 	/* A `-column' does not assert vspace within the list. */
 
-	if (MDOC_Bl == bl->tok && LIST_column == bl->data.Bl->type)
+	if (MDOC_Bl == bl->tok && LIST_column == bl->norm->Bl.type)
 		if (n->prev && MDOC_It == n->prev->tok)
 			return;
 
 	/* A `-diag' without body does not vspace. */
 
-	if (MDOC_Bl == bl->tok && LIST_diag == bl->data.Bl->type)
+	if (MDOC_Bl == bl->tok && LIST_diag == bl->norm->Bl.type)
 		if (n->prev && MDOC_It == n->prev->tok) {
 			assert(n->prev->body);
 			if (NULL == n->prev->body->child)
@@ -610,8 +626,7 @@ termp_it_pre(DECL_ARGS)
 	}
 
 	bl = n->parent->parent->parent;
-	assert(bl->data.Bl);
-	type = bl->data.Bl->type;
+	type = bl->norm->Bl.type;
 
 	/* 
 	 * First calculate width and offset.  This is pretty easy unless
@@ -621,8 +636,8 @@ termp_it_pre(DECL_ARGS)
 
 	width = offset = 0;
 
-	if (bl->data.Bl->offs)
-		offset = a2offs(p, bl->data.Bl->offs);
+	if (bl->norm->Bl.offs)
+		offset = a2offs(p, bl->norm->Bl.offs);
 
 	switch (type) {
 	case (LIST_column):
@@ -638,7 +653,7 @@ termp_it_pre(DECL_ARGS)
 		 *   column.
 		 * - For more than 5 columns, add only one column.
 		 */
-		ncols = bl->data.Bl->ncols;
+		ncols = bl->norm->Bl.ncols;
 
 		/* LINTED */
 		dcol = ncols < 5 ? term_len(p, 4) : 
@@ -653,7 +668,7 @@ termp_it_pre(DECL_ARGS)
 				nn->prev && i < (int)ncols; 
 				nn = nn->prev, i++)
 			offset += dcol + a2width
-				(p, bl->data.Bl->cols[i]);
+				(p, bl->norm->Bl.cols[i]);
 
 		/*
 		 * When exceeding the declared number of columns, leave
@@ -668,10 +683,10 @@ termp_it_pre(DECL_ARGS)
 		 * Use the declared column widths, extended as explained
 		 * in the preceding paragraph.
 		 */
-		width = a2width(p, bl->data.Bl->cols[i]) + dcol;
+		width = a2width(p, bl->norm->Bl.cols[i]) + dcol;
 		break;
 	default:
-		if (NULL == bl->data.Bl->width)
+		if (NULL == bl->norm->Bl.width)
 			break;
 
 		/* 
@@ -679,8 +694,8 @@ termp_it_pre(DECL_ARGS)
 		 * number for buffering single arguments.  See the above
 		 * handling for column for how this changes.
 		 */
-		assert(bl->data.Bl->width);
-		width = a2width(p, bl->data.Bl->width) + term_len(p, 2);
+		assert(bl->norm->Bl.width);
+		width = a2width(p, bl->norm->Bl.width) + term_len(p, 2);
 		break;
 	}
 
@@ -942,7 +957,7 @@ termp_it_post(DECL_ARGS)
 	if (MDOC_BLOCK == n->type)
 		return;
 
-	type = n->parent->parent->parent->data.Bl->type;
+	type = n->parent->parent->parent->norm->Bl.type;
 
 	switch (type) {
 	case (LIST_item):
@@ -1116,10 +1131,10 @@ termp_an_post(DECL_ARGS)
 		return;
 	}
 
-	if (AUTH_split == n->data.An.auth) {
+	if (AUTH_split == n->norm->An.auth) {
 		p->flags &= ~TERMP_NOSPLIT;
 		p->flags |= TERMP_SPLIT;
-	} else if (AUTH_nosplit == n->data.An.auth) {
+	} else if (AUTH_nosplit == n->norm->An.auth) {
 		p->flags &= ~TERMP_SPLIT;
 		p->flags |= TERMP_NOSPLIT;
 	}
@@ -1566,9 +1581,8 @@ termp_bd_pre(DECL_ARGS)
 	} else if (MDOC_HEAD == n->type)
 		return(0);
 
-	assert(n->data.Bd);
-	if (n->data.Bd->offs)
-		p->offset += a2offs(p, n->data.Bd->offs);
+	if (n->norm->Bd.offs)
+		p->offset += a2offs(p, n->norm->Bd.offs);
 
 	/*
 	 * If -ragged or -filled are specified, the block does nothing
@@ -1578,12 +1592,14 @@ termp_bd_pre(DECL_ARGS)
 	 * lines are allowed.
 	 */
 	
-	if (DISP_literal != n->data.Bd->type && 
-			DISP_unfilled != n->data.Bd->type)
+	if (DISP_literal != n->norm->Bd.type && 
+			DISP_unfilled != n->norm->Bd.type)
 		return(1);
 
 	tabwidth = p->tabwidth;
-	p->tabwidth = term_len(p, 8);
+	if (DISP_literal == n->norm->Bd.type)
+		p->tabwidth = term_len(p, 8);
+
 	rm = p->rmargin;
 	rmax = p->maxrmargin;
 	p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
@@ -1641,9 +1657,8 @@ termp_bd_post(DECL_ARGS)
 	rm = p->rmargin;
 	rmax = p->maxrmargin;
 
-	assert(n->data.Bd);
-	if (DISP_literal == n->data.Bd->type || 
-			DISP_unfilled == n->data.Bd->type)
+	if (DISP_literal == n->norm->Bd.type || 
+			DISP_unfilled == n->norm->Bd.type)
 		p->rmargin = p->maxrmargin = TERM_MAXMARGIN;
 
 	p->flags |= TERMP_NOSPACE;
@@ -1815,11 +1830,6 @@ termp_sp_pre(DECL_ARGS)
 		len = 0;
 		break;
 	default:
-		assert(n->parent);
-		if ((NULL == n->next || NULL == n->prev) &&
-				(MDOC_Ss == n->parent->tok ||
-				 MDOC_Sh == n->parent->tok))
-			return(0);
 		len = 1;
 		break;
 	}
@@ -1838,7 +1848,7 @@ static int
 termp_quote_pre(DECL_ARGS)
 {
 
-	if (MDOC_BODY != n->type)
+	if (MDOC_BODY != n->type && MDOC_ELEM != n->type)
 		return(1);
 
 	switch (n->tok) {
@@ -1871,6 +1881,8 @@ termp_quote_pre(DECL_ARGS)
 	case (MDOC_Pq):
 		term_word(p, "(");
 		break;
+	case (MDOC__T):
+		/* FALLTHROUGH */
 	case (MDOC_Qo):
 		/* FALLTHROUGH */
 	case (MDOC_Qq):
@@ -1898,7 +1910,7 @@ static void
 termp_quote_post(DECL_ARGS)
 {
 
-	if (MDOC_BODY != n->type)
+	if (MDOC_BODY != n->type && MDOC_ELEM != n->type)
 		return;
 
 	p->flags |= TERMP_NOSPACE;
@@ -1933,6 +1945,8 @@ termp_quote_post(DECL_ARGS)
 	case (MDOC_Pq):
 		term_word(p, ")");
 		break;
+	case (MDOC__T):
+		/* FALLTHROUGH */
 	case (MDOC_Qo):
 		/* FALLTHROUGH */
 	case (MDOC_Qq):
@@ -2003,11 +2017,9 @@ termp_bf_pre(DECL_ARGS)
 	else if (MDOC_BLOCK != n->type)
 		return(1);
 
-	assert(n->data.Bf);
-
-	if (FONT_Em == n->data.Bf->font) 
+	if (FONT_Em == n->norm->Bf.font) 
 		term_fontpush(p, TERMFONT_UNDER);
-	else if (FONT_Sy == n->data.Bf->font) 
+	else if (FONT_Sy == n->norm->Bf.font) 
 		term_fontpush(p, TERMFONT_BOLD);
 	else 
 		term_fontpush(p, TERMFONT_NONE);
@@ -2113,21 +2125,6 @@ termp_lk_pre(DECL_ARGS)
 
 /* ARGSUSED */
 static int
-termp_ts_pre(DECL_ARGS)
-{
-
-	if (MDOC_BLOCK != n->type)
-		return(0);
-
-	if (tbl_close(p, n->data.TS, "mdoc tbl postprocess", n->line))
-		tbl_write(p, n->data.TS);
-
-	return(0);
-}
-
-
-/* ARGSUSED */
-static int
 termp_bk_pre(DECL_ARGS)
 {
 
@@ -2156,6 +2153,39 @@ termp_bk_post(DECL_ARGS)
 
 	if (MDOC_BODY == n->type)
 		p->flags &= ~(TERMP_KEEP | TERMP_PREKEEP);
+}
+
+/* ARGSUSED */
+static void
+termp__t_post(DECL_ARGS)
+{
+
+	/*
+	 * If we're in an `Rs' and there's a journal present, then quote
+	 * us instead of underlining us (for disambiguation).
+	 */
+	if (n->parent && MDOC_Rs == n->parent->tok &&
+			n->parent->norm->Rs.child_J)
+		termp_quote_post(p, pair, m, n);
+
+	termp____post(p, pair, m, n);
+}
+
+/* ARGSUSED */
+static int
+termp__t_pre(DECL_ARGS)
+{
+
+	/*
+	 * If we're in an `Rs' and there's a journal present, then quote
+	 * us instead of underlining us (for disambiguation).
+	 */
+	if (n->parent && MDOC_Rs == n->parent->tok &&
+			n->parent->norm->Rs.child_J)
+		return(termp_quote_pre(p, pair, m, n));
+
+	term_fontpush(p, TERMFONT_UNDER);
+	return(1);
 }
 
 /* ARGSUSED */

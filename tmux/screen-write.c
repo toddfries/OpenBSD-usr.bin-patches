@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.43 2010/06/21 00:11:12 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.45 2011/01/03 23:35:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -829,16 +829,35 @@ screen_write_insertmode(struct screen_write_ctx *ctx, int state)
 		s->mode &= ~MODE_INSERT;
 }
 
-/* Set mouse mode.  */
+/* Set UTF-8 mouse mode.  */
 void
-screen_write_mousemode(struct screen_write_ctx *ctx, int state)
+screen_write_utf8mousemode(struct screen_write_ctx *ctx, int state)
 {
 	struct screen	*s = ctx->s;
 
 	if (state)
-		s->mode |= MODE_MOUSE;
+		s->mode |= MODE_MOUSE_UTF8;
 	else
-		s->mode &= ~MODE_MOUSE;
+		s->mode &= ~MODE_MOUSE_UTF8;
+}
+
+/* Set mouse mode off. */
+void
+screen_write_mousemode_off(struct screen_write_ctx *ctx)
+{
+	struct screen	*s = ctx->s;
+
+	s->mode &= ~ALL_MOUSE_MODES;
+}
+
+/* Set mouse mode on. */
+void
+screen_write_mousemode_on(struct screen_write_ctx *ctx, int mode)
+{
+	struct screen	*s = ctx->s;
+
+	s->mode &= ~ALL_MOUSE_MODES;
+	s->mode |= mode;
 }
 
 /* Line feed. */

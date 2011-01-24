@@ -1,6 +1,6 @@
-/*	$Id: mdoc.h,v 1.36 2010/12/19 09:22:35 schwarze Exp $ */
+/*	$Id: mdoc.h,v 1.42 2011/01/04 22:28:17 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -143,8 +143,6 @@ enum	mdoct {
 	MDOC_sp,
 	MDOC__U,
 	MDOC_Ta,
-	MDOC_TS,
-	MDOC_TE,
 	MDOC_MAX
 };
 
@@ -192,6 +190,7 @@ enum	mdoc_type {
 	MDOC_TAIL,
 	MDOC_BODY,
 	MDOC_BLOCK,
+	MDOC_TBL,
 	MDOC_ROOT
 };
 
@@ -355,17 +354,21 @@ struct	mdoc_an {
 	enum mdoc_auth	  auth; /* -split, etc. */
 };
 
+struct	mdoc_rs {
+	struct mdoc_node *child_J; /* pointer to %J */
+};
+
 /*
  * Consists of normalised node arguments.  These should be used instead
  * of iterating through the mdoc_arg pointers of a node: defaults are
  * provided, etc.
  */
-union mdoc_data {
+union	mdoc_data {
 	struct mdoc_an 	  An;
-	struct mdoc_bd	 *Bd;
-	struct mdoc_bf	 *Bf;
-	struct mdoc_bl	 *Bl;
-	struct tbl	 *TS;
+	struct mdoc_bd	  Bd;
+	struct mdoc_bf	  Bf;
+	struct mdoc_bl	  Bl;
+	struct mdoc_rs	  Rs;
 };
 
 /* 
@@ -374,6 +377,7 @@ union mdoc_data {
 struct	mdoc_node {
 	struct mdoc_node *parent; /* parent AST node */
 	struct mdoc_node *child; /* first child AST node */
+	struct mdoc_node *last; /* last child AST node */
 	struct mdoc_node *next; /* sibling AST node */
 	struct mdoc_node *prev; /* prior sibling AST node */
 	int		  nchild; /* number children */
@@ -382,13 +386,13 @@ struct	mdoc_node {
 	enum mdoct	  tok; /* tok or MDOC__MAX if none */
 	int		  flags;
 #define	MDOC_VALID	 (1 << 0) /* has been validated */
-#define	MDOC_ACTED	 (1 << 1) /* has been acted upon */
 #define	MDOC_EOS	 (1 << 2) /* at sentence boundary */
 #define	MDOC_LINE	 (1 << 3) /* first macro/text on line */
 #define	MDOC_SYNPRETTY	 (1 << 4) /* SYNOPSIS-style formatting */
 #define	MDOC_ENDED	 (1 << 5) /* rendering has been ended */
 	enum mdoc_type	  type; /* AST node type */
 	enum mdoc_sec	  sec; /* current named section */
+	union mdoc_data	 *norm; /* normalised args */
 	/* FIXME: these can be union'd to shave a few bytes. */
 	struct mdoc_arg	 *args; /* BLOCK/ELEM */
 	struct mdoc_node *pending; /* BLOCK */
@@ -396,8 +400,8 @@ struct	mdoc_node {
 	struct mdoc_node *body; /* BLOCK */
 	struct mdoc_node *tail; /* BLOCK */
 	char		 *string; /* TEXT */
+	const struct tbl_span *span; /* TBL */
 	enum mdoc_endbody end; /* BODY */
-	union mdoc_data	  data;
 };
 
 /*
@@ -424,6 +428,8 @@ int	 	  mdoc_parseln(struct mdoc *, int, char *, int);
 const struct mdoc_node *mdoc_node(const struct mdoc *);
 const struct mdoc_meta *mdoc_meta(const struct mdoc *);
 int		  mdoc_endparse(struct mdoc *);
+int		  mdoc_addspan(struct mdoc *,
+			const struct tbl_span *);
 
 __END_DECLS
 

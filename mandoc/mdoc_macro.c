@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.60 2010/12/01 22:02:29 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.63 2011/01/16 19:27:25 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -185,8 +185,6 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_eoln, 0 }, /* sp */
 	{ in_line_eoln, 0 }, /* %U */
 	{ phrase_ta, MDOC_CALLABLE | MDOC_PARSED }, /* Ta */
-	{ blk_part_exp, MDOC_EXPLICIT }, /* TS */
-	{ blk_exp_close, MDOC_EXPLICIT }, /* TE */
 };
 
 const	struct mdoc_macro * const mdoc_macros = __mdoc_macros;
@@ -250,16 +248,26 @@ lookup_raw(const char *p)
 static int
 rew_last(struct mdoc *mdoc, const struct mdoc_node *to)
 {
+	struct mdoc_node *n, *np;
 
 	assert(to);
 	mdoc->next = MDOC_NEXT_SIBLING;
 
 	/* LINTED */
 	while (mdoc->last != to) {
+		/*
+		 * Save the parent here, because we may delete the
+		 * m->last node in the post-validation phase and reset
+		 * it to m->last->parent, causing a step in the closing
+		 * out to be lost.
+		 */
+		np = mdoc->last->parent;
 		if ( ! mdoc_valid_post(mdoc))
 			return(0);
-		mdoc->last = mdoc->last->parent;
+		n = mdoc->last;
+		mdoc->last = np;
 		assert(mdoc->last);
+		mdoc->last->last = n;
 	}
 
 	return(mdoc_valid_post(mdoc));
@@ -306,8 +314,6 @@ rew_alt(enum mdoct tok)
 		return(MDOC_So);
 	case (MDOC_Xc):
 		return(MDOC_Xo);
-	case (MDOC_TE):
-		return(MDOC_TS);
 	default:
 		return(tok);
 	}
