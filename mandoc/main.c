@@ -1,7 +1,7 @@
-/*	$Id: main.c,v 1.69 2011/01/20 21:33:11 schwarze Exp $ */
+/*	$Id: main.c,v 1.71 2011/01/25 12:24:26 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2011 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -641,6 +641,7 @@ pdesc(struct curparse *curp)
 static void
 parsebuf(struct curparse *curp, struct buf blk, int start)
 {
+	const struct tbl_span	*span;
 	struct buf	 ln;
 	enum rofferr	 rr;
 	int		 i, of, rc;
@@ -669,6 +670,16 @@ parsebuf(struct curparse *curp, struct buf blk, int start)
 		}
 
 		while (i < (int)blk.sz && (start || '\0' != blk.buf[i])) {
+
+			/*
+			 * When finding an unescaped newline character,
+			 * leave the character loop to process the line.
+			 * Skip a preceding carriage return, if any.
+			 */
+
+			if ('\r' == blk.buf[i] && i + 1 < (int)blk.sz &&
+			    '\n' == blk.buf[i + 1])
+				++i;
 			if ('\n' == blk.buf[i]) {
 				++i;
 				++lnn;
@@ -703,11 +714,18 @@ parsebuf(struct curparse *curp, struct buf blk, int start)
 				continue;
 			}
 
-			/* Found escape & at least one other char. */
+			/*
+			 * Found escape and at least one other character.
+			 * When it's a newline character, skip it.
+			 * When there is a carriage return in between,
+			 * skip that one as well.
+			 */
 
+			if ('\r' == blk.buf[i + 1] && i + 2 < (int)blk.sz &&
+			    '\n' == blk.buf[i + 2])
+				++i;
 			if ('\n' == blk.buf[i + 1]) {
 				i += 2;
-				/* Escaped newlines are skipped over */
 				++lnn;
 				continue;
 			}
@@ -823,11 +841,12 @@ rerun:
 
 		if (ROFF_TBL == rr) {
 			assert(curp->man || curp->mdoc);
-			if (curp->man)
-				man_addspan(curp->man, roff_span(curp->roff));
-			else
-				mdoc_addspan(curp->mdoc, roff_span(curp->roff));
-
+			while (NULL != (span = roff_span(curp->roff))) {
+				if (curp->man)
+					man_addspan(curp->man, span);
+				else
+					mdoc_addspan(curp->mdoc, span);
+			}
 		} else if (curp->man || curp->mdoc) {
 			rc = curp->man ?
 				man_parseln(curp->man, 
