@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $OpenBSD: pkg-config,v 1.28 2011/03/07 22:21:50 jasper Exp $
+# $OpenBSD: pkg-config,v 1.34 2011/03/14 08:43:59 jasper Exp $
 
 #$CSK: pkgconfig.pl,v 1.39 2006/11/27 16:26:20 ckuethe Exp $
 # Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
@@ -35,11 +35,11 @@ if (defined($ENV{PKG_CONFIG_LOGFILE}) && $ENV{PKG_CONFIG_LOGFILE}) {
 	$logfile = $ENV{PKG_CONFIG_LOGFILE};
 }
 
-my $allow_uninstalled = 
+my $allow_uninstalled =
 	defined $ENV{PKG_CONFIG_DISABLE_UNINSTALLED} ? 0 : 1;
 my $found_uninstalled = 0;
 
-my $version = 0.22; # pretend to be this version of pkgconfig
+my $version = 0.23; # pretend to be this version of pkgconfig
 
 my %configs = ();
 my %mode = ();
@@ -53,7 +53,15 @@ my $D = 0; # debug flag
     } else {
 	    $variables->{pc_top_builddir} = '$(top_builddir)';
     }
+
+    my $s = $ENV{PKG_CONFIG_SYSROOT_DIR};
+    if (defined $s) {
+	    $variables->{pc_sysrootdir} = $s;
+    }
+    # The default '/' is implied.
 }
+
+$D = 1 if defined($ENV{PKG_CONFIG_DEBUG_SPEW});
 
 if ($logfile) {
 	open my $L, ">>" . $logfile;
@@ -67,7 +75,7 @@ if ($logfile) {
 #
 # as each .pc file is loaded, it is stored in %configs, indexed by package
 # name. this makes it possible to then pull out flags or do substitutions
-# without having to go back and reload the files from disk
+# without having to go back and reload the files from disk.
 
 Getopt::Long::Configure('no_ignore_case');
 GetOptions(	'debug' => \$D,
@@ -80,6 +88,9 @@ GetOptions(	'debug' => \$D,
 		'silence-errors' => sub { $mode{printerr} = 0},
 		'short-errors' => sub { $mode{printerr} = 0},
 		'atleast-pkgconfig-version=s' => \$mode{myminvers},
+		'print-provides' => \$mode{printprovides},
+		'print-requires' => \$mode{printrequires},
+		'print-requires-private' => \$mode{printrequiresprivate},
 
 		'cflags' => sub { $mode{cflags} = 3},
 		'cflags-only-I' => sub { $mode{cflags} |= 1},
@@ -101,7 +112,7 @@ GetOptions(	'debug' => \$D,
 
 # Initial value of printerr depends on the options...
 if (!defined $mode{printerr}) {
-	if (defined $mode{libs} || defined $mode{cflags} 
+	if (defined $mode{libs} || defined $mode{cflags}
 	    || defined $mode{version} || defined $mode{list}) {
 		$mode{printerr} = 1;
 	} else {
@@ -154,9 +165,15 @@ if ($mode{uninstalled}) {
 	exit $rc;
 }
 
-if ($mode{modversion}) {
+if ($mode{modversion} || $mode{printprovides}) {
 	for my $pkg (@$top_config) {
 		do_modversion($pkg);
+	}
+}
+
+if ($mode{printrequires} || $mode{printrequiresprivate}) {
+	for my $pkg (@$top_config) {
+		print_requires($pkg);
 	}
 }
 
@@ -295,7 +312,7 @@ sub get_config
 	my ($f) = @_;
 
 	my $cfg;
-	eval { 
+	eval {
 	    $cfg = OpenBSD::PkgConfig->read_file($f);
 	};
 	if (!$@) {
@@ -327,7 +344,7 @@ sub find_config
 		return get_config($f);
 	}
 	if ($mode{printerr}) {
-	    print STDERR 
+	    print STDERR
 	    	"Package $p was not found in the pkg-config search path\n";
 	}
 	return undef;
@@ -362,7 +379,8 @@ sub do_variable
 	$rc = 1;
 }
 
-#if the modversion option is set, pull out the compiler flags
+#if the modversion or print-provides options are set,
+#pull out the compiler flags
 sub do_modversion
 {
 	my ($p) = @_;
@@ -372,8 +390,13 @@ sub do_modversion
 	if (defined $cfg) {
 		my $value = $cfg->get_property('Version', $variables);
 		if (defined $value) {
-			print stringize($value), "\n";
-			return undef;
+			if (!defined($mode{printprovides})){
+				print stringize($value), "\n";
+				return undef;
+			} else {
+				print "$p = " . stringize($value) . "\n";
+				return undef;
+			}
 		}
 	}
 	$rc = 1;
@@ -390,7 +413,7 @@ sub do_cflags
 		my $l = $configs{$pkg}->get_property('Cflags', $variables);
 		push(@$cflags, @$l) if defined $l;
 	}
-	return OpenBSD::PkgConfig->compress($cflags,
+	my $a = OpenBSD::PkgConfig->compress($cflags,
 		sub {
 			local $_ = shift;
 			if (($mode{cflags} & 1) && /^-I/ ||
@@ -400,7 +423,11 @@ sub do_cflags
 			    return 0;
 			}
 		});
-	return undef;
+	if (defined($a) && defined($variables->{pc_sysrootdir})){
+		$a =~ s/^-I/$&$variables->{pc_sysrootdir}/g;
+	}
+
+	return $a;
 }
 
 #if the lib option is set, pull out the linker flags
@@ -424,6 +451,11 @@ sub do_libs
 			    return 0;
 			}
 		});
+
+	if (defined($variables->{pc_sysrootdir})){
+		$a =~ s/^-[lL]/$&$variables->{pc_sysrootdir}/g;
+	}
+
 	if ($mode{libs} & 1) {
 		my $b = OpenBSD::PkgConfig->rcompress($libs,
 			sub { shift =~ m/^-l/; });
@@ -439,8 +471,8 @@ sub do_list
 	my ($p, $x, $y, @files, $fname, $name);
 	my $error = 0;
 
-	foreach my $p (@PKGPATH) { 
-		push(@files, <$p/*.pc>); 
+	foreach my $p (@PKGPATH) {
+		push(@files, <$p/*.pc>);
 	}
 
 	# Scan the lengths of the package names so I can make a format
@@ -461,8 +493,8 @@ sub do_list
 			next;
 		}
 		$fname = basename($f, '.pc');
-		printf("%${x}s %s - %s\n", $fname, 
-		    stringize($cfg->get_property('Name', $variables)), 
+		printf("%${x}s %s - %s\n", $fname,
+		    stringize($cfg->get_property('Name', $variables)),
 		    stringize($cfg->get_property('Description', $variables),
 		    ' '));
 	}
@@ -480,6 +512,9 @@ Usage: $0 [options]
 --version - print version of pkgconfig
 --errors-to-stdout - direct error messages to stdout rather than stderr
 --print-errors - print error messages in case of error
+--print-provides - print all the modules the given package provides
+--print-requires - print all the modules the given package requires
+--print-requires-private - print all the private modules the given package requires
 --silence-errors - don't print error messages in case of error
 --atleast-pkgconfig-version [version] - require a certain version of pkgconfig
 --cflags package [versionspec] [package [versionspec]]
@@ -540,7 +575,7 @@ sub compare
 sub versionmatch
 {
 	my ($cfg, $op, $want) = @_;
-	
+
 	# can't possibly match if we can't find the file
 	return 0 if !defined $cfg;
 
@@ -551,19 +586,12 @@ sub versionmatch
 
 	print "comparing $want (wanted) to $inst (installed)\n" if $D;
 	my $value = compare($inst, $want);
-	if ($op eq '>=') {
-		return $value >= 0;
-	} elsif ($op eq '=') {
-		return $value == 0;
-	} elsif ($op eq '!=') {
-		return $value != 0;
-	} elsif ($op eq '<') {
-		return $value < 0;
-	} elsif ($op eq '>') {
-		return $value > 0;
-	} elsif ($op eq '<=') {
-		return $value <= 0;
-	}
+	if    ($op eq '>=') { return $value >= 0; }
+	elsif ($op eq '=')  { return $value == 0; }
+	elsif ($op eq '!=') { return $value != 0; }
+	elsif ($op eq '<')  { return $value < 0; }
+	elsif ($op eq '>')  { return $value > 0; }
+	elsif ($op eq '<=') { return $value <= 0; }
 }
 
 sub mismatch
@@ -587,4 +615,32 @@ sub simplify_and_reverse
 		}
 	}
 	return $result;
+}
+
+# retrieve and print Requires(.private)
+sub print_requires
+{
+	my ($p) = @_;
+
+	my $cfg = cache_find_config($p);
+
+	if (defined($cfg)) {
+		my $value;
+
+		if (defined($mode{printrequires})) {
+			$value = $cfg->get_property('Requires', $variables);
+		} elsif (defined($mode{printrequiresprivate})) {
+			$value = $cfg->get_property('Requires.private', $variables);
+		} else {
+			print STDERR "Unknown mode for print_requires.\n" if $D;
+			return 1;
+		}
+
+		if (defined($value)) {
+			print "$_\n" foreach (@$value);
+			return undef;
+		}
+	}
+
+	$rc = 1;
 }
