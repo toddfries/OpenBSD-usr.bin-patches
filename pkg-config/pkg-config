@@ -1,8 +1,9 @@
 #!/usr/bin/perl
-# $OpenBSD: pkg-config,v 1.34 2011/03/14 08:43:59 jasper Exp $
+# $OpenBSD: pkg-config,v 1.42 2011/03/21 13:28:06 espie Exp $
+# $CSK: pkgconfig.pl,v 1.39 2006/11/27 16:26:20 ckuethe Exp $
 
-#$CSK: pkgconfig.pl,v 1.39 2006/11/27 16:26:20 ckuethe Exp $
 # Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
+# Copyright (c) 2011 Jasper Lievisse Adriaanse <jasper@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -42,30 +43,23 @@ my $found_uninstalled = 0;
 my $version = 0.23; # pretend to be this version of pkgconfig
 
 my %configs = ();
+setup_self();
+
 my %mode = ();
 my $variables = {};
 my $D = 0; # debug flag
 
-{
-    my $d = $ENV{PKG_CONFIG_TOP_BUILD_DIR};
-    if (defined $d) {
-	    $variables->{pc_top_builddir} = $d;
-    } else {
-	    $variables->{pc_top_builddir} = '$(top_builddir)';
-    }
+$variables->{pc_top_builddir} = $ENV{PKG_CONFIG_TOP_BUILD_DIR} // 
+	'$(top_builddir)';
 
-    my $s = $ENV{PKG_CONFIG_SYSROOT_DIR};
-    if (defined $s) {
-	    $variables->{pc_sysrootdir} = $s;
-    }
-    # The default '/' is implied.
-}
+$variables->{pc_sysrootdir} //= $ENV{PKG_CONFIG_SYSROOT_DIR};
+# The default '/' is implied.
 
-$D = 1 if defined($ENV{PKG_CONFIG_DEBUG_SPEW});
+$D = 1 if defined $ENV{PKG_CONFIG_DEBUG_SPEW};
 
 if ($logfile) {
-	open my $L, ">>" . $logfile;
-	print $L '[' . join('] [', $0, @ARGV) . "]\n";
+	open my $L, ">>" , $logfile or die;
+	print $L beautify_list($_, @ARGV), "\n";
 	close $L;
 }
 
@@ -120,7 +114,7 @@ if (!defined $mode{printerr}) {
 	}
 }
 
-print STDERR "\n[" . join('] [', $0, @ARGV) . "]\n" if $D;
+print STDERR "\n", beautify_list($0, @ARGV), "\n" if $D;
 
 my $rc = 0;
 
@@ -128,7 +122,7 @@ my $rc = 0;
 {
 my $p = join(' ', @ARGV);
 $p =~ s/^\s+//;
-@ARGV = split /\s+/, $p;
+@ARGV = split /\,?\s+/, $p;
 }
 
 if ($mode{myminvers}) {
@@ -146,12 +140,11 @@ while (@ARGV){
 	my $p = shift @ARGV;
 	my $op = undef;
 	my $v = undef;
-	if (@ARGV >= 2  && $ARGV[0] =~ /[<=>]+/ &&
-	    $ARGV[1] =~ /[0-9\.]+/) {
+	if (@ARGV >= 2  && $ARGV[0] =~ /^[<=>]+$/ &&
+	    $ARGV[1] =~ /^[\d\.]+\w?$/) {
 	    	$op = shift @ARGV;
 		$v = shift @ARGV;
 	}
-	$p =~ s/,//g;
 	handle_config($p, $op, $v, $cfg_full_list);
 	push(@$top_config, $p);
 }
@@ -224,61 +217,47 @@ exit $rc;
 sub handle_config
 {
 	my ($p, $op, $v, $list) = @_;
-	my $cfg;
+	my $cfg = cache_find_config($p);
 
-	# pkg-config won't install a pkg-config.pc file itself, but it may be
-	# listed as a dependency in other files.
-	# If we encounter a dependency on pkg-config, check if our version
-	# is sufficient and error out if not.
-	if ($p eq "pkg-config"){
-		if ($v > $version) {
-			print STDERR "pkg-config version $version too old, $v required.\n" if $D;
+	unshift @$list, $p if defined $cfg;
+
+	if (!defined $cfg) {
+		$rc = 1;
+		return undef;
+	}
+
+	if (defined $op) {
+		if (!versionmatch($cfg, $op, $v)) {
+			mismatch($p, $cfg, $op, $v) if $mode{printerr};
 			$rc = 1;
 			return undef;
 		}
-	} else {
-		$cfg = cache_find_config($p);
+	}
 
-		unshift @$list, $p if defined $cfg;
-
-		if (!defined $cfg) {
-			$rc = 1;
-			return undef;
-		}
-
-		if (defined $op) {
-			if (!versionmatch($cfg, $op, $v)) {
-				mismatch($p, $cfg, $op, $v) if $mode{printerr};
-				$rc = 1;
-				return undef;
+	my $deps = $cfg->get_property('Requires', $variables);
+	if (defined $deps) {
+		for my $dep (@$deps) {
+			if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+)$/) {
+				handle_config($1, $2, $3, $list);
+			} else {
+				handle_config($dep, undef, undef, $list);
 			}
 		}
+		print STDERR "package $p requires ",
+		    join(',', @$deps), "\n" if $D;
+	}
 
-		my $deps = $cfg->get_property('Requires', $variables);
-		if (defined $deps) {
-			for my $dep (@$deps) {
-				if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+)$/) {
-					handle_config($1, $2, $3, $list);
-				} else {
-					handle_config($dep, undef, undef, $list);
-				}
+	$deps = $cfg->get_property('Requires.private', $variables);
+	if (defined $deps) {
+		for my $dep (@$deps) {
+			if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+)$/) {
+				handle_config($1, $2, $3, $list);
+			} else {
+				handle_config($dep, undef, undef, $list);
 			}
-			print STDERR "package $p requires ",
-			    join(',', @$deps), "\n" if $D;
 		}
-
-		$deps = $cfg->get_property('Requires.private', $variables);
-		if (defined $deps) {
-			for my $dep (@$deps) {
-				if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+)$/) {
-					handle_config($1, $2, $3, $list);
-				} else {
-					handle_config($dep, undef, undef, $list);
-				}
-			}
-			print STDERR "package $p requires (private)",
-			    join(',', @$deps), "\n" if $D;
-		}
+		print STDERR "package $p requires (private)",
+		    join(',', @$deps), "\n" if $D;
 	}
 }
 
@@ -316,7 +295,7 @@ sub get_config
 	    $cfg = OpenBSD::PkgConfig->read_file($f);
 	};
 	if (!$@) {
-		return $cfg;
+		return validate_config($f, $cfg);
 	} else {
 		print STDERR $@, "\n" if $D;
 	}
@@ -334,6 +313,37 @@ sub cache_find_config
 	} else {
 	    	return $configs{$name} = find_config($name);
 	}
+}
+
+# Required elements for a valid .pc file: Name, Description, Version
+sub validate_config
+{
+	my ($f, $cfg) = @_;
+	my @required_elems = ('Name', 'Description', 'Version');
+	my $e;
+
+	foreach (@required_elems) {
+		$e = $cfg->get_property($_, $variables);
+		if (!defined $e) {
+			$f =~ s/(^.*\/)(.*?)\.pc$/$2/g;
+			print STDERR "Package '$f' has no $_: field\n";
+			return undef;
+		}
+	}
+
+	return $cfg;
+}
+
+# pkg-config won't install a pkg-config.pc file itself, but it may be
+
+# listed as a dependency in other files.
+# so, prime the cache with self
+sub setup_self
+{
+	my $pkg_pc = OpenBSD::PkgConfig->new;
+	$pkg_pc->add_property('Version', $version);
+	$pkg_pc->add_variable('pc_path', join(":", @PKGPATH));
+	$configs{'pkg-config'} = $pkg_pc;
 }
 
 sub find_config
@@ -424,7 +434,7 @@ sub do_cflags
 			}
 		});
 	if (defined($a) && defined($variables->{pc_sysrootdir})){
-		$a =~ s/^-I/$&$variables->{pc_sysrootdir}/g;
+		$a =~ s/[\w]?-I/$&$variables->{pc_sysrootdir}/g;
 	}
 
 	return $a;
@@ -453,7 +463,7 @@ sub do_libs
 		});
 
 	if (defined($variables->{pc_sysrootdir})){
-		$a =~ s/^-[lL]/$&$variables->{pc_sysrootdir}/g;
+		$a =~ s/[\w]?-[lL]/$&$variables->{pc_sysrootdir}/g;
 	}
 
 	if ($mode{libs} & 1) {
@@ -597,9 +607,12 @@ sub versionmatch
 sub mismatch
 {
 	my ($p, $cfg, $op, $v) = @_;
-	print STDERR "Requested '$p $op $v' but version of ",
-	    stringize($cfg->get_property('Name')), " is ",
-	    stringize($cfg->get_property('Version')), "\n";
+	my $name = stringize($cfg->get_property('Name'));
+	my $version = stringize($cfg->get_property('Version'));
+	my $url = stringize($cfg->get_property('URL'));
+
+	print STDERR "Requested '$p $op $v' but version of $name is $version\n";
+	print STDERR "You may find new versions of $name at $url\n" if $url;
 }
 
 sub simplify_and_reverse
@@ -643,4 +656,9 @@ sub print_requires
 	}
 
 	$rc = 1;
+}
+
+sub beautify_list
+{
+	return join(' ', map {"[$_]"} @_);
 }
