@@ -2,8 +2,6 @@
 
 MAN=	mkdep.1
 
-<<<<<<< HEAD
-
 all: mkdep.gcc
 
 _cc_cookie=MagicCookie0cd489f0c1479952
@@ -21,10 +19,8 @@ mkdep.gcc: mkdep.gcc.sh
 		sed 's/ /|/g')"'/' ${.CURDIR}/mkdep.gcc.sh > mkdep.gcc
 	
 
-=======
->>>>>>> master
 beforeinstall:
 	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE} \
-	    ${.CURDIR}/mkdep.gcc.sh ${DESTDIR}/usr/bin/mkdep
+	    mkdep.gcc ${DESTDIR}/usr/bin/mkdep
 
 .include <bsd.prog.mk>
