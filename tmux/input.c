@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.29 2010/04/17 23:31:09 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.37 2011/03/07 23:46:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -41,6 +41,9 @@
  *
  * - A state for the screen \033k...\033\\ sequence to rename a window. This is
  *   pretty stupid but not supporting it is more trouble than it is worth.
+ *
+ * - Special handling for ESC inside a DCS to allow arbitrary byte sequences to
+ *   be passed to the underlying teminal(s).
  */
 
 /* Helper functions. */
@@ -50,8 +53,6 @@ void	input_reply(struct input_ctx *, const char *, ...);
 
 /* Transition entry/exit handlers. */
 void	input_clear(struct input_ctx *);
-void	input_enter_dcs(struct input_ctx *);
-void	input_exit_dcs(struct input_ctx *);
 void	input_enter_osc(struct input_ctx *);
 void	input_exit_osc(struct input_ctx *);
 void	input_enter_apc(struct input_ctx *);
@@ -68,6 +69,7 @@ int	input_c0_dispatch(struct input_ctx *);
 int	input_esc_dispatch(struct input_ctx *);
 int	input_csi_dispatch(struct input_ctx *);
 void	input_csi_dispatch_sgr(struct input_ctx *);
+int	input_dcs_dispatch(struct input_ctx *);
 int	input_utf8_open(struct input_ctx *);
 int	input_utf8_add(struct input_ctx *);
 int	input_utf8_close(struct input_ctx *);
@@ -204,6 +206,7 @@ const struct input_transition input_state_dcs_enter_table[];
 const struct input_transition input_state_dcs_parameter_table[];
 const struct input_transition input_state_dcs_intermediate_table[];
 const struct input_transition input_state_dcs_handler_table[];
+const struct input_transition input_state_dcs_escape_table[];
 const struct input_transition input_state_dcs_ignore_table[];
 const struct input_transition input_state_osc_string_table[];
 const struct input_transition input_state_apc_string_table[];
@@ -286,8 +289,15 @@ const struct input_state input_state_dcs_intermediate = {
 /* dcs_handler state definition. */
 const struct input_state input_state_dcs_handler = {
 	"dcs_handler",
-	input_enter_dcs, input_exit_dcs,
+	NULL, NULL,
 	input_state_dcs_handler_table
+};
+
+/* dcs_escape state definition. */
+const struct input_state input_state_dcs_escape = {
+	"dcs_escape",
+	NULL, NULL,
+	input_state_dcs_escape_table
 };
 
 /* dcs_ignore state definition. */
@@ -482,7 +492,7 @@ const struct input_transition input_state_dcs_enter_table[] = {
 	{ 0x3a, 0x3a, NULL,		  &input_state_dcs_ignore },
 	{ 0x3b, 0x3b, input_parameter,	  &input_state_dcs_parameter },
 	{ 0x3c, 0x3f, input_intermediate, &input_state_dcs_parameter },
-	{ 0x40, 0x7e, NULL,		  &input_state_dcs_handler },
+	{ 0x40, 0x7e, input_input,	  &input_state_dcs_handler },
 	{ 0x7f, 0xff, NULL,		  NULL },
 
 	{ -1, -1, NULL, NULL }
@@ -500,7 +510,7 @@ const struct input_transition input_state_dcs_parameter_table[] = {
 	{ 0x3a, 0x3a, NULL,		  &input_state_dcs_ignore },
 	{ 0x3b, 0x3b, input_parameter,	  NULL },
 	{ 0x3c, 0x3f, NULL,		  &input_state_dcs_ignore },
-	{ 0x40, 0x7e, NULL,		  &input_state_dcs_handler },
+	{ 0x40, 0x7e, input_input,	  &input_state_dcs_handler },
 	{ 0x7f, 0xff, NULL,		  NULL },
 
 	{ -1, -1, NULL, NULL }
@@ -515,7 +525,7 @@ const struct input_transition input_state_dcs_intermediate_table[] = {
 	{ 0x1c, 0x1f, NULL,		  NULL },
 	{ 0x20, 0x2f, input_intermediate, NULL },
 	{ 0x30, 0x3f, NULL,		  &input_state_dcs_ignore },
-	{ 0x40, 0x7e, NULL,		  &input_state_dcs_handler },
+	{ 0x40, 0x7e, input_input,	  &input_state_dcs_handler },
 	{ 0x7f, 0xff, NULL,		  NULL },
 
 	{ -1, -1, NULL, NULL }
@@ -523,13 +533,22 @@ const struct input_transition input_state_dcs_intermediate_table[] = {
 
 /* dcs_handler state table. */
 const struct input_transition input_state_dcs_handler_table[] = {
-	INPUT_STATE_ANYWHERE,
+	/* No INPUT_STATE_ANYWHERE */
 
-	{ 0x00, 0x17, NULL,	    NULL },
-	{ 0x19, 0x19, input_input,  NULL },
-	{ 0x1c, 0x1f, input_input,  NULL },
-	{ 0x20, 0x7e, input_input,  NULL },
-	{ 0x7f, 0xff, NULL,	    NULL },
+	{ 0x00, 0x1a, input_input,  NULL },
+	{ 0x1b, 0x1b, NULL,	    &input_state_dcs_escape },
+	{ 0x1c, 0xff, input_input,  NULL },
+
+	{ -1, -1, NULL, NULL }
+};
+
+/* dcs_escape state table. */
+const struct input_transition input_state_dcs_escape_table[] = {
+	/* No INPUT_STATE_ANYWHERE */
+
+	{ 0x00, 0x5b, input_input,	  &input_state_dcs_handler },
+	{ 0x5c, 0x5c, input_dcs_dispatch, &input_state_ground },
+	{ 0x5d, 0xff, input_input,	  &input_state_dcs_handler },
 
 	{ -1, -1, NULL, NULL }
 };
@@ -681,7 +700,9 @@ input_parse(struct window_pane *wp)
 
 	if (EVBUFFER_LENGTH(evb) == 0)
 		return;
+
 	wp->window->flags |= WINDOW_ACTIVITY;
+	wp->window->flags &= ~WINDOW_SILENCE;
 
 	/*
 	 * Open the screen. Use NULL wp if there is a mode set as don't want to
@@ -718,11 +739,11 @@ input_parse(struct window_pane *wp)
 		 * Execute the handler, if any. Don't switch state if it
 		 * returns non-zero.
 		 */
-		if (itr->handler && itr->handler(ictx) != 0)
+		if (itr->handler != NULL && itr->handler(ictx) != 0)
 			continue;
 
 		/* And switch state, if necessary. */
-		if (itr->state) {
+		if (itr->state != NULL) {
 			if (ictx->state->exit != NULL)
 				ictx->state->exit(ictx);
 			ictx->state = itr->state;
@@ -809,6 +830,9 @@ input_clear(struct input_ctx *ictx)
 
 	*ictx->param_buf = '\0';
 	ictx->param_len = 0;
+
+	*ictx->input_buf = '\0';
+	ictx->input_len = 0;
 
 	ictx->flags &= ~INPUT_DISCARD;
 }
@@ -922,9 +946,9 @@ input_c0_dispatch(struct input_ctx *ictx)
 int
 input_esc_dispatch(struct input_ctx *ictx)
 {
-	struct screen_write_ctx	*sctx = &ictx->ctx;
-	struct screen		*s = sctx->s;
-	struct input_table_entry       *entry;
+	struct screen_write_ctx		*sctx = &ictx->ctx;
+	struct screen			*s = sctx->s;
+	struct input_table_entry	*entry;
 
 	if (ictx->flags & INPUT_DISCARD)
 		return (0);
@@ -951,7 +975,7 @@ input_esc_dispatch(struct input_ctx *ictx)
 		screen_write_insertmode(sctx, 0);
 		screen_write_kcursormode(sctx, 0);
 		screen_write_kkeypadmode(sctx, 0);
-		screen_write_mousemode(sctx, 0);
+		screen_write_mousemode_off(sctx);
 
 		screen_write_clearscreen(sctx);
 		screen_write_cursormove(sctx, 0, 0);
@@ -1154,7 +1178,13 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_cursormode(&ictx->ctx, 0);
 			break;
 		case 1000:
-			screen_write_mousemode(&ictx->ctx, 0);
+		case 1001:
+		case 1002:
+		case 1003:
+			screen_write_mousemode_off(&ictx->ctx);
+			break;
+		case 1005:
+			screen_write_utf8mousemode(&ictx->ctx, 0);
 			break;
 		case 1049:
 			window_pane_alternate_off(wp, &ictx->cell);
@@ -1190,7 +1220,18 @@ input_csi_dispatch(struct input_ctx *ictx)
 			screen_write_cursormode(&ictx->ctx, 1);
 			break;
 		case 1000:
-			screen_write_mousemode(&ictx->ctx, 1);
+			screen_write_mousemode_on(
+			    &ictx->ctx, MODE_MOUSE_STANDARD);
+			break;
+		case 1002:
+			screen_write_mousemode_on(
+			    &ictx->ctx, MODE_MOUSE_BUTTON);
+			break;
+		case 1003:
+			screen_write_mousemode_on(&ictx->ctx, MODE_MOUSE_ANY);
+			break;
+		case 1005:
+			screen_write_utf8mousemode(&ictx->ctx, 1);
 			break;
 		case 1049:
 			window_pane_alternate_on(wp, &ictx->cell);
@@ -1255,7 +1296,7 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 					gc->fg = 8;
 				} else if (n == 48) {
 					gc->flags &= ~GRID_FLAG_BG256;
-					gc->fg = 8;
+					gc->bg = 8;
 				}
 
 			} else {
@@ -1369,20 +1410,26 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 	}
 }
 
-/* DCS string started. */
-void
-input_enter_dcs(struct input_ctx *ictx)
-{
-	log_debug("%s", __func__);
-
-	ictx->input_len = 0;
-}
-
 /* DCS terminator (ST) received. */
-void
-input_exit_dcs(unused struct input_ctx *ictx)
+int
+input_dcs_dispatch(struct input_ctx *ictx)
 {
-	log_debug("%s", __func__);
+	const char	prefix[] = "tmux;";
+	const u_int	prefix_len = (sizeof prefix) - 1;
+
+	if (ictx->flags & INPUT_DISCARD)
+		return (0);
+
+	log_debug("%s: \"%s\"", __func__, ictx->input_buf);
+
+	/* Check for tmux prefix. */
+	if (ictx->input_len >= prefix_len &&
+	    strncmp(ictx->input_buf, prefix, prefix_len) == 0) {
+		screen_write_rawstring(&ictx->ctx,
+		    ictx->input_buf + prefix_len, ictx->input_len - prefix_len);
+	}
+
+	return (0);
 }
 
 /* OSC string started. */
@@ -1391,7 +1438,7 @@ input_enter_osc(struct input_ctx *ictx)
 {
 	log_debug("%s", __func__);
 
-	ictx->input_len = 0;
+	input_clear(ictx);
 }
 
 /* OSC terminator (ST) received. */
@@ -1417,7 +1464,7 @@ input_enter_apc(struct input_ctx *ictx)
 {
 	log_debug("%s", __func__);
 
-	ictx->input_len = 0;
+	input_clear(ictx);
 }
 
 /* APC terminator (ST) received. */
@@ -1438,7 +1485,7 @@ input_enter_rename(struct input_ctx *ictx)
 {
 	log_debug("%s", __func__);
 
-	ictx->input_len = 0;
+	input_clear(ictx);
 }
 
 /* Rename terminator (ST) received. */

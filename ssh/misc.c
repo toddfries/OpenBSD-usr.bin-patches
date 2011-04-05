@@ -1,4 +1,4 @@
-/* $OpenBSD: misc.c,v 1.82 2010/09/24 13:33:00 matthew Exp $ */
+/* $OpenBSD: misc.c,v 1.85 2011/03/29 18:54:17 stevesk Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2005,2006 Damien Miller.  All rights reserved.
@@ -31,6 +31,8 @@
 
 #include <net/if.h>
 #include <netinet/in.h>
+#include <netinet/in_systm.h>
+#include <netinet/ip.h>
 #include <netinet/tcp.h>
 
 #include <errno.h>
@@ -892,4 +894,86 @@ bandwidth_limit(struct bwlimit *bw, size_t read_len)
 
 	bw->lamt = 0;
 	gettimeofday(&bw->bwstart, NULL);
+}
+
+/* Make a template filename for mk[sd]temp() */
+void
+mktemp_proto(char *s, size_t len)
+{
+	const char *tmpdir;
+	int r;
+
+	if ((tmpdir = getenv("TMPDIR")) != NULL) {
+		r = snprintf(s, len, "%s/ssh-XXXXXXXXXXXX", tmpdir);
+		if (r > 0 && (size_t)r < len)
+			return;
+	}
+	r = snprintf(s, len, "/tmp/ssh-XXXXXXXXXXXX");
+	if (r < 0 || (size_t)r >= len)
+		fatal("%s: template string too short", __func__);
+}
+
+static const struct {
+	const char *name;
+	int value;
+} ipqos[] = {
+	{ "af11", IPTOS_DSCP_AF11 },
+	{ "af12", IPTOS_DSCP_AF12 },
+	{ "af13", IPTOS_DSCP_AF13 },
+	{ "af14", IPTOS_DSCP_AF21 },
+	{ "af22", IPTOS_DSCP_AF22 },
+	{ "af23", IPTOS_DSCP_AF23 },
+	{ "af31", IPTOS_DSCP_AF31 },
+	{ "af32", IPTOS_DSCP_AF32 },
+	{ "af33", IPTOS_DSCP_AF33 },
+	{ "af41", IPTOS_DSCP_AF41 },
+	{ "af42", IPTOS_DSCP_AF42 },
+	{ "af43", IPTOS_DSCP_AF43 },
+	{ "cs0", IPTOS_DSCP_CS0 },
+	{ "cs1", IPTOS_DSCP_CS1 },
+	{ "cs2", IPTOS_DSCP_CS2 },
+	{ "cs3", IPTOS_DSCP_CS3 },
+	{ "cs4", IPTOS_DSCP_CS4 },
+	{ "cs5", IPTOS_DSCP_CS5 },
+	{ "cs6", IPTOS_DSCP_CS6 },
+	{ "cs7", IPTOS_DSCP_CS7 },
+	{ "ef", IPTOS_DSCP_EF },
+	{ "lowdelay", IPTOS_LOWDELAY },
+	{ "throughput", IPTOS_THROUGHPUT },
+	{ "reliability", IPTOS_RELIABILITY },
+	{ NULL, -1 }
+};
+
+int
+parse_ipqos(const char *cp)
+{
+	u_int i;
+	char *ep;
+	long val;
+
+	if (cp == NULL)
+		return -1;
+	for (i = 0; ipqos[i].name != NULL; i++) {
+		if (strcasecmp(cp, ipqos[i].name) == 0)
+			return ipqos[i].value;
+	}
+	/* Try parsing as an integer */
+	val = strtol(cp, &ep, 0);
+	if (*cp == '\0' || *ep != '\0' || val < 0 || val > 255)
+		return -1;
+	return val;
+}
+
+const char *
+iptos2str(int iptos)
+{
+	int i;
+	static char iptos_str[sizeof "0xff"];
+
+	for (i = 0; ipqos[i].name != NULL; i++) {
+		if (ipqos[i].value == iptos)
+			return ipqos[i].name;
+	}
+	snprintf(iptos_str, sizeof iptos_str, "0x%02x", iptos);
+	return iptos_str;
 }

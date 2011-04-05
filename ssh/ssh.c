@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.353 2010/10/06 06:39:28 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.356 2011/01/06 22:23:53 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -213,7 +213,7 @@ int
 main(int ac, char **av)
 {
 	int i, r, opt, exit_status, use_syslog;
-	char *p, *cp, *line, *argv0, buf[MAXPATHLEN];
+	char *p, *cp, *line, *argv0, buf[MAXPATHLEN], *host_arg;
 	struct stat st;
 	struct passwd *pw;
 	int dummy, timeout_ms;
@@ -678,6 +678,8 @@ main(int ac, char **av)
 		options.port = sp ? ntohs(sp->s_port) : SSH_DEFAULT_PORT;
 	}
 
+	/* preserve host name given on command line for %n expansion */
+	host_arg = host;
 	if (options.hostname != NULL) {
 		host = percent_expand(options.hostname,
 		    "h", host, (char *)NULL);
@@ -692,7 +694,7 @@ main(int ac, char **av)
 		debug3("expanding LocalCommand: %s", options.local_command);
 		cp = options.local_command;
 		options.local_command = percent_expand(cp, "d", pw->pw_dir,
-		    "h", host, "l", thishost, "n", host, "r", options.user,
+		    "h", host, "l", thishost, "n", host_arg, "r", options.user,
 		    "p", buf, "u", pw->pw_name, (char *)NULL);
 		debug3("expanded LocalCommand: %s", options.local_command);
 		xfree(cp);
@@ -842,7 +844,7 @@ main(int ac, char **av)
 
 	/* Log into the remote system.  Never returns if the login fails. */
 	ssh_login(&sensitive_data, host, (struct sockaddr *)&hostaddr,
-	    pw, timeout_ms);
+	    options.port, pw, timeout_ms);
 
 	if (packet_connection_is_on_socket()) {
 		verbose("Authenticated to %s ([%s]:%d).", host,
@@ -1186,7 +1188,8 @@ ssh_session(void)
 		}
 	}
 	/* Tell the packet module whether this is an interactive session. */
-	packet_set_interactive(interactive);
+	packet_set_interactive(interactive,
+	    options.ip_qos_interactive, options.ip_qos_bulk);
 
 	/* Request authentication agent forwarding if appropriate. */
 	check_agent_present();
@@ -1284,8 +1287,6 @@ ssh_session2_setup(int id, int success, void *arg)
 
 	client_session2_setup(id, tty_flag, subsystem_flag, getenv("TERM"),
 	    NULL, fileno(stdin), &command, environ);
-
-	packet_set_interactive(interactive);
 }
 
 /* open new channel for a session */

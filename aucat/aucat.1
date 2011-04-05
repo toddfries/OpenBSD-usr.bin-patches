@@ -1,4 +1,4 @@
-.\"	$OpenBSD: aucat.1,v 1.73 2010/07/31 08:48:01 ratchov Exp $
+.\"	$OpenBSD: aucat.1,v 1.75 2011/03/21 16:33:17 okan Exp $
 .\"
 .\" Copyright (c) 2006 Alexandre Ratchov <alex@caoua.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 31 2010 $
+.Dd $Mdocdate: March 21 2011 $
 .Dt AUCAT 1
 .Os
 .Sh NAME
@@ -98,7 +98,9 @@ The default is 0:1, i.e. stereo.
 .It Fl d
 Increase log verbosity.
 .Nm
-logs on stderr until it daemonizes.
+logs on
+.Em stderr
+until it daemonizes.
 .It Fl e Ar enc
 Encoding of the playback or recording stream (see below).
 The default is signed, 16-bit, native byte order.
@@ -288,13 +290,13 @@ must precede the stream definition
 .Pq Fl ios .
 MIDI ports
 .Pq Fl q
-and streams definitions
+and stream definitions
 .Pq Fl ios
 must precede the definition of the device
 .Pq Fl f
 to which they are attached.
 Global parameters
-.Pq Fl dlnu
+.Pq Fl dlnUu
 are position-independent.
 .Pp
 If no audio devices
@@ -625,7 +627,7 @@ creates sub-devices to expose first
 and then opens the audio hardware on demand.
 Technically, this allows
 .Nm
-to attempt to use one of the sub-devices it exposes as audio device,
+to attempt to use one of the sub-devices it exposes as an audio device,
 creating a deadlock.
 To avoid this,
 .Fl a Ar off

@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.30 2010/10/21 19:10:52 ratchov Exp $	*/
+/*	$OpenBSD: midi.c,v 1.32 2010/11/20 05:12:38 deraadt Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -271,13 +271,17 @@ thru_eof(struct aproc *p, struct abuf *ibuf)
 {
 	if (!(p->flags & APROC_QUIT))
 		return;
-	if (LIST_EMPTY(&p->ins))
+	if (LIST_EMPTY(&p->ins) || LIST_EMPTY(&p->outs))
 		aproc_del(p);
 }
 
 void
 thru_hup(struct aproc *p, struct abuf *obuf)
 {
+	if (!(p->flags & APROC_QUIT))
+		return;
+	if (LIST_EMPTY(&p->outs))
+		aproc_del(p);
 }
 
 void
@@ -471,7 +475,7 @@ ctl_qfr(struct aproc *p)
 		p->u.ctl.fr -= p->u.ctl.fps;
 		p->u.ctl.sec++;
 		if (p->u.ctl.sec < 60)
-			break;;
+			break;
 		p->u.ctl.sec = 0;
 		p->u.ctl.min++;
 		if (p->u.ctl.min < 60)

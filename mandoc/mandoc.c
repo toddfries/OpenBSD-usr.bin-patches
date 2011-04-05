@@ -1,14 +1,15 @@
-/*	$Id: mandoc.c,v 1.20 2010/09/27 21:25:28 schwarze Exp $ */
+/*	$Id: mandoc.c,v 1.23 2011/03/15 03:03:49 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHORS DISCLAIM ALL WARRANTIES
  * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR
  * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
@@ -26,8 +27,10 @@
 #include "mandoc.h"
 #include "libmandoc.h"
 
-static	int	 a2time(time_t *, const char *, const char *);
+#define DATESIZE 32
 
+static	int	 a2time(time_t *, const char *, const char *);
+static	char	*time2a(time_t);
 
 int
 mandoc_special(char *p)
@@ -279,6 +282,83 @@ mandoc_strdup(const char *ptr)
 	return(p);
 }
 
+/*
+ * Parse a quoted or unquoted roff-style request or macro argument.
+ * Return a pointer to the parsed argument, which is either the original
+ * pointer or advanced by one byte in case the argument is quoted.
+ * Null-terminate the argument in place.
+ * Collapse pairs of quotes inside quoted arguments.
+ * Advance the argument pointer to the next argument,
+ * or to the null byte terminating the argument line.
+ */
+char *
+mandoc_getarg(char **cpp, mandocmsg msg, void *data, int ln, int *pos)
+{
+	char	 *start, *cp;
+	int	  quoted, pairs, white;
+
+	/* Quoting can only start with a new word. */
+	start = *cpp;
+	if ('"' == *start) {
+		quoted = 1;
+		start++;
+	} else
+		quoted = 0;
+
+	pairs = 0;
+	white = 0;
+	for (cp = start; '\0' != *cp; cp++) {
+		/* Move left after quoted quotes and escaped backslashes. */
+		if (pairs)
+			cp[-pairs] = cp[0];
+		if ('\\' == cp[0]) {
+			if ('\\' == cp[1]) {
+				/* Poor man's copy mode. */
+				pairs++;
+				cp++;
+			} else if (0 == quoted && ' ' == cp[1])
+				/* Skip escaped blanks. */
+				cp++;
+		} else if (0 == quoted) {
+			if (' ' == cp[0]) {
+				/* Unescaped blanks end unquoted args. */
+				white = 1;
+				break;
+			}
+		} else if ('"' == cp[0]) {
+			if ('"' == cp[1]) {
+				/* Quoted quotes collapse. */
+				pairs++;
+				cp++;
+			} else {
+				/* Unquoted quotes end quoted args. */
+				quoted = 2;
+				break;
+			}
+		}
+	}
+
+	/* Quoted argument without a closing quote. */
+	if (1 == quoted && msg)
+		(*msg)(MANDOCERR_BADQUOTE, data, ln, *pos, NULL);
+
+	/* Null-terminate this argument and move to the next one. */
+	if (pairs)
+		cp[-pairs] = '\0';
+	if ('\0' != *cp) {
+		*cp++ = '\0';
+		while (' ' == *cp)
+			cp++;
+	}
+	*pos += (cp - start) + (quoted ? 1 : 0);
+	*cpp = cp;
+
+	if ('\0' == *cp && msg && (white || ' ' == cp[-1]))
+		(*msg)(MANDOCERR_EOLNSPACE, data, ln, *pos, NULL);
+
+	return(start);
+}
+
 
 static int
 a2time(time_t *t, const char *fmt, const char *p)
@@ -298,38 +378,61 @@ a2time(time_t *t, const char *fmt, const char *p)
 }
 
 
-/*
- * Convert from a manual date string (see mdoc(7) and man(7)) into a
- * date according to the stipulated date type.
- */
-time_t
-mandoc_a2time(int flags, const char *p)
+static char *
+time2a(time_t t)
 {
+	struct tm	 tm;
+	char		*buf, *p;
+	size_t		 ssz;
+	int		 isz;
+
+	localtime_r(&t, &tm);
+
+	/*
+	 * Reserve space:
+	 * up to 9 characters for the month (September) + blank
+	 * up to 2 characters for the day + comma + blank
+	 * 4 characters for the year and a terminating '\0'
+	 */
+	p = buf = mandoc_malloc(10 + 4 + 4 + 1);
+
+	if (0 == (ssz = strftime(p, 10 + 1, "%B ", &tm)))
+		goto fail;
+	p += (int)ssz;
+
+	if (-1 == (isz = snprintf(p, 4 + 1, "%d, ", tm.tm_mday)))
+		goto fail;
+	p += isz;
+
+	if (0 == strftime(p, 4 + 1, "%Y", &tm))
+		goto fail;
+	return(buf);
+
+fail:
+	free(buf);
+	return(NULL);
+}
+
+
+char *
+mandoc_normdate(char *in, mandocmsg msg, void *data, int ln, int pos)
+{
+	char		*out;
 	time_t		 t;
 
-	if (MTIME_MDOCDATE & flags) {
-		if (0 == strcmp(p, "$" "Mdocdate$"))
-			return(time(NULL));
-		if (a2time(&t, "$" "Mdocdate: %b %d %Y $", p))
-			return(t);
+	if (NULL == in || '\0' == *in ||
+	    0 == strcmp(in, "$" "Mdocdate$")) {
+		(*msg)(MANDOCERR_NODATE, data, ln, pos, NULL);
+		time(&t);
 	}
-
-	if (MTIME_CANONICAL & flags || MTIME_REDUCED & flags) 
-		if (a2time(&t, "%b %d, %Y", p))
-			return(t);
-
-	if (MTIME_ISO_8601 & flags) 
-		if (a2time(&t, "%Y-%m-%d", p))
-			return(t);
-
-	if (MTIME_REDUCED & flags) {
-		if (a2time(&t, "%d, %Y", p))
-			return(t);
-		if (a2time(&t, "%Y", p))
-			return(t);
+	else if (!a2time(&t, "$" "Mdocdate: %b %d %Y $", in) &&
+	    !a2time(&t, "%b %d, %Y", in) &&
+	    !a2time(&t, "%Y-%m-%d", in)) {
+		(*msg)(MANDOCERR_BADDATE, data, ln, pos, NULL);
+		t = 0;
 	}
-
-	return(0);
+	out = t ? time2a(t) : NULL;
+	return(out ? out : mandoc_strdup(in));
 }
 
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.63 2010/09/11 15:39:55 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.67 2011/03/28 19:44:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -52,7 +52,7 @@ void	window_copy_goto_line(struct window_pane *, const char *);
 void	window_copy_update_cursor(struct window_pane *, u_int, u_int);
 void	window_copy_start_selection(struct window_pane *);
 int	window_copy_update_selection(struct window_pane *);
-void	window_copy_copy_selection(struct window_pane *, struct session *);
+void	window_copy_copy_selection(struct window_pane *);
 void	window_copy_clear_selection(struct window_pane *);
 void	window_copy_copy_line(
 	    struct window_pane *, char **, size_t *, u_int, u_int, u_int);
@@ -180,7 +180,7 @@ window_copy_init(struct window_pane *wp)
 	s = &data->screen;
 	screen_init(s, screen_size_x(&wp->base), screen_size_y(&wp->base), 0);
 	if (options_get_number(&wp->window->options, "mode-mouse"))
-		s->mode |= MODE_MOUSE;
+		s->mode |= MODE_MOUSE_STANDARD;
 
 	keys = options_get_number(&wp->window->options, "mode-keys");
 	if (keys == MODEKEY_EMACS)
@@ -368,8 +368,8 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 	if (np == 0)
 		np = 1;
 
-	if (data->inputtype == WINDOW_COPY_JUMPFORWARD
-	    || data->inputtype == WINDOW_COPY_JUMPBACK) {
+	if (data->inputtype == WINDOW_COPY_JUMPFORWARD ||
+	    data->inputtype == WINDOW_COPY_JUMPBACK) {
 		/* Ignore keys with modifiers. */
 		if ((key & KEYC_MASK_MOD) == 0) {
 			data->jumpchar = key;
@@ -385,7 +385,7 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 		data->inputtype = WINDOW_COPY_OFF;
 		window_copy_redraw_lines(wp, screen_size_y(s) - 1, 1);
 		return;
-	} if (data->inputtype == WINDOW_COPY_NUMERICPREFIX) {
+	} else if (data->inputtype == WINDOW_COPY_NUMERICPREFIX) {
 		if (window_copy_key_numeric_prefix(wp, key) == 0)
 			return;
 		data->inputtype = WINDOW_COPY_OFF;
@@ -506,7 +506,7 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 		break;
 	case MODEKEYCOPY_COPYSELECTION:
 		if (sess != NULL) {
-			window_copy_copy_selection(wp, sess);
+			window_copy_copy_selection(wp);
 			window_pane_reset_mode(wp);
 			return;
 		}
@@ -787,24 +787,26 @@ window_copy_mouse(
 	 * If already reading motion, move the cursor while buttons are still
 	 * pressed, or stop the selection on their release.
 	 */
-	if (s->mode & MODE_MOUSEMOTION) {
+	if (s->mode & MODE_MOUSE_ANY) {
 		if ((m->b & MOUSE_BUTTON) != MOUSE_UP) {
 			window_copy_update_cursor(wp, m->x, m->y);
 			if (window_copy_update_selection(wp))
 				window_copy_redraw_screen(wp);
 		} else {
-			s->mode &= ~MODE_MOUSEMOTION;
+			s->mode &= ~MODE_MOUSE_ANY;
+			s->mode |= MODE_MOUSE_STANDARD;
 			if (sess != NULL) {
-				window_copy_copy_selection(wp, sess);
+				window_copy_copy_selection(wp);
 				window_pane_reset_mode(wp);
 			}
 		}
 		return;
 	}
 
-	/* Otherwise i other buttons pressed, start selection and motion. */
+	/* Otherwise if other buttons pressed, start selection and motion. */
 	if ((m->b & MOUSE_BUTTON) != MOUSE_UP) {
-		s->mode |= MODE_MOUSEMOTION;
+		s->mode &= ~MODE_MOUSE_STANDARD;
+		s->mode |= MODE_MOUSE_ANY;
 
 		window_copy_update_cursor(wp, m->x, m->y);
 		window_copy_start_selection(wp);
@@ -1208,7 +1210,7 @@ window_copy_update_selection(struct window_pane *wp)
 }
 
 void
-window_copy_copy_selection(struct window_pane *wp, struct session *sess)
+window_copy_copy_selection(struct window_pane *wp)
 {
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*s = &data->screen;
@@ -1267,8 +1269,8 @@ window_copy_copy_selection(struct window_pane *wp, struct session *sess)
 			/* Cursor is on the left. */
 			lastex = data->selx + 1;
 			restex = data->selx + 1;
-			firstsx = data->cx + 1;
-			restsx = data->cx + 1;
+			firstsx = data->cx;
+			restsx = data->cx;
 		}
 	} else {
 		/*
@@ -1303,8 +1305,8 @@ window_copy_copy_selection(struct window_pane *wp, struct session *sess)
 	off--;	/* remove final \n */
 
 	/* Add the buffer to the stack. */
-	limit = options_get_number(&sess->options, "buffer-limit");
-	paste_add(&sess->buffers, buf, off, limit);
+	limit = options_get_number(&global_options, "buffer-limit");
+	paste_add(&global_buffers, buf, off, limit);
 }
 
 void
@@ -1615,7 +1617,7 @@ window_copy_cursor_jump(struct window_pane *wp)
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*back_s = data->backing;
 	const struct grid_cell		*gc;
-	uint				 px, py, xx;
+	u_int				 px, py, xx;
 
 	px = data->cx + 1;
 	py = screen_hsize(back_s) + data->cy - data->oy;
@@ -1641,7 +1643,7 @@ window_copy_cursor_jump_back(struct window_pane *wp)
 	struct window_copy_mode_data	*data = wp->modedata;
 	struct screen			*back_s = data->backing;
 	const struct grid_cell		*gc;
-	uint				 px, py;
+	u_int				 px, py;
 
 	px = data->cx;
 	py = screen_hsize(back_s) + data->cy - data->oy;

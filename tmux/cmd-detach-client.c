@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-detach-client.c,v 1.5 2010/02/06 22:55:31 nicm Exp $ */
+/* $OpenBSD: cmd-detach-client.c,v 1.7 2011/03/03 08:51:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,25 +28,27 @@ int	cmd_detach_client_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_detach_client_entry = {
 	"detach-client", "detach",
-	CMD_TARGET_CLIENT_USAGE,
-	CMD_READONLY, "",
-	cmd_target_init,
-	cmd_target_parse,
-	cmd_detach_client_exec,
-	cmd_target_free,
-	cmd_target_print
+	"t:P", 0, 0,
+	"[-P] " CMD_TARGET_CLIENT_USAGE,
+	CMD_READONLY,
+	NULL,
+	NULL,
+	cmd_detach_client_exec
 };
 
 int
 cmd_detach_client_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_target_data	*data = self->data;
-	struct client		*c;
+	struct args	*args = self->args;
+	struct client	*c;
 
-	if ((c = cmd_find_client(ctx, data->target)) == NULL)
+	if ((c = cmd_find_client(ctx, args_get(args, 't'))) == NULL)
 		return (-1);
 
-	server_write_client(c, MSG_DETACH, NULL, 0);
+	if (args_has(args, 'P'))
+		server_write_client(c, MSG_DETACHKILL, NULL, 0);
+	else
+		server_write_client(c, MSG_DETACH, NULL, 0);
 
 	return (0);
 }

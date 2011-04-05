@@ -1,4 +1,4 @@
-/*	$Id: libmandoc.h,v 1.7 2010/07/16 00:34:33 schwarze Exp $ */
+/*	$Id: libmandoc.h,v 1.9 2011/03/07 01:35:33 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -24,11 +24,8 @@ void		*mandoc_calloc(size_t, size_t);
 char		*mandoc_strdup(const char *);
 void		*mandoc_malloc(size_t);
 void		*mandoc_realloc(void *, size_t);
-time_t		 mandoc_a2time(int, const char *);
-#define		 MTIME_CANONICAL	(1 << 0)
-#define		 MTIME_REDUCED		(1 << 1)
-#define		 MTIME_MDOCDATE		(1 << 2)
-#define		 MTIME_ISO_8601		(1 << 3)
+char		*mandoc_getarg(char **, mandocmsg, void *, int, int *);
+char		*mandoc_normdate(char *, mandocmsg, void *, int, int);
 int		 mandoc_eos(const char *, size_t, int);
 int		 mandoc_hyph(const char *, const char *);
 

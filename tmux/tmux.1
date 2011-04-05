@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.188 2010/11/01 20:59:45 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.215 2011/03/29 19:30:16 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: November 1 2010 $
+.Dd $Mdocdate: March 29 2011 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -134,7 +134,10 @@ will report an error and exit without executing further commands.
 .It Fl L Ar socket-name
 .Nm
 stores the server socket in a directory under
-.Pa /tmp ;
+.Pa /tmp
+(or
+.Ev TMPDIR
+if set);
 the default socket is named
 .Em default .
 This option allows a different socket name to be specified, allowing several
@@ -282,6 +285,8 @@ Briefly display pane indexes.
 Force redraw of the attached client.
 .It s
 Select a new session for the attached client interactively.
+.It L
+Switch the attached client back to the last session.
 .It t
 Show the time.
 .It w
@@ -444,6 +449,17 @@ select-window -t:+2
 When dealing with a session that doesn't contain sequential window indexes,
 they will be correctly skipped.
 .Pp
+.Nm
+also gives each pane created in a server an identifier consisting of a
+.Ql %
+and a number, starting from zero.
+A pane's identifier is unique for the life of the
+.Nm
+server and is passed to the child process of the pane in the
+.Ev TMUX_PANE
+environment variable.
+It may be used alone to target a pane or the window containing it.
+.Pp
 .Ar shell-command
 arguments are
 .Xr sh 1
@@ -545,10 +561,17 @@ If no server is started,
 .Ic attach-session
 will attempt to start it; this will fail unless sessions are created in the
 configuration file.
-.It Ic detach-client Op Fl t Ar target-client
+.It Xo Ic detach-client
+.Op Fl P
+.Op Fl t Ar target-client
+.Xc
 .D1 (alias: Ic detach )
 Detach the current client if bound to a key, or the specified client with
 .Fl t .
+If
+.Fl P
+is given, send SIGHUP to the parent process of the client, typically causing it
+to exit.
 .It Ic has-session Op Fl t Ar target-session
 .D1 (alias: Ic has )
 Report an error and exit with 1 if the specified session does not exist.
@@ -586,6 +609,8 @@ Lock all clients attached to
 .Op Fl n Ar window-name
 .Op Fl s Ar session-name
 .Op Fl t Ar target-session
+.Op Fl x Ar width
+.Op Fl y Ar height
 .Op Ar shell-command
 .Xc
 .D1 (alias: Ic new )
@@ -599,6 +624,13 @@ is given.
 and
 .Ar shell-command
 are the name of and shell command to execute in the initial window.
+If
+.Fl d
+is used,
+.Fl x
+and
+.Fl y
+specify the size of the initial window (80 by 24 if not given).
 .Pp
 If run from a terminal, any
 .Xr termios 4
@@ -655,14 +687,14 @@ Start the
 .Nm
 server, if not already running, without creating any sessions.
 .It Xo Ic suspend-client
-.Op Fl c Ar target-client
+.Op Fl t Ar target-client
 .Xc
 .D1 (alias: Ic suspendc )
 Suspend a client by sending
 .Dv SIGTSTP
 (tty stop).
 .It Xo Ic switch-client
-.Op Fl np
+.Op Fl lnp
 .Op Fl c Ar target-client
 .Op Fl t Ar target-session
 .Xc
@@ -672,10 +704,12 @@ Switch the current session for client
 to
 .Ar target-session .
 If
+.Fl l ,
 .Fl n
 or
 .Fl p
-is used, the client is moved to the next or previous session respectively.
+is used, the client is moved to the last, next or previous session
+respectively.
 .El
 .Sh WINDOWS AND PANES
 A
@@ -898,6 +932,7 @@ $ tmux list-windows
     layout: bb62,159x48,0,0{79x48,0,0,79x48,80,0}
 $ tmux select-layout bb62,159x48,0,0{79x48,0,0,79x48,80,0}
 .Ed
+.Pp
 .Nm
 automatically adjusts the size of the layout for the current window size.
 Note that a layout cannot be applied to a window with more panes than that
@@ -918,11 +953,20 @@ If
 is given, the new window does not become the current window.
 .It Xo Ic capture-pane
 .Op Fl b Ar buffer-index
+.Op Fl E Ar end-line
+.Op Fl S Ar start-line
 .Op Fl t Ar target-pane
 .Xc
 .D1 (alias: Ic capturep )
 Capture the contents of a pane to the specified buffer, or a new buffer if none
 is specified.
+.Pp
+.Fl S
+and
+.Fl E
+specify the starting and ending line numbers, zero is the first line of the
+visible pane and negative numbers are lines in the history.
+The default is to capture only the visible contents of the pane.
 .It Xo
 .Ic choose-client
 .Op Fl t Ar target-window
@@ -1071,13 +1115,33 @@ exists, it is killed, otherwise an error is generated.
 If
 .Fl d
 is given, the newly linked window is not selected.
-.It Ic list-panes Op Fl t Ar target-window
+.It Xo Ic list-panes
+.Op Fl as
+.Op Fl t Ar target
+.Xc
 .D1 (alias: Ic lsp )
-List the panes in the current window or in
-.Ar target-window .
-.It Ic list-windows Op Fl t Ar target-session
+If
+.Fl a
+is given,
+.Ar target
+is ignored and all panes on the server are listed.
+If
+.Fl s
+is given,
+.Ar target
+is a session (or the current session).
+If neither is given,
+.Ar target
+is a window (or the current window).
+.It Xo Ic list-windows
+.Op Fl a
+.Op Fl t Ar target-session
+.Xc
 .D1 (alias: Ic lsw )
-List windows in the current session or in
+If
+.Fl a
+is given, list all windows on the server.
+Otherwise, list windows in the current session or in
 .Ar target-session .
 .It Xo Ic move-window
 .Op Fl dk
@@ -1092,7 +1156,7 @@ except the window at
 is moved to
 .Ar dst-window .
 .It Xo Ic new-window
-.Op Fl adk
+.Op Fl adkP
 .Op Fl n Ar window-name
 .Op Fl t Ar target-window
 .Op Ar shell-command
@@ -1140,6 +1204,10 @@ New windows will automatically have
 .Dq TERM=screen
 added to their environment, but care must be taken not to reset this in shell
 start-up files.
+.Pp
+The
+.Fl P
+option prints the location of the new window after it has been created.
 .It Ic next-layout Op Fl t Ar target-window
 .D1 (alias: Ic nextl )
 Move a window to the next layout and rearrange the panes to fit.
@@ -1246,6 +1314,7 @@ lower) with
 .Fl U
 or downward (numerically higher).
 .It Xo Ic select-layout
+.Op Fl np
 .Op Fl t Ar target-window
 .Op Ar layout-name
 .Xc
@@ -1254,8 +1323,16 @@ Choose a specific layout for a window.
 If
 .Ar layout-name
 is not given, the last preset layout used (if any) is reapplied.
+.Fl n
+and
+.Fl p
+are equivalent to the
+.Ic next-layout
+and
+.Ic previous-layout
+commands.
 .It Xo Ic select-pane
-.Op Fl DLRU
+.Op Fl lDLRU
 .Op Fl t Ar target-pane
 .Xc
 .D1 (alias: Ic selectp )
@@ -1271,12 +1348,29 @@ or
 .Fl U
 is used, respectively the pane below, to the left, to the right, or above the
 target pane is used.
-.It Ic select-window Op Fl t Ar target-window
+.Fl l
+is the same as using the
+.Ic last-pane
+command.
+.It Xo Ic select-window
+.Op Fl lnp
+.Op Fl t Ar target-window
+.Xc
 .D1 (alias: Ic selectw )
 Select the window at
 .Ar target-window .
+.Fl l ,
+.Fl n
+and
+.Fl p
+are equivalent to the
+.Ic last-window ,
+.Ic next-window
+and
+.Ic previous-window
+commands.
 .It Xo Ic split-window
-.Op Fl dhv
+.Op Fl dhvP
 .Oo Fl l
 .Ar size |
 .Fl p Ar percentage Oc
@@ -1479,7 +1573,7 @@ All arguments are sent sequentially from first to last.
 Send the prefix key to a window as if it was pressed.
 If multiple prefix keys are configured, only the first is sent.
 .It Xo Ic unbind-key
-.Op Fl cn
+.Op Fl acn
 .Op Fl t Ar key-table
 .Ar key
 .Xc
@@ -1493,6 +1587,9 @@ the primary key bindings are modified; in this case, if
 is specified, the command bound to
 .Ar key
 without a prefix (if any) is removed.
+If
+.Fl a
+is present, all key bindings are removed.
 .Pp
 If
 .Fl t
@@ -1586,16 +1683,23 @@ Available window options are listed under
 .Pp
 Available server options are:
 .Bl -tag -width Ds
-.It Ic escape-time
+.It Ic buffer-limit Ar number
+Set the number of buffers; as new buffers are added to the top of the stack,
+old ones are removed from the bottom if necessary to maintain this maximum
+length.
+.It Ic escape-time Ar time
 Set the time in milliseconds for which
 .Nm
 waits after an escape is input to determine if it is part of a function or meta
 key sequences.
 The default is 500 milliseconds.
-.It Ic exit-unattached
-If enabled, the server will exit when there are no attached clients, rather
-than when there are no attached sessions.
-.It Ic quiet
+.It Xo Ic exit-unattached
+.Op Ic on | off
+.Xc
+If enabled, the server will exit when there are no attached clients.
+.It Xo Ic quiet
+.Op Ic on | off
+.Xc
 Enable or disable the display of various informational messages (see also the
 .Fl q
 command line flag).
@@ -1618,10 +1722,6 @@ window of that session,
 means all bells are ignored and
 .Ic current
 means only bell in windows other than the current window are ignored.
-.It Ic buffer-limit Ar number
-Set the number of buffers kept for each session; as new buffers are added to
-the top of the stack, old ones are removed from the bottom if necessary to
-maintain this maximum length.
 .It Ic default-command Ar shell-command
 Set the command used for new windows (if not specified when the window is
 created) to
@@ -1634,6 +1734,11 @@ The default is an empty string, which instructs
 to create a login shell using the value of the
 .Ic default-shell
 option.
+.It Ic default-path Ar path
+Set the default working directory for processes created from keys, or
+interactively from the prompt.
+The default is empty, which means to use the working directory of the shell
+from which the server was started if it is available or the user's home if not.
 .It Ic default-shell Ar path
 Specify the default shell.
 This is used as the login shell for new windows when the
@@ -1650,11 +1755,6 @@ or
 This option should be configured when
 .Nm
 is used as a login shell.
-.It Ic default-path Ar path
-Set the default working directory for processes created from keys, or
-interactively from the prompt.
-The default is empty, which means to use the working directory of the shell
-from which the server was started if it is available or the user's home if not.
 .It Ic default-terminal Ar terminal
 Set the default terminal for new windows created in this session - the
 default value of the
@@ -1667,10 +1767,14 @@ to work correctly, this
 be set to
 .Ql screen
 or a derivative of it.
-.It Ic destroy-unattached
+.It Xo Ic destroy-unattached
+.Op Ic on | off
+.Xc
 If enabled and the session is no longer attached to any clients, it is
 destroyed.
-.It Ic detach-on-destroy
+.It Xo Ic detach-on-destroy
+.Op Ic on | off
+.Xc
 If on (the default), the client is detached when the session it is attached to
 is destroyed.
 If off, the client is switched to the most recently active of the remaining
@@ -1755,8 +1859,11 @@ is one of:
 .Ic colour0
 to
 .Ic colour255
-from the 256-colour palette, or
-.Ic default .
+from the 256-colour set,
+.Ic default ,
+or a hexadecimal RGB string such as
+.Ql #ffffff ,
+which chooses the closest match from the default 256-colour set.
 .It Ic message-fg Ar colour
 Set status line message foreground colour.
 .It Ic message-limit Ar number
@@ -1771,12 +1878,12 @@ If on,
 captures the mouse and when a window is split into multiple panes the mouse may
 be used to select the current pane.
 The mouse click is also passed through to the application as normal.
-.It Ic pane-border-fg Ar colour
-.It Ic pane-border-bg Ar colour
-Set the pane border colour for panes aside from the active pane.
-.It Ic pane-active-border-fg Ar colour
 .It Ic pane-active-border-bg Ar colour
+.It Ic pane-active-border-fg Ar colour
 Set the pane border colour for the currently active pane.
+.It Ic pane-border-bg Ar colour
+.It Ic pane-border-fg Ar colour
+Set the pane border colour for panes aside from the active pane.
 .It Ic prefix Ar keys
 Set the keys accepted as a prefix key.
 .Ar keys
@@ -1794,6 +1901,10 @@ flag to
 Repeat is enabled for the default keys bound to the
 .Ic resize-pane
 command.
+.It Xo Ic mouse-utf8
+.Op Ic on | off
+.Xc
+If enabled, request mouse input as UTF-8 on UTF-8 terminals.
 .It Xo Ic set-remain-on-exit
 .Op Ic on | off
 .Xc
@@ -1849,7 +1960,12 @@ or right justified.
 .Xc
 Use vi or emacs-style
 key bindings in the status line, for example at the command prompt.
-Defaults to emacs.
+The default is emacs, unless the
+.Ev VISUAL
+or
+.Ev EDITOR
+environment variables are set and contain the string
+.Ql vi .
 .It Ic status-left Ar string
 Display
 .Ar string
@@ -1926,10 +2042,10 @@ is not interpreted, to enable UTF-8, use the
 option.
 .It Ic status-left-attr Ar attributes
 Set the attribute of the left part of the status line.
-.It Ic status-left-fg Ar colour
-Set the foreground colour of the left part of the status line.
 .It Ic status-left-bg Ar colour
 Set the background colour of the left part of the status line.
+.It Ic status-left-fg Ar colour
+Set the foreground colour of the left part of the status line.
 .It Ic status-left-length Ar length
 Set the maximum
 .Ar length
@@ -1951,16 +2067,15 @@ character pairs are replaced, and UTF-8 is dependent on the
 option.
 .It Ic status-right-attr Ar attributes
 Set the attribute of the right part of the status line.
-.It Ic status-right-fg Ar colour
-Set the foreground colour of the right part of the status line.
 .It Ic status-right-bg Ar colour
 Set the background colour of the right part of the status line.
+.It Ic status-right-fg Ar colour
+Set the foreground colour of the right part of the status line.
 .It Ic status-right-length Ar length
 Set the maximum
 .Ar length
 of the right component of the status bar.
 The default is 40.
-.Pp
 .It Xo Ic status-utf8
 .Op Ic on | off
 .Xc
@@ -2019,7 +2134,8 @@ was given to the
 .Ic set-environment
 command).
 The default is
-"DISPLAY WINDOWID SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION".
+"DISPLAY SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID SSH_CONNECTION WINDOWID
+XAUTHORITY".
 .It Xo Ic visual-activity
 .Op Ic on | off
 .Xc
@@ -2044,6 +2160,12 @@ display a message when content is present in a window
 for which the
 .Ic monitor-content
 window option is enabled.
+.It Xo Ic visual-silence
+.Op Ic on | off
+.Xc
+If
+.Ic monitor-silence
+is enabled, prints a message after the interval has expired on a given window.
 .El
 .It Xo Ic set-window-option
 .Op Fl agu
@@ -2076,6 +2198,22 @@ The window may resize when the current window is changed on another sessions;
 this option is good for full-screen programs which support
 .Dv SIGWINCH
 and poor for interactive programs such as shells.
+.Pp
+.It Xo Ic alternate-screen
+.Op Ic on | off
+.Xc
+This option configures whether programs running inside
+.Nm
+may use the terminal alternate screen feature, which allows the
+.Em smcup
+and
+.Em rmcup
+.Xr terminfo 5
+capabilities.
+The alternate screen feature preserves the contents of the window when an
+interactive application starts and restores it on exit, so that any output
+visible before the application starts reappears unchanged after it exits.
+The default is on.
 .Pp
 .It Xo Ic automatic-rename
 .Op Ic on | off
@@ -2115,8 +2253,8 @@ or
 .Ar height .
 A value of zero restores the default unlimited setting.
 .Pp
-.It Ic main-pane-width Ar width
 .It Ic main-pane-height Ar height
+.It Ic main-pane-width Ar width
 Set the width or height of the main (left or top) pane in the
 .Ic main-horizontal
 or
@@ -2136,7 +2274,14 @@ Set window modes foreground colour.
 .Op Ic vi | emacs
 .Xc
 Use vi or emacs-style key bindings in copy and choice modes.
-Key bindings default to emacs.
+As with the
+.Ic status-keys
+option, the default is emacs, unless
+.Ev VISUAL
+or
+.Ev EDITOR
+contains
+.Ql vi .
 .Pp
 .It Xo Ic mode-mouse
 .Op Ic on | off
@@ -2159,6 +2304,35 @@ pattern
 .Ar match-string
 appears in the window, it is highlighted in the status line.
 .Pp
+.It Xo Ic monitor-silence
+.Op Ic interval
+.Xc
+Monitor for silence (no activity) in the window within
+.Ic interval
+seconds.
+Windows that have been silent for the interval are highlighted in the
+status line.
+An interval of zero disables the monitoring.
+.Pp
+.It Ic other-pane-height Ar height
+Set the height of the other panes (not the main pane) in the
+.Ic main-horizontal
+layout.
+If this option is set to 0 (the default), it will have no effect.
+If both the
+.Ic main-pane-height
+and
+.Ic other-pane-height
+options are set, the main pane will grow taller to make the other panes the
+specified height, but will never shrink to do so.
+.Pp
+.It Ic other-pane-width Ar width
+Like
+.Ic other-pane-height ,
+but set the width of other panes in the
+.Ic main-vertical
+layout.
+.Pp
 .It Xo Ic remain-on-exit
 .Op Ic on | off
 .Xc
@@ -2173,19 +2347,6 @@ command.
 .Xc
 Duplicate input to any pane to all other panes in the same window (only
 for panes that are not in any special mode).
-.Pp
-.It Xo Ic alternate-screen
-.Op Ic on | off
-.Xc
-This option configures whether programs running inside
-.Nm
-may use the terminal alternate screen feature, which allows the
-.Em smcup
-and
-.Em rmcup
-.Xr terminfo 5
-capabilities to be issued to preserve the existing window content on start and
-restore it on exit.
 .Pp
 .It Xo Ic utf8
 .Op Ic on | off
@@ -2287,9 +2448,9 @@ copies the environment into the
 .Em global environment ;
 in addition, each session has a
 .Em session environment .
-When a window is created, the session and global environments are merged with
-the session environment overriding any variable present in both.
-This is the initial environment passed to the new process.
+When a window is created, the session and global environments are merged.
+If a variable exists in both, the value from the session environment is used.
+The result is the initial environment passed to the new process.
 .Pp
 The
 .Ic update-environment
@@ -2370,6 +2531,7 @@ The flag is one of the following symbols appended to the window name:
 .It Li "#" Ta "Window is monitored and activity has been detected."
 .It Li "!" Ta "A bell has occurred in the window."
 .It Li "+" Ta "Window is monitored for content and it has appeared."
+.It Li "~" Ta "The window has been silent for the monitor-silence interval."
 .El
 .Pp
 The # symbol relates to the
@@ -2449,7 +2611,8 @@ This command works only from inside
 .Nm .
 .It Xo Ic display-message
 .Op Fl p
-.Op Fl t Ar target-client
+.Op Fl c Ar target-client
+.Op Fl t Ar target-pane
 .Op Ar message
 .Xc
 .D1 (alias: Ic display )
@@ -2463,13 +2626,17 @@ The format of
 .Ar message
 is as for
 .Ic status-left ,
-with the exception that #() are not handled.
+with the exception that #() are not handled; information is taken from
+.Ar target-pane
+if
+.Fl t
+is given, otherwise the active pane for the session attached to
+.Ar target-client .
 .El
 .Sh BUFFERS
 .Nm
 maintains a stack of
-.Em paste buffers
-for each session.
+.Em paste buffers .
 Up to the value of the
 .Ic buffer-limit
 option are kept; when a new buffer is added, the buffer at the bottom of the
@@ -2511,29 +2678,16 @@ This command works only from inside
 .It Ic clear-history Op Fl t Ar target-pane
 .D1 (alias: Ic clearhist )
 Remove and free the history for the specified pane.
-.It Xo Ic copy-buffer
-.Op Fl a Ar src-index
-.Op Fl b Ar dst-index
-.Op Fl s Ar src-session
-.Op Fl t Ar dst-session
-.Xc
-.D1 (alias: Ic copyb )
-Copy a session paste buffer to another session.
-If no sessions are specified, the current one is used instead.
-.It Xo Ic delete-buffer
-.Op Fl b Ar buffer-index
-.Op Fl t Ar target-session
-.Xc
+.It Ic delete-buffer Op Fl b Ar buffer-index
 .D1 (alias: Ic deleteb )
 Delete the buffer at
 .Ar buffer-index ,
 or the top buffer if not specified.
-.It Ic list-buffers Op Fl t Ar target-session
+.It Ic list-buffers
 .D1 (alias: Ic lsb )
-List the buffers in the given session.
+List the global buffers.
 .It Xo Ic load-buffer
 .Op Fl b Ar buffer-index
-.Op Fl t Ar target-session
 .Ar path
 .Xc
 .D1 (alias: Ic loadb )
@@ -2562,7 +2716,6 @@ flag means to do no replacement (equivalent to a separator of LF).
 .It Xo Ic save-buffer
 .Op Fl a
 .Op Fl b Ar buffer-index
-.Op Fl t Ar target-session
 .Ar path
 .Xc
 .D1 (alias: Ic saveb )
@@ -2573,7 +2726,6 @@ The
 option appends to rather than overwriting the file.
 .It Xo Ic set-buffer
 .Op Fl b Ar buffer-index
-.Op Fl t Ar target-session
 .Ar data
 .Xc
 .D1 (alias: Ic setb )
@@ -2581,13 +2733,11 @@ Set the contents of the specified buffer to
 .Ar data .
 .It Xo Ic show-buffer
 .Op Fl b Ar buffer-index
-.Op Fl t Ar target-session
 .Xc
 .D1 (alias: Ic showb )
 Display the contents of the specified buffer.
 .El
 .Sh MISCELLANEOUS
-.Pp
 Miscellaneous commands are as follows:
 .Bl -tag -width Ds
 .It Ic clock-mode Op Fl t Ar target-pane

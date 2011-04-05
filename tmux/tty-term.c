@@ -1,4 +1,4 @@
-/* $OpenBSD: tty-term.c,v 1.18 2010/09/11 16:19:22 nicm Exp $ */
+/* $OpenBSD: tty-term.c,v 1.20 2011/01/26 00:11:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -30,9 +30,9 @@
 void	 tty_term_override(struct tty_term *, const char *);
 char	*tty_term_strip(const char *);
 
-struct tty_terms tty_terms = SLIST_HEAD_INITIALIZER(tty_terms);
+struct tty_terms tty_terms = LIST_HEAD_INITIALIZER(tty_terms);
 
-struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
+const struct tty_term_code_entry tty_term_codes[NTTYCODE] = {
 	{ TTYC_ACSC, TTYCODE_STRING, "acsc" },
 	{ TTYC_AX, TTYCODE_FLAG, "AX" },
 	{ TTYC_BEL, TTYCODE_STRING, "bel" },
@@ -214,13 +214,14 @@ tty_term_strip(const char *s)
 void
 tty_term_override(struct tty_term *term, const char *overrides)
 {
-	struct tty_term_code_entry	*ent;
-	struct tty_code			*code;
-	char				*termnext, *termstr, *entnext, *entstr;
-	char				*s, *ptr, *val;
-	const char			*errstr;
-	u_int				 i;
-	int				 n, removeflag;
+	const struct tty_term_code_entry	*ent;
+	struct tty_code				*code;
+	char					*termnext, *termstr;
+	char					*entnext, *entstr;
+	char					*s, *ptr, *val;
+	const char				*errstr;
+	u_int					 i;
+	int					 n, removeflag;
 
 	s = xstrdup(overrides);
 
@@ -296,15 +297,15 @@ tty_term_override(struct tty_term *term, const char *overrides)
 struct tty_term *
 tty_term_find(char *name, int fd, const char *overrides, char **cause)
 {
-	struct tty_term			*term;
-	struct tty_term_code_entry	*ent;
-	struct tty_code			*code;
-	u_int				 i;
-	int		 		 n, error;
-	char				*s;
-	const char                      *acs;
+	struct tty_term				*term;
+	const struct tty_term_code_entry	*ent;
+	struct tty_code				*code;
+	u_int					 i;
+	int		 			 n, error;
+	char					*s;
+	const char				*acs;
 
-	SLIST_FOREACH(term, &tty_terms, entry) {
+	LIST_FOREACH(term, &tty_terms, entry) {
 		if (strcmp(term->name, name) == 0) {
 			term->references++;
 			return (term);
@@ -317,7 +318,7 @@ tty_term_find(char *name, int fd, const char *overrides, char **cause)
 	term->references = 1;
 	term->flags = 0;
 	memset(term->codes, 0, sizeof term->codes);
-	SLIST_INSERT_HEAD(&tty_terms, term, entry);
+	LIST_INSERT_HEAD(&tty_terms, term, entry);
 
 	/* Set up curses terminal. */
 	if (setupterm(name, fd, &error) != OK) {
@@ -436,7 +437,7 @@ tty_term_free(struct tty_term *term)
 	if (--term->references != 0)
 		return;
 
-	SLIST_REMOVE(&tty_terms, term, tty_term, entry);
+	LIST_REMOVE(term, entry);
 
 	for (i = 0; i < NTTYCODE; i++) {
 		if (term->codes[i].type == TTYCODE_STRING)

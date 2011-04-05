@@ -1,6 +1,6 @@
-/*	$Id: man.h,v 1.28 2010/10/23 15:49:30 schwarze Exp $ */
+/*	$Id: man.h,v 1.36 2011/03/20 23:36:42 schwarze Exp $ */
 /*
- * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -43,23 +43,17 @@ enum	mant {
 	MAN_IR,
 	MAN_RI,
 	MAN_na,
-	MAN_i,
 	MAN_sp,
 	MAN_nf,
 	MAN_fi,
-	MAN_r,
 	MAN_RE,
 	MAN_RS,
 	MAN_DT,
 	MAN_UC,
 	MAN_PD,
-	MAN_Sp,
-	MAN_Vb,
-	MAN_Ve,
 	MAN_AT,
 	MAN_in,
-	MAN_TS,
-	MAN_TE,
+	MAN_ft,
 	MAN_MAX
 };
 
@@ -72,7 +66,9 @@ enum	man_type {
 	MAN_ROOT,
 	MAN_BLOCK,
 	MAN_HEAD,
-	MAN_BODY
+	MAN_BODY,
+	MAN_TBL,
+	MAN_EQN
 };
 
 /* 
@@ -80,15 +76,10 @@ enum	man_type {
  */
 struct	man_meta {
 	char		*msec; /* `TH' section (1, 3p, etc.) */
-	time_t		 date; /* `TH' normalised date */
-	char		*rawdate; /* raw `TH' date */
+	char		*date; /* `TH' normalised date */
 	char		*vol; /* `TH' volume */
 	char		*title; /* `TH' title (e.g., FOO) */
 	char		*source; /* `TH' source (e.g., GNU) */
-};
-
-union man_data {
-	struct tbl	*TS;
 };
 
 /* 
@@ -105,13 +96,14 @@ struct	man_node {
 	enum mant	 tok; /* tok or MAN__MAX if none */
 	int		 flags;
 #define	MAN_VALID	(1 << 0) /* has been validated */
-#define	MAN_ACTED	(1 << 1) /* has been acted upon */
 #define	MAN_EOS		(1 << 2) /* at sentence boundary */
+#define	MAN_LINE	(1 << 3) /* first macro/text on line */
 	enum man_type	 type; /* AST node type */
 	char		*string; /* TEXT node argument */
 	struct man_node	*head; /* BLOCK node HEAD ptr */
 	struct man_node	*body; /* BLOCK node BODY ptr */
-	union man_data	 data;
+	const struct tbl_span *span; /* TBL */
+	const struct eqn *eqn; /* EQN */
 };
 
 /*
@@ -129,6 +121,9 @@ struct	man	 *man_alloc(struct regset *, void *, mandocmsg);
 void		  man_reset(struct man *);
 int	 	  man_parseln(struct man *, int, char *, int);
 int		  man_endparse(struct man *);
+int		  man_addspan(struct man *,
+			const struct tbl_span *);
+int		  man_addeqn(struct man *, const struct eqn *);
 
 const struct man_node *man_node(const struct man *);
 const struct man_meta *man_meta(const struct man *);

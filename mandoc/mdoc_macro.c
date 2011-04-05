@@ -1,6 +1,6 @@
-/*	$Id: mdoc_macro.c,v 1.59 2010/10/24 18:15:43 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.64 2011/01/30 18:28:01 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -185,8 +185,6 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ in_line_eoln, 0 }, /* sp */
 	{ in_line_eoln, 0 }, /* %U */
 	{ phrase_ta, MDOC_CALLABLE | MDOC_PARSED }, /* Ta */
-	{ blk_part_exp, MDOC_EXPLICIT }, /* TS */
-	{ blk_exp_close, MDOC_EXPLICIT }, /* TE */
 };
 
 const	struct mdoc_macro * const mdoc_macros = __mdoc_macros;
@@ -250,23 +248,29 @@ lookup_raw(const char *p)
 static int
 rew_last(struct mdoc *mdoc, const struct mdoc_node *to)
 {
+	struct mdoc_node *n, *np;
 
 	assert(to);
 	mdoc->next = MDOC_NEXT_SIBLING;
 
 	/* LINTED */
 	while (mdoc->last != to) {
+		/*
+		 * Save the parent here, because we may delete the
+		 * m->last node in the post-validation phase and reset
+		 * it to m->last->parent, causing a step in the closing
+		 * out to be lost.
+		 */
+		np = mdoc->last->parent;
 		if ( ! mdoc_valid_post(mdoc))
 			return(0);
-		if ( ! mdoc_action_post(mdoc))
-			return(0);
-		mdoc->last = mdoc->last->parent;
+		n = mdoc->last;
+		mdoc->last = np;
 		assert(mdoc->last);
+		mdoc->last->last = n;
 	}
 
-	if ( ! mdoc_valid_post(mdoc))
-		return(0);
-	return(mdoc_action_post(mdoc));
+	return(mdoc_valid_post(mdoc));
 }
 
 
@@ -310,8 +314,6 @@ rew_alt(enum mdoct tok)
 		return(MDOC_So);
 	case (MDOC_Xc):
 		return(MDOC_Xo);
-	case (MDOC_TE):
-		return(MDOC_TS);
 	default:
 		return(tok);
 	}
@@ -697,10 +699,8 @@ blk_exp_close(MACRO_PROT_ARGS)
 		if (later &&
 		    MDOC_EXPLICIT & mdoc_macros[later->tok].flags)
 			continue;
-		if (MDOC_CALLABLE & mdoc_macros[n->tok].flags) {
-			assert( ! (MDOC_ACTED & n->flags));
+		if (MDOC_CALLABLE & mdoc_macros[n->tok].flags)
 			later = n;
-		}
 	}
 
 	if ( ! (MDOC_CALLABLE & mdoc_macros[tok].flags)) {
@@ -791,7 +791,7 @@ in_line(MACRO_PROT_ARGS)
 		/* FALLTHROUGH */
 	case (MDOC_Fl):
 		/* FALLTHROUGH */
-	case (MDOC_Lk):
+	case (MDOC_Mt):
 		/* FALLTHROUGH */
 	case (MDOC_Nm):
 		/* FALLTHROUGH */
@@ -1144,7 +1144,6 @@ blk_full(MACRO_PROT_ARGS)
 		if (MDOC_BLOCK == n->type && 
 				MDOC_EXPLICIT & mdoc_macros[n->tok].flags &&
 				! (MDOC_VALID & n->flags)) {
-			assert( ! (MDOC_ACTED & n->flags));
 			n->pending = head;
 			return(1);
 		}
@@ -1282,7 +1281,6 @@ blk_part_imp(MACRO_PROT_ARGS)
 		if (MDOC_BLOCK == n->type &&
 		    MDOC_EXPLICIT & mdoc_macros[n->tok].flags &&
 		    ! (MDOC_VALID & n->flags)) {
-			assert( ! (MDOC_ACTED & n->flags));
 			make_pending(n, tok, m, line, ppos);
 			if ( ! mdoc_endbody_alloc(m, line, ppos,
 			    tok, body, ENDBODY_NOSPACE))
@@ -1459,6 +1457,8 @@ in_line_argn(MACRO_PROT_ARGS)
 	case (MDOC_Ux):
 		maxargs = 0;
 		break;
+	case (MDOC_Bx):
+		/* FALLTHROUGH */
 	case (MDOC_Xr):
 		maxargs = 2;
 		break;

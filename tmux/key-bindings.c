@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.25 2010/10/23 13:04:34 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.27 2011/01/04 00:42:47 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -128,6 +128,7 @@ key_bindings_init(void)
 		{ '=', 			  0, &cmd_choose_buffer_entry },
 		{ '?', 			  0, &cmd_list_keys_entry },
 		{ 'D',			  0, &cmd_choose_client_entry },
+		{ 'L',			  0, &cmd_switch_client_entry },
 		{ '[', 			  0, &cmd_copy_mode_entry },
 		{ '\'',			  0, &cmd_command_prompt_entry },
 		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
@@ -186,9 +187,10 @@ key_bindings_init(void)
 
 		cmd = xmalloc(sizeof *cmd);
 		cmd->entry = table[i].entry;
-		cmd->data = NULL;
-		if (cmd->entry->init != NULL)
-			cmd->entry->init(cmd, table[i].key);
+		if (cmd->entry->key_binding != NULL)
+			cmd->entry->key_binding(cmd, table[i].key);
+		else
+			cmd->args = args_create(0);
 		TAILQ_INSERT_HEAD(&cmdlist->list, cmd, qentry);
 
 		key_bindings_add(

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pkg-config.1,v 1.14 2010/09/03 11:09:29 jmc Exp $
+.\"	$OpenBSD: pkg-config.1,v 1.19 2011/03/18 19:54:41 jasper Exp $
 .\"
 .\"	Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\"	ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\"	OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 3 2010 $
+.Dd $Mdocdate: March 18 2011 $
 .Dt PKG-CONFIG 1
 .Os
 .Sh NAME
@@ -38,7 +38,9 @@ Yoyodyne package would likely be described by "yoyodyne.pc".
 Not all software packages provide
 .Nm
 metadata.
-Packages controlled by the
+Libraries from base install their metadata in
+.Pa /usr/lib/pkgconfig ;
+packages controlled by the
 .Xr ports 7
 system store their metadata, if provided, in
 .Pa ${LOCALBASE}/lib/pkgconfig ;
@@ -104,6 +106,12 @@ returns its own version.
 .It Cm --print-errors
 Print error messages and exit with an error when errors occur.
 This is the default operation.
+.It Cm --print-provides
+Print all the modules the given package provides.
+.It Cm --print-requires
+Print all the modules the given package requires.
+.It Cm --print-requires-private
+Print all the modules the given package requires for static linking.
 .It Cm --silence-errors
 Do not print error messages, just exit with an error.
 .It Cm --static
@@ -120,11 +128,48 @@ Print version of
 and exit.
 .El
 .Sh ENVIRONMENT
-.Bl -tag -width PKG_CONFIG_PATH
+.Bl -tag -width Ds
+.It Ev PKG_CONFIG_DEBUG_SPEW
+If set, this will cause
+.Nm
+to print various debugging information.
+.It Ev PKG_CONFIG_DISABLE_UNINSTALLED
+By default
+.Nm
+prefers a package named "foo-uninstalled" over "foo" when the package
+"foo" is requested.
+This allows linking/compiling against uninstalled packages.
+Setting this flag disables the default behaviour.
+.It Ev PKG_CONFIG_LIBDIR
+This can be used to specify a colon-separated list of paths to search for
+package files.
+This will replace the default
+.Nm
+search directory.
+.It Ev PKG_CONFIG_LOGFILE
+This is used to specify a log file to which
+.Nm
+will write the passed arguments.
 .It Ev PKG_CONFIG_PATH
 This can be used to specify a colon-separated list of paths to search for
 package files.
 If given, this list of paths is prepended to the standard search path.
+.It Ev PKG_CONFIG_SYSROOT_DIR
+This modifies
+.Fl I
+and
+.Fl L
+to use the target sysroot directory.
+Thus -I/usr/local/include will become -I/target/usr/local/include when
+PKG_CONFIG_SYSROOT_DIR is set to /target, which is useful when cross compiling
+packages that use
+.Nm .
+.It Ev PKG_CONFIG_TOP_BUILD_DIR
+If set
+.Nm
+uses the specified value for
+.Em pc_top_builddir
+instead of $(top_builddir).
 .El
 .Sh EXIT STATUS
 .Ex -std pkg-config

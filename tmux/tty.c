@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.92 2010/10/16 08:31:55 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.103 2011/03/27 20:36:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -165,20 +165,14 @@ void
 tty_start_tty(struct tty *tty)
 {
 	struct termios	 tio;
-	int		 mode;
 
-	if (tty->fd == -1)
+	if (tty->fd == -1 || tcgetattr(tty->fd, &tty->tio) != 0)
 		return;
 
-	if ((mode = fcntl(tty->fd, F_GETFL)) == -1)
-		fatal("fcntl failed");
-	if (fcntl(tty->fd, F_SETFL, mode|O_NONBLOCK) == -1)
-		fatal("fcntl failed");
+	setblocking(tty->fd, 0);
 
 	bufferevent_enable(tty->event, EV_READ|EV_WRITE);
 
-	if (tcgetattr(tty->fd, &tty->tio) != 0)
-		fatal("tcgetattr failed");
 	memcpy(&tio, &tty->tio, sizeof tio);
 	tio.c_iflag &= ~(IXON|IXOFF|ICRNL|INLCR|IGNCR|IMAXBEL|ISTRIP);
 	tio.c_iflag |= IGNBRK;
@@ -187,9 +181,8 @@ tty_start_tty(struct tty *tty)
 	    ECHOPRT|ECHOKE|ECHOCTL|ISIG);
 	tio.c_cc[VMIN] = 1;
 	tio.c_cc[VTIME] = 0;
-	if (tcsetattr(tty->fd, TCSANOW, &tio) != 0)
-		fatal("tcsetattr failed");
-	tcflush(tty->fd, TCIOFLUSH);
+	if (tcsetattr(tty->fd, TCSANOW, &tio) == 0)
+		tcflush(tty->fd, TCIOFLUSH);
 
 	tty_putcode(tty, TTYC_SMCUP);
 
@@ -220,7 +213,6 @@ void
 tty_stop_tty(struct tty *tty)
 {
 	struct winsize	ws;
-	int		mode;
 
 	if (!(tty->flags & TTY_STARTED))
 		return;
@@ -238,6 +230,8 @@ tty_stop_tty(struct tty *tty)
 	if (tcsetattr(tty->fd, TCSANOW, &tty->tio) == -1)
 		return;
 
+	setblocking(tty->fd, 1);
+
 	tty_raw(tty, tty_term_string2(tty->term, TTYC_CSR, 0, ws.ws_row - 1));
 	if (tty_use_acs(tty))
 		tty_raw(tty, tty_term_string(tty->term, TTYC_RMACS));
@@ -250,9 +244,6 @@ tty_stop_tty(struct tty *tty)
 		tty_raw(tty, "\033[?1000l");
 
 	tty_raw(tty, tty_term_string(tty->term, TTYC_RMCUP));
-
-	if ((mode = fcntl(tty->fd, F_GETFL)) != -1)
-		fcntl(tty->fd, F_SETFL, mode & ~O_NONBLOCK);
 }
 
 void
@@ -403,17 +394,25 @@ tty_update_mode(struct tty *tty, int mode)
 		else
 			tty_putcode(tty, TTYC_CIVIS);
 	}
-	if (changed & (MODE_MOUSE|MODE_MOUSEMOTION)) {
-		if (mode & MODE_MOUSE) {
-			if (mode & MODE_MOUSEMOTION)
+	if (changed & ALL_MOUSE_MODES) {
+		if (mode & ALL_MOUSE_MODES) {
+			if (mode & MODE_MOUSE_UTF8)
+				tty_puts(tty, "\033[?1005h");
+			if (mode & MODE_MOUSE_ANY)
 				tty_puts(tty, "\033[?1003h");
-			else
+			else if (mode & MODE_MOUSE_BUTTON)
+				tty_puts(tty, "\033[?1002h");
+			else if (mode & MODE_MOUSE_STANDARD)
 				tty_puts(tty, "\033[?1000h");
 		} else {
-			if (mode & MODE_MOUSEMOTION)
+			if (tty->mode & MODE_MOUSE_ANY)
 				tty_puts(tty, "\033[?1003l");
-			else
+			else if (tty->mode & MODE_MOUSE_BUTTON)
+				tty_puts(tty, "\033[?1002l");
+			else if (tty->mode & MODE_MOUSE_STANDARD)
 				tty_puts(tty, "\033[?1000l");
+			if (tty->mode & MODE_MOUSE_UTF8)
+				tty_puts(tty, "\033[?1005l");
 		}
 	}
 	if (changed & MODE_KKEYPAD) {
@@ -455,7 +454,7 @@ tty_redraw_region(struct tty *tty, const struct tty_ctx *ctx)
 	 * without this, the entire pane ends up being redrawn many times which
 	 * can be much more data.
 	 */
-	if (ctx->orupper - ctx->orlower >= screen_size_y(s) / 2) {
+	if (ctx->orlower - ctx->orupper >= screen_size_y(s) / 2) {
 		wp->flags |= PANE_REDRAW;
 		return;
 	}
@@ -547,7 +546,7 @@ tty_write(void (*cmdfn)(
 
 	if (wp->window->flags & WINDOW_REDRAW || wp->flags & PANE_REDRAW)
 		return;
-	if (wp->window->flags & WINDOW_HIDDEN || !window_pane_visible(wp))
+	if (!window_pane_visible(wp))
 		return;
 
 	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
@@ -893,11 +892,19 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 	struct window_pane	*wp = ctx->wp;
 	struct screen		*s = wp->screen;
 	u_int			 cx;
+	u_int			 width;
+	const struct grid_cell	*gc = ctx->cell;
+	const struct grid_utf8	*gu = ctx->utf8;
+
+	if (gc->flags & GRID_FLAG_UTF8)
+		width = gu->width;
+	else
+		width = 1;
 
 	tty_region_pane(tty, ctx, ctx->orupper, ctx->orlower);
 
 	/* Is the cursor in the very last position? */
-	if (ctx->ocx > wp->sx - ctx->last_width) {
+	if (ctx->ocx > wp->sx - width) {
 		if (wp->xoff != 0 || wp->sx != tty->sx) {
 			/*
 			 * The pane doesn't fill the entire line, the linefeed
@@ -907,10 +914,10 @@ tty_cmd_cell(struct tty *tty, const struct tty_ctx *ctx)
 		} else if (tty->cx < tty->sx) {
 			/*
 			 * The cursor isn't in the last position already, so
-			 * move as far left as possinble and redraw the last
+			 * move as far left as possible and redraw the last
 			 * cell to move into the last position.
 			 */
-			cx = screen_size_x(s) - ctx->last_width;
+			cx = screen_size_x(s) - width;
 			tty_cursor_pane(tty, ctx, cx, ctx->ocy);
 			tty_cell(tty, &ctx->last_cell, &ctx->last_utf8);
 		}
@@ -930,6 +937,16 @@ tty_cmd_utf8character(struct tty *tty, const struct tty_ctx *ctx)
 	 * whole line.
 	 */
 	tty_draw_line(tty, wp->screen, ctx->ocy, wp->xoff, wp->yoff);
+}
+
+void
+tty_cmd_rawstring(struct tty *tty, const struct tty_ctx *ctx)
+{
+	u_int	 i;
+	u_char	*str = ctx->ptr;
+
+	for (i = 0; i < ctx->num; i++)
+		tty_putc(tty, str[i]);
 }
 
 void
