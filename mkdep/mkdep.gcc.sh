@@ -43,7 +43,6 @@ scanfordasho() {
 	do case "$1" in
 		-o)	
 			file="$2"; shift; shift ;;
-<<<<<<< HEAD
 		-o*|--output*)
 			file="${1#-o}"
 			file="${file#--output}"
@@ -66,10 +65,6 @@ scanfordasho() {
 				fi
 			fi
 			shift ;;
-=======
-		-o*)
-			file="${1#-o}"; shift ;;
->>>>>>> master
 		*)
 			shift ;;
 		esac
