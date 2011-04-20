@@ -1,4 +1,4 @@
-/*	$OpenBSD: common.c,v 1.23 2009/10/27 23:59:42 deraadt Exp $	*/
+/*	$OpenBSD: common.c,v 1.25 2011/04/18 12:29:59 krw Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -69,7 +69,7 @@ char			defowner[64] = "bin";	/* Default owner */
 char			defgroup[64] = "bin";	/* Default group */
 
 static int sendcmdmsg(int, char *, size_t);
-static int remread(int, u_char *, int);
+static ssize_t remread(int, u_char *, size_t);
 static int remmore(void);
 
 /* 
@@ -354,15 +354,15 @@ sendcmd(va_alist)
  */
 static u_char rembuf[BUFSIZ];
 static u_char *remptr;
-static int remleft;
+static ssize_t remleft;
 
 #define remc() (--remleft < 0 ? remmore() : *remptr++)
 
 /*
  * Back end to remote read()
  */
-static int
-remread(int fd, u_char *buf, int bufsiz)
+static ssize_t 
+remread(int fd, u_char *buf, size_t bufsiz)
 {
 	return(read(fd, (char *)buf, bufsiz));
 }
@@ -452,8 +452,8 @@ remline(u_char *buffer, int space, int doclean)
 /*
  * Non-line-oriented remote read.
  */
-int
-readrem(char *p, int space)
+ssize_t
+readrem(char *p, ssize_t space)
 {
 	if (remleft <= 0) {
 		/*
@@ -859,7 +859,7 @@ xmalloc(size_t amt)
 	char *ptr;
 
 	if ((ptr = (char *)malloc(amt)) == NULL)
-		fatalerr("Cannot malloc %d bytes of memory.", amt);
+		fatalerr("Cannot malloc %zu bytes of memory.", amt);
 
 	return(ptr);
 }
@@ -873,7 +873,7 @@ xrealloc(char *baseptr, size_t amt)
 	char *new;
 
 	if ((new = (char *)realloc(baseptr, amt)) == NULL)
-		fatalerr("Cannot realloc %d bytes of memory.", amt);
+		fatalerr("Cannot realloc %zu bytes of memory.", amt);
 
 	return(new);
 }
@@ -887,7 +887,7 @@ xcalloc(size_t num, size_t esize)
 	char *ptr;
 
 	if ((ptr = (char *)calloc(num, esize)) == NULL)
-		fatalerr("Cannot calloc %d * %d = %d bytes of memory.",
+		fatalerr("Cannot calloc %zu * %zu = %zu bytes of memory.",
 		      num, esize, num * esize);
 
 	return(ptr);
@@ -903,7 +903,7 @@ xstrdup(const char *str)
 	char *nstr = (char *) malloc(len);
 
 	if (nstr == NULL)
-		fatalerr("Cannot malloc %u bytes of memory.", len);
+		fatalerr("Cannot malloc %zu bytes of memory.", len);
 
 	return(memcpy(nstr, str, len));
 }
