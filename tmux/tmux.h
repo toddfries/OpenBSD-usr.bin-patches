@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.279 2011/04/06 21:51:31 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.282 2011/04/19 21:31:33 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -323,6 +323,7 @@ enum tty_code_code {
 	TTYC_SMKX,	/* keypad_xmit, ks */
 	TTYC_SMSO,	/* enter_standout_mode, so */
 	TTYC_SMUL,	/* enter_underline_mode, us */
+	TTYC_SITM,	/* enter_italics_mode, it */
 	TTYC_VPA,	/* row_address, cv */
 	TTYC_XENL,	/* eat_newline_glitch, xn */
 };
@@ -956,6 +957,8 @@ struct session {
 
 	struct environ	 environ;
 
+	int		 wlmouse;
+
 	int		 references;
 
 	TAILQ_ENTRY(session) gentry;
@@ -1078,6 +1081,7 @@ struct mouse_event {
 #define MOUSE_3 2
 #define MOUSE_UP 3
 #define MOUSE_BUTTON 3
+#define MOUSE_DRAG 32
 #define MOUSE_45 64
 	u_int	x;
 	u_int	y;
@@ -1425,6 +1429,7 @@ void	tty_cmd_clearstartofline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_clearstartofscreen(struct tty *, const struct tty_ctx *);
 void	tty_cmd_deletecharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_deleteline(struct tty *, const struct tty_ctx *);
+void	tty_cmd_erasecharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertcharacter(struct tty *, const struct tty_ctx *);
 void	tty_cmd_insertline(struct tty *, const struct tty_ctx *);
 void	tty_cmd_linefeed(struct tty *, const struct tty_ctx *);
@@ -1665,6 +1670,7 @@ int	 status_out_cmp(struct status_out *, struct status_out *);
 RB_PROTOTYPE(status_out_tree, status_out, entry, status_out_cmp);
 void	 status_free_jobs(struct status_out_tree *);
 void	 status_update_jobs(struct client *);
+void	 status_set_window_at(struct client *, u_int);
 int	 status_redraw(struct client *);
 char	*status_replace(struct client *, struct session *,
 	     struct winlink *, struct window_pane *, const char *, time_t, int);
