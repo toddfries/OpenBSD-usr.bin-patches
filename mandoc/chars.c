@@ -1,4 +1,4 @@
-/*	$Id: chars.c,v 1.16 2011/01/30 16:05:29 schwarze Exp $ */
+/*	$Id: chars.c,v 1.18 2011/04/24 16:22:02 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
@@ -21,7 +21,7 @@
 #include <string.h>
 
 #include "mandoc.h"
-#include "chars.h"
+#include "out.h"
 
 #define	PRINT_HI	 126
 #define	PRINT_LO	 32
@@ -37,7 +37,7 @@ struct	ln {
 #define CHARS_BOTH	 (CHARS_CHAR | CHARS_STRING)
 };
 
-#define	LINES_MAX	  351
+#define	LINES_MAX	  353
 
 #define CHAR(in, ch, code) \
 	{ NULL, (in), (ch), (code), CHARS_CHAR },
@@ -88,17 +88,8 @@ chars_init(enum chars type)
 	 * (they're in-line re-ordered during lookup).
 	 */
 
-	tab = malloc(sizeof(struct ctab));
-	if (NULL == tab) {
-		perror(NULL);
-		exit((int)MANDOCLEVEL_SYSERR);
-	}
-
-	htab = calloc(PRINT_HI - PRINT_LO + 1, sizeof(struct ln **));
-	if (NULL == htab) {
-		perror(NULL);
-		exit((int)MANDOCLEVEL_SYSERR);
-	}
+	tab = mandoc_malloc(sizeof(struct ctab));
+	htab = mandoc_calloc(PRINT_HI - PRINT_LO + 1, sizeof(struct ln **));
 
 	for (i = 0; i < LINES_MAX; i++) {
 		hash = (int)lines[i].code[0] - PRINT_LO;
