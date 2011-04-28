@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.19 2011/04/18 23:59:15 ratchov Exp $	*/
+/*	$OpenBSD: conf.h,v 1.22 2011/04/27 21:32:40 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -18,6 +18,8 @@
 #define CONF_H
 
 #ifdef DEBUG
+#include <signal.h>
+
 /*
  * Debug trace levels:
  *
@@ -27,15 +29,8 @@
  * 3 - structural changes (new aproc structures and files stream params changes)
  * 4 - data blocks and messages
  */
-extern int debug_level;
+extern volatile sig_atomic_t debug_level;
 #endif
-
-/*
- * socket and option names
- */
-#define AUCAT_PATH		"aucat"
-#define MIDICAT_PATH		"midicat"
-#define DEFAULT_OPT		"default"
 
 /*
  * MIDI buffer size
