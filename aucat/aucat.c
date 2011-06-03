@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.113 2011/04/28 06:19:57 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.117 2011/06/03 17:04:47 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -250,6 +250,7 @@ struct cfdev {
 	struct aparams ipar;		/* input (read) parameters */
 	struct aparams opar;		/* output (write) parameters */
 	unsigned hold;			/* open immediately */
+	unsigned autovol;		/* adjust volumes */
 	unsigned bufsz;			/* par.bufsz for sio device */
 	unsigned round;			/* par.round for sio device */
 	unsigned mode;			/* bitmap of MODE_XXX */
@@ -268,8 +269,8 @@ struct cfnet {
 
 SLIST_HEAD(cfnetlist, cfnet);
 
-void
-cfdev_add(struct cfdevlist *list, struct cfdev *templ, char *path)
+struct cfdev *
+cfdev_new(struct cfdev *templ)
 {
 	struct cfdev *cd;
 
@@ -278,38 +279,61 @@ cfdev_add(struct cfdevlist *list, struct cfdev *templ, char *path)
 		perror("malloc");
 		abort();
 	}
-	*cd = *templ;
-	cd->path = path;
-	SLIST_INSERT_HEAD(list, cd, entry);
-	SLIST_INIT(&templ->ins);
-	SLIST_INIT(&templ->outs);
-	SLIST_INIT(&templ->opts);
-	SLIST_INIT(&templ->mids);
+	if (templ)
+		memcpy(cd, templ, sizeof(struct cfdev));
+	else {
+		aparams_init(&cd->ipar, 0, 1, DEFAULT_RATE);
+		aparams_init(&cd->opar, 0, 1, DEFAULT_RATE);
+		cd->bufsz = 0;
+		cd->round = 0;
+		cd->hold = 1;
+		cd->autovol = 1;
+	}
+	SLIST_INIT(&cd->ins);
+	SLIST_INIT(&cd->outs);
+	SLIST_INIT(&cd->opts);
+	SLIST_INIT(&cd->mids);
+	cd->path = NULL;
+	return cd;
 }
 
 void
-cfstr_add(struct cfstrlist *list, struct cfstr *templ, char *path)
+cfdev_add(struct cfdevlist *list, struct cfdev *cd, char *path)
 {
-	size_t len;
-	struct cfstr *cs;
-	unsigned hdr;
+	cd->path = path;
+	SLIST_INSERT_HEAD(list, cd, entry);
+}
 
-	if (templ->hdr == HDR_AUTO) {
-		len = strlen(path);
-		if (len >= 4 && strcasecmp(path + len - 4, ".wav") == 0)
-			hdr = HDR_WAV;
-		else
-			hdr = HDR_RAW;
-	} else
-		hdr = templ->hdr;
+struct cfstr *
+cfstr_new(struct cfstr *templ)
+{
+	struct cfstr *cs;
+
 	cs = malloc(sizeof(struct cfstr));
 	if (cs == NULL) {
 		perror("malloc");
 		abort();
 	}
-	*cs = *templ;
+	if (templ)
+		memcpy(cs, templ, sizeof(struct cfstr));
+	else {
+		aparams_init(&cs->ipar, 0, 1, DEFAULT_RATE);
+		aparams_init(&cs->opar, 0, 1, DEFAULT_RATE);
+		cs->mmc = 0;
+		cs->hdr = HDR_AUTO;
+		cs->xrun = XRUN_IGNORE;
+		cs->vol = MIDI_MAXCTL;
+		cs->mode = MODE_PLAY | MODE_REC;
+		cs->join = 1;
+	}
+	cs->path = NULL;
+	return cs;
+}
+
+void
+cfstr_add(struct cfstrlist *list, struct cfstr *cs, char *path)
+{
 	cs->path = path;
-	cs->hdr = hdr;
 	SLIST_INSERT_HEAD(list, cs, entry);
 }
 
@@ -442,7 +466,7 @@ aucat_usage(void)
 	    "[-o file]\n\t"
 	    "[-q device] [-r rate] [-s name] [-t mode] [-U unit] "
 	    "[-v volume]\n\t"
-	    "[-x policy] [-z nframes]\n",
+	    "[-w flag] [-x policy] [-z nframes]\n",
 	    stderr);
 }
 
@@ -462,7 +486,7 @@ aucat_main(int argc, char **argv)
 	int autostart;
 	struct dev *d, *dnext;
 	unsigned active;
-	unsigned nsock, nfile;
+	unsigned nsock;
 
 	/*
 	 * global options defaults
@@ -474,45 +498,15 @@ aucat_main(int argc, char **argv)
 	n_flag = 0;
 	SLIST_INIT(&cfdevs);
 	SLIST_INIT(&cfnets);
-	nfile = nsock = 0;
+	nsock = 0;
 
 	/*
-	 * default stream params
+	 * default device and stream
 	 */
-	cs = malloc(sizeof(struct cfstr));
-	if (cs == NULL) {
-		perror("malloc");
-		exit(1);
-	}
-	aparams_init(&cs->ipar, 0, 1, DEFAULT_RATE);
-	aparams_init(&cs->opar, 0, 1, DEFAULT_RATE);
-	cs->mmc = 0;
-	cs->hdr = HDR_AUTO;
-	cs->xrun = XRUN_IGNORE;
-	cs->vol = MIDI_MAXCTL;
-	cs->mode = MODE_PLAY | MODE_REC;
-	cs->join = 1;
+	cd = cfdev_new(NULL);
+	cs = cfstr_new(NULL);
 
-	/*
-	 * default device
-	 */
-	cd = malloc(sizeof(struct cfdev));
-	if (cd == NULL) {
-		perror("malloc");
-		exit(1);
-	}
-	aparams_init(&cd->ipar, 0, 1, DEFAULT_RATE);
-	aparams_init(&cd->opar, 0, 1, DEFAULT_RATE);
-	SLIST_INIT(&cd->ins);
-	SLIST_INIT(&cd->outs);
-	SLIST_INIT(&cd->opts);
-	SLIST_INIT(&cd->mids);
-	cd->path = NULL;
-	cd->bufsz = 0;
-	cd->round = 0;
-	cd->hold = 1;
-
-	while ((c = getopt(argc, argv, "a:dnb:c:C:e:r:h:x:v:i:o:f:m:luq:s:U:L:t:j:z:")) != -1) {
+	while ((c = getopt(argc, argv, "a:w:dnb:c:C:e:r:h:x:v:i:o:f:m:luq:s:U:L:t:j:z:")) != -1) {
 		switch (c) {
 		case 'd':
 #ifdef DEBUG
@@ -537,7 +531,6 @@ aucat_main(int argc, char **argv)
 			break;
 		case 'm':
 			cs->mode = opt_mode();
-			cd->mode = cs->mode;
 			break;
 		case 'h':
 			cs->hdr = opt_hdr();
@@ -564,6 +557,8 @@ aucat_main(int argc, char **argv)
 		case 'e':
 			opt_enc(&cs->ipar);
 			aparams_copyenc(&cs->opar, &cs->ipar);
+			aparams_copyenc(&cd->ipar, &cs->ipar);
+			aparams_copyenc(&cd->opar, &cd->ipar);
 			break;
 		case 'r':
 			rate = strtonum(optarg, RATE_MIN, RATE_MAX, &str);
@@ -579,18 +574,22 @@ aucat_main(int argc, char **argv)
 			break;
 		case 'i':
 			cfstr_add(&cd->ins, cs, optarg);
-			nfile++;
+			cs = cfstr_new(cs);
 			break;
 		case 'o':
 			cfstr_add(&cd->outs, cs, optarg);
-			nfile++;
+			cs = cfstr_new(cs);
 			break;
 		case 's':
 			cfstr_add(&cd->opts, cs, optarg);
+			cs = cfstr_new(cs);
 			nsock++;
 			break;
 		case 'a':
 			cd->hold = opt_onoff();
+			break;
+		case 'w':
+			cd->autovol = opt_onoff();
 			break;
 		case 'q':
 			cfmid_add(&cd->mids, optarg);
@@ -610,9 +609,11 @@ aucat_main(int argc, char **argv)
 			    SLIST_EMPTY(&cd->ins) &&
 			    SLIST_EMPTY(&cd->outs)) {
 				cfstr_add(&cd->opts, cs, DEFAULT_OPT);
+				cs = cfstr_new(cs);
 				nsock++;
 			}
 			cfdev_add(&cfdevs, cd, optarg);
+			cd = cfdev_new(cd);
 			break;
 		case 'l':
 			l_flag = 1;
@@ -657,15 +658,20 @@ aucat_main(int argc, char **argv)
 		    SLIST_EMPTY(&cd->outs)) {
 			cfstr_add(&cd->opts, cs, DEFAULT_OPT);
 			nsock++;
-		}
+		} else
+			free(cs);
 		if (!cd->hold)
 			errx(1, "-a off not compatible with default device");
 		cfdev_add(&cfdevs, cd, "default");
+	} else {
+		if (!SLIST_EMPTY(&cd->opts) ||
+		    !SLIST_EMPTY(&cd->ins) ||
+		    !SLIST_EMPTY(&cd->outs) ||
+		    !SLIST_EMPTY(&cd->outs))
+			errx(1, "no device to attach last stream to");
+		free(cs);
+		free(cd);
 	}
-	if ((cs = SLIST_FIRST(&cd->opts)) ||
-	    (cs = SLIST_FIRST(&cd->ins)) ||
-	    (cs = SLIST_FIRST(&cd->outs)))
-		errx(1, "%s: no device to attach the stream to", cs->path);
 
 	/*
 	 * Check modes and calculate "best" device parameters. Iterate over all
@@ -674,6 +680,10 @@ aucat_main(int argc, char **argv)
 	 */
 	SLIST_FOREACH(cd, &cfdevs, entry) {
 		mode = 0;
+		if (!u_flag) {
+			aparams_init(&cd->opar, NCHAN_MAX - 1, 0, RATE_MIN);
+			aparams_init(&cd->opar, NCHAN_MAX - 1, 0, RATE_MIN);
+		}
 		SLIST_FOREACH(cs, &cd->ins, entry) {
 			if (cs->mode == 0)
 				errx(1, "%s: not in play mode", cs->path);
@@ -730,7 +740,7 @@ aucat_main(int argc, char **argv)
 		} else {
 			d = dev_new_sio(cd->path, cd->mode | MODE_MIDIMASK,
 			    &cd->ipar, &cd->opar, cd->bufsz, cd->round,
-			    cd->hold);
+			    cd->hold, cd->autovol);
 		}
 		if (d == NULL)
 			errx(1, "%s: can't open device", cd->path);
@@ -893,31 +903,12 @@ midicat_main(int argc, char **argv)
 	nsock = 0;
 	
 	/*
-	 * default stream params
+	 * default device and stream
 	 */
-	cs = malloc(sizeof(struct cfstr));
-	if (cs == NULL) {
-		perror("malloc");
-		exit(1);
-	}
-	cs->hdr = HDR_RAW;
+	cs = cfstr_new(NULL);
+	cd = cfdev_new(NULL);
 
-	/*
-	 * default device
-	 */
-	cd = malloc(sizeof(struct cfdev));
-	if (cd == NULL) {
-		perror("malloc");
-		exit(1);
-	}
-	SLIST_INIT(&cd->ins);
-	SLIST_INIT(&cd->outs);
-	SLIST_INIT(&cd->opts);
-	SLIST_INIT(&cd->mids);
-	cd->path = NULL;
-
-
-	while ((c = getopt(argc, argv, "di:o:ls:q:U:")) != -1) {
+	while ((c = getopt(argc, argv, "di:o:ls:q:U:L:")) != -1) {
 		switch (c) {
 		case 'd':
 #ifdef DEBUG
@@ -928,9 +919,11 @@ midicat_main(int argc, char **argv)
 			break;
 		case 'i':
 			cfstr_add(&cd->ins, cs, optarg);
+			cs = cfstr_new(cs);
 			break;
 		case 'o':
 			cfstr_add(&cd->outs, cs, optarg);
+			cs = cfstr_new(cs);
 			break;
 		case 'q':
 			cfmid_add(&cd->mids, optarg);
@@ -938,6 +931,8 @@ midicat_main(int argc, char **argv)
 		case 's':
 			cfstr_add(&cd->opts, cs, optarg);
 			cfdev_add(&cfdevs, cd, optarg);
+			cd = cfdev_new(cd);
+			cs = cfstr_new(NULL);
 			nsock++;
 			break;
 		case 'l':
@@ -980,14 +975,19 @@ midicat_main(int argc, char **argv)
 	 */
 	if (SLIST_EMPTY(&cfdevs)) {
 		if (SLIST_EMPTY(&cd->mids)) {
-			if (!SLIST_EMPTY(&cd->ins) || !SLIST_EMPTY(&cd->outs))
-			    	cfmid_add(&cd->mids, "default");
-			else {
+			if (SLIST_EMPTY(&cd->ins) && SLIST_EMPTY(&cd->outs)) {
 				cfstr_add(&cd->opts, cs, DEFAULT_OPT);
 				nsock++;
+			} else {
+				cfmid_add(&cd->mids, "default");
+				free(cs);
 			}
-		}
+		} else
+			free(cs);
 		cfdev_add(&cfdevs, cd, "default");
+	} else {
+		free(cs);
+		free(cd);
 	}
 	if (nsock > 0) {
 		getbasepath(base, sizeof(path));
@@ -1004,8 +1004,6 @@ midicat_main(int argc, char **argv)
 		d = dev_new_thru();
 		if (d == NULL)
 			errx(1, "%s: can't open device", cd->path);
-		if (!dev_ref(d))
-			errx(1, "couldn't open midi thru box");
 		if (SLIST_EMPTY(&cd->opts) && APROC_OK(d->midi))
 			d->midi->flags |= APROC_QUIT;
 

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.224 2011/04/24 21:32:07 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.233 2011/05/30 21:02:28 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: April 24 2011 $
+.Dd $Mdocdate: May 30 2011 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -766,7 +766,7 @@ The following keys are supported as appropriate for the mode:
 .It Li "Cursor to top line" Ta "H" Ta "M-R"
 .It Li "Cursor up" Ta "k" Ta "Up"
 .It Li "Delete entire line" Ta "d" Ta "C-u"
-.It Li "Delete to end of line" Ta "D" Ta "C-k"
+.It Li "Delete/Copy to end of line" Ta "D" Ta "C-k"
 .It Li "End of line" Ta "$" Ta "C-e"
 .It Li "Go to line" Ta ":" Ta "g"
 .It Li "Half page down" Ta "C-d" Ta "M-Down"
@@ -1255,7 +1255,7 @@ The
 .Ar shell-command
 string may contain the special character sequences supported by the
 .Ic status-left
-command.
+option.
 If no
 .Ar shell-command
 is given, the current pipe (if any) is closed.
@@ -1705,6 +1705,28 @@ Available server options are:
 Set the number of buffers; as new buffers are added to the top of the stack,
 old ones are removed from the bottom if necessary to maintain this maximum
 length.
+.It Xo Ic set-clipboard
+.Op Ic on | off
+.Xc
+Attempt to set the terminal clipboard content using the
+\ee]52;...\e007
+.Xr xterm 1
+escape sequences.
+This option is on by default if there is an
+.Em \&Ms
+entry in the
+.Xr terminfo 5
+description for the client terminal.
+Note that this feature needs to be enabled in
+.Xr xterm 1
+by setting the resource:
+.Bd -literal -offset indent
+disallowedWindowOps: 20,21,SetXprop
+.Ed
+.Pp
+Or changing this property from the
+.Xr xterm 1
+interactive menu when required.
 .It Ic escape-time Ar time
 Set the time in milliseconds for which
 .Nm
@@ -1888,6 +1910,12 @@ Set status line message foreground colour.
 Set the number of error or information messages to save in the message log for
 each client.
 The default is 20.
+.It Xo Ic mouse-resize-pane
+.Op Ic on | off
+.Xc
+If on,
+.Nm
+captures the mouse and allows panes to be resized by dragging on their borders.
 .It Xo Ic mouse-select-pane
 .Op Ic on | off
 .Xc
@@ -2145,7 +2173,7 @@ The default value forcibly corrects the
 .Ql colors
 entry for terminals which support 88 or 256 colours:
 .Bd -literal -offset indent
-"*88col*:colors=88,*256col*:colors=256"
+"*88col*:colors=88,*256col*:colors=256,xterm*:XT"
 .Ed
 .It Ic update-environment Ar variables
 Set a space-separated string containing a list of environment variables to be
@@ -2596,6 +2624,7 @@ Open the command prompt in a client.
 This may be used from inside
 .Nm
 to execute commands interactively.
+.Pp
 If
 .Ar template
 is specified, it is used as the command.
@@ -2609,6 +2638,12 @@ a single prompt is displayed, constructed from
 if it is present, or
 .Ql \&:
 if not.
+The
+.Ar prompts
+may contain the special character sequences supported by the
+.Ic status-left
+option.
+.Pp
 Before the command is executed, the first occurrence of the string
 .Ql %%
 and all occurrences of
@@ -2789,6 +2824,44 @@ If the command doesn't return success, the exit status is also displayed.
 .It Ic server-info
 .D1 (alias: Ic info )
 Show server information and terminal details.
+.El
+.Sh TERMINFO EXTENSIONS
+.Nm
+understands some extensions to
+.Xr terminfo 5 :
+.Bl -tag -width Ds
+.It Em Cc , Cr
+Set the cursor colour.
+The first takes a single string argument and is used to set the colour;
+the second takes no arguments and restores the default cursor colour.
+If set, a sequence such as this may be used
+to change the cursor colour from inside
+.Nm :
+.Bd -literal -offset indent
+$ printf '\e033]12;red\e033\e\e'
+.Ed
+.It Em Cs , Csr
+Change the cursor style.
+If set, a sequence such as this may be used
+to change the cursor to an underline:
+.Bd -literal -offset indent
+$ printf '\e033[4 q'
+.Ed
+.Pp
+If
+.Em Csr
+is set, it will be used to reset the cursor style instead
+of
+.Em Cs .
+.It Em \&Ms
+This sequence can be used by
+.Nm
+to store the current buffer in the host terminal's selection (clipboard).
+See the
+.Em set-clipboard
+option above and the
+.Xr xterm 1
+man page.
 .El
 .Sh FILES
 .Bl -tag -width "/etc/tmux.confXXX" -compact

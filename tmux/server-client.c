@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.54 2011/04/19 21:31:33 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.59 2011/05/20 19:03:58 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -88,6 +88,9 @@ server_client_create(int fd)
 	c->prompt_string = NULL;
 	c->prompt_buffer = NULL;
 	c->prompt_index = 0;
+
+	c->last_mouse.b = MOUSE_UP;
+	c->last_mouse.x = c->last_mouse.y = -1;
 
 	evtimer_set(&c->repeat_timer, server_client_repeat_timer, c);
 
@@ -325,12 +328,29 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 			server_redraw_window_borders(w);
 			wp = w->active;
 		}
-		if (mouse->y + 1 == c->tty.sy && mouse->b == MOUSE_UP &&
+		if (mouse->y + 1 == c->tty.sy &&
 		    options_get_number(oo, "mouse-select-window") &&
 		    options_get_number(oo, "status")) {
-			status_set_window_at(c, mouse->x);
-			return;
+			if (mouse->b == MOUSE_UP &&
+			    c->last_mouse.b != MOUSE_UP) {
+				status_set_window_at(c, mouse->x);
+				return;
+			}
+			if (mouse->b & MOUSE_45) {
+				if ((mouse->b & MOUSE_BUTTON) == MOUSE_1) {
+					session_previous(c->session, 0);
+					server_redraw_session(s);
+				}
+				if ((mouse->b & MOUSE_BUTTON) == MOUSE_2) {
+					session_next(c->session, 0);
+					server_redraw_session(s);
+				}
+				return;
+			}
 		}
+		if (options_get_number(oo, "mouse-resize-pane"))
+			layout_resize_pane_mouse(c, mouse);
+		memcpy(&c->last_mouse, mouse, sizeof c->last_mouse);
 		window_pane_mouse(wp, c->session, mouse);
 		return;
 	}
@@ -463,13 +483,23 @@ server_client_reset_state(struct client *c)
 		tty_cursor(&c->tty, wp->xoff + s->cx, wp->yoff + s->cy);
 
 	/*
+	 * Resizing panes with the mouse requires at least button mode to give
+	 * a smooth appearance.
+	 */
+	mode = s->mode;
+	if ((c->last_mouse.b & MOUSE_RESIZE_PANE) &&
+	    !(mode & (MODE_MOUSE_BUTTON|MODE_MOUSE_ANY)))
+		mode |= MODE_MOUSE_BUTTON;
+
+	/*
 	 * Any mode will do for mouse-select-pane, but set standard mode if
 	 * none.
 	 */
-	mode = s->mode;
 	if ((mode & ALL_MOUSE_MODES) == 0) {
 		if (TAILQ_NEXT(TAILQ_FIRST(&w->panes), entry) != NULL &&
-		    options_get_number(oo, "mouse-select-pane") == 0)
+		    options_get_number(oo, "mouse-select-pane"))
+			mode |= MODE_MOUSE_STANDARD;
+		else if (options_get_number(oo, "mouse-resize-pane"))
 			mode |= MODE_MOUSE_STANDARD;
 		else if (options_get_number(oo, "mouse-select-window"))
 			mode |= MODE_MOUSE_STANDARD;
@@ -491,7 +521,7 @@ server_client_reset_state(struct client *c)
 		mode &= ~MODE_MOUSE_UTF8;
 
 	/* Set the terminal mode and reset attributes. */
-	tty_update_mode(&c->tty, mode);
+	tty_update_mode(&c->tty, mode, s);
 	tty_reset(&c->tty);
 }
 

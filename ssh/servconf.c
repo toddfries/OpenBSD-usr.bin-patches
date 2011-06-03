@@ -1,4 +1,4 @@
-/* $OpenBSD: servconf.c,v 1.214 2011/03/29 18:54:17 stevesk Exp $ */
+/* $OpenBSD: servconf.c,v 1.219 2011/05/23 03:30:07 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -119,8 +119,7 @@ initialize_server_options(ServerOptions *options)
 	options->use_dns = -1;
 	options->client_alive_interval = -1;
 	options->client_alive_count_max = -1;
-	options->authorized_keys_file = NULL;
-	options->authorized_keys_file2 = NULL;
+	options->num_authkeys_files = 0;
 	options->num_accept_env = 0;
 	options->permit_tun = -1;
 	options->num_permitted_opens = -1;
@@ -250,15 +249,12 @@ fill_default_server_options(ServerOptions *options)
 		options->client_alive_interval = 0;
 	if (options->client_alive_count_max == -1)
 		options->client_alive_count_max = 3;
-	if (options->authorized_keys_file2 == NULL) {
-		/* authorized_keys_file2 falls back to authorized_keys_file */
-		if (options->authorized_keys_file != NULL)
-			options->authorized_keys_file2 = xstrdup(options->authorized_keys_file);
-		else
-			options->authorized_keys_file2 = xstrdup(_PATH_SSH_USER_PERMITTED_KEYS2);
+	if (options->num_authkeys_files == 0) {
+		options->authorized_keys_files[options->num_authkeys_files++] =
+		    xstrdup(_PATH_SSH_USER_PERMITTED_KEYS);
+		options->authorized_keys_files[options->num_authkeys_files++] =
+		    xstrdup(_PATH_SSH_USER_PERMITTED_KEYS2);
 	}
-	if (options->authorized_keys_file == NULL)
-		options->authorized_keys_file = xstrdup(_PATH_SSH_USER_PERMITTED_KEYS);
 	if (options->permit_tun == -1)
 		options->permit_tun = SSH_TUNMODE_NO;
 	if (options->zero_knowledge_password_authentication == -1)
@@ -294,7 +290,7 @@ typedef enum {
 	sMaxStartups, sMaxAuthTries, sMaxSessions,
 	sBanner, sUseDNS, sHostbasedAuthentication,
 	sHostbasedUsesNameFromPacketOnly, sClientAliveInterval,
-	sClientAliveCountMax, sAuthorizedKeysFile, sAuthorizedKeysFile2,
+	sClientAliveCountMax, sAuthorizedKeysFile,
 	sGssAuthentication, sGssCleanupCreds, sAcceptEnv, sPermitTunnel,
 	sMatch, sPermitOpen, sForceCommand, sChrootDirectory,
 	sUsePrivilegeSeparation, sAllowAgentForwarding,
@@ -399,7 +395,7 @@ static struct {
 	{ "clientaliveinterval", sClientAliveInterval, SSHCFG_GLOBAL },
 	{ "clientalivecountmax", sClientAliveCountMax, SSHCFG_GLOBAL },
 	{ "authorizedkeysfile", sAuthorizedKeysFile, SSHCFG_ALL },
-	{ "authorizedkeysfile2", sAuthorizedKeysFile2, SSHCFG_ALL },
+	{ "authorizedkeysfile2", sDeprecated, SSHCFG_ALL },
 	{ "useprivilegeseparation", sUsePrivilegeSeparation, SSHCFG_GLOBAL},
 	{ "acceptenv", sAcceptEnv, SSHCFG_GLOBAL },
 	{ "permittunnel", sPermitTunnel, SSHCFG_ALL },
@@ -1205,14 +1201,22 @@ process_server_config_line(ServerOptions *options, char *line,
 	 * AuthorizedKeysFile	/etc/ssh_keys/%u
 	 */
 	case sAuthorizedKeysFile:
-		charptr = &options->authorized_keys_file;
-		goto parse_tilde_filename;
-	case sAuthorizedKeysFile2:
-		charptr = &options->authorized_keys_file2;
-		goto parse_tilde_filename;
+		if (*activep && options->num_authkeys_files == 0) {
+			while ((arg = strdelim(&cp)) && *arg != '\0') {
+				if (options->num_authkeys_files >=
+				    MAX_AUTHKEYS_FILES)
+					fatal("%s line %d: "
+					    "too many authorized keys files.",
+					    filename, linenum);
+				options->authorized_keys_files[
+				    options->num_authkeys_files++] =
+				    tilde_expand_filename(arg, getuid());
+			}
+		}
+		return 0;
+
 	case sAuthorizedPrincipalsFile:
 		charptr = &options->authorized_principals_file;
- parse_tilde_filename:
 		arg = strdelim(&cp);
 		if (!arg || *arg == '\0')
 			fatal("%s line %d: missing file name.",
@@ -1431,6 +1435,12 @@ parse_server_match_config(ServerOptions *options, const char *user,
 		dst->n = src->n; \
 	} \
 } while(0)
+#define M_CP_STRARRAYOPT(n, num_n) do {\
+	if (src->num_n != 0) { \
+		for (dst->num_n = 0; dst->num_n < src->num_n; dst->num_n++) \
+			dst->n[dst->num_n] = xstrdup(src->n[dst->num_n]); \
+	} \
+} while(0)
 
 /*
  * Copy any supported values that are set.
@@ -1466,20 +1476,23 @@ copy_set_server_options(ServerOptions *dst, ServerOptions *src, int preauth)
 	M_CP_INTOPT(ip_qos_interactive);
 	M_CP_INTOPT(ip_qos_bulk);
 
-	M_CP_STROPT(banner);
+	/* See comment in servconf.h */
+	COPY_MATCH_STRING_OPTS();
+
+	/*
+	 * The only things that should be below this point are string options
+	 * which are only used after authentication.
+	 */
 	if (preauth)
 		return;
+
 	M_CP_STROPT(adm_forced_command);
 	M_CP_STROPT(chroot_directory);
-	M_CP_STROPT(trusted_user_ca_keys);
-	M_CP_STROPT(revoked_keys_file);
-	M_CP_STROPT(authorized_keys_file);
-	M_CP_STROPT(authorized_keys_file2);
-	M_CP_STROPT(authorized_principals_file);
 }
 
 #undef M_CP_INTOPT
 #undef M_CP_STROPT
+#undef M_CP_STRARRAYOPT
 
 void
 parse_server_config(ServerOptions *options, const char *filename, Buffer *conf,
@@ -1593,7 +1606,18 @@ dump_cfg_strarray(ServerOpCodes code, u_int count, char **vals)
 	u_int i;
 
 	for (i = 0; i < count; i++)
-		printf("%s %s\n", lookup_opcode_name(code),  vals[i]);
+		printf("%s %s\n", lookup_opcode_name(code), vals[i]);
+}
+
+static void
+dump_cfg_strarray_oneline(ServerOpCodes code, u_int count, char **vals)
+{
+	u_int i;
+
+	printf("%s", lookup_opcode_name(code));
+	for (i = 0; i < count; i++)
+		printf(" %s",  vals[i]);
+	printf("\n");
 }
 
 void
@@ -1686,8 +1710,6 @@ dump_config(ServerOptions *o)
 	dump_cfg_string(sCiphers, o->ciphers);
 	dump_cfg_string(sMacs, o->macs);
 	dump_cfg_string(sBanner, o->banner);
-	dump_cfg_string(sAuthorizedKeysFile, o->authorized_keys_file);
-	dump_cfg_string(sAuthorizedKeysFile2, o->authorized_keys_file2);
 	dump_cfg_string(sForceCommand, o->adm_forced_command);
 	dump_cfg_string(sChrootDirectory, o->chroot_directory);
 	dump_cfg_string(sTrustedUserCAKeys, o->trusted_user_ca_keys);
@@ -1700,6 +1722,8 @@ dump_config(ServerOptions *o)
 	dump_cfg_string(sLogFacility, log_facility_name(o->log_facility));
 
 	/* string array arguments */
+	dump_cfg_strarray_oneline(sAuthorizedKeysFile, o->num_authkeys_files,
+	    o->authorized_keys_files);
 	dump_cfg_strarray(sHostKeyFile, o->num_host_key_files,
 	     o->host_key_files);
 	dump_cfg_strarray(sHostKeyFile, o->num_host_cert_files,
