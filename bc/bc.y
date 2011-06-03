@@ -1,5 +1,5 @@
 %{
-/*	$OpenBSD: bc.y,v 1.34 2011/03/07 08:11:15 otto Exp $	*/
+/*	$OpenBSD: bc.y,v 1.37 2011/06/03 06:52:37 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -1058,7 +1058,7 @@ void
 sigchld(int signo)
 {
 	pid_t pid;
-	int status;
+	int status, save_errno = errno;
 
 	for (;;) {
 		pid = waitpid(dc, &status, WCONTINUED);
@@ -1072,6 +1072,7 @@ sigchld(int signo)
 		else
 			break;
 	}
+	errno = save_errno;
 }
 
 static const char *
@@ -1143,8 +1144,10 @@ main(int argc, char *argv[])
 				history(hist, &he, H_SETSIZE, 100);
 				el_set(el, EL_HIST, history, hist);
 				el_set(el, EL_EDITOR, "emacs");
-				el_set(el, EL_SIGNAL, 1);
+				el_set(el, EL_SIGNAL, 0);
 				el_set(el, EL_PROMPT, dummy_prompt);
+				el_set(el, EL_ADDFN, "bc_eof", "", bc_eof);
+				el_set(el, EL_BIND, "^D", "bc_eof");
 				el_source(el, NULL);
 			}
 		} else {

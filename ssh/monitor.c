@@ -1,4 +1,4 @@
-/* $OpenBSD: monitor.c,v 1.110 2010/09/09 10:45:45 djm Exp $ */
+/* $OpenBSD: monitor.c,v 1.113 2011/05/23 03:30:07 djm Exp $ */
 /*
  * Copyright 2002 Niels Provos <provos@citi.umich.edu>
  * Copyright 2002 Markus Friedl <markus@openbsd.org>
@@ -547,6 +547,7 @@ mm_answer_pwnamallow(int sock, Buffer *m)
 	char *username;
 	struct passwd *pwent;
 	int allowed = 0;
+	u_int i;
 
 	debug3("%s", __func__);
 
@@ -584,8 +585,20 @@ mm_answer_pwnamallow(int sock, Buffer *m)
 
  out:
 	buffer_put_string(m, &options, sizeof(options));
-	if (options.banner != NULL)
-		buffer_put_cstring(m, options.banner);
+
+#define M_CP_STROPT(x) do { \
+		if (options.x != NULL) \
+			buffer_put_cstring(m, options.x); \
+	} while (0)
+#define M_CP_STRARRAYOPT(x, nx) do { \
+		for (i = 0; i < options.nx; i++) \
+			buffer_put_cstring(m, options.x[i]); \
+	} while (0)
+	/* See comment in servconf.h */
+	COPY_MATCH_STRING_OPTS();
+#undef M_CP_STROPT
+#undef M_CP_STRARRAYOPT
+	
 	debug3("%s: sending MONITOR_ANS_PWNAM: %d", __func__, allowed);
 	mm_request_send(sock, MONITOR_ANS_PWNAM, m);
 
@@ -597,7 +610,6 @@ mm_answer_pwnamallow(int sock, Buffer *m)
 		monitor_permit(mon_dispatch, MONITOR_REQ_AUTHSERV, 1);
 		monitor_permit(mon_dispatch, MONITOR_REQ_AUTH2_READ_BANNER, 1);
 	}
-
 
 	return (0);
 }
@@ -1513,7 +1525,7 @@ mm_init_compression(struct mm_master *mm)
 /* XXX */
 
 #define FD_CLOSEONEXEC(x) do { \
-	if (fcntl(x, F_SETFD, 1) == -1) \
+	if (fcntl(x, F_SETFD, FD_CLOEXEC) == -1) \
 		fatal("fcntl(%d, F_SETFD)", x); \
 } while (0)
 

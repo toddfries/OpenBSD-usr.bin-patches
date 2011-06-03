@@ -1,4 +1,4 @@
-/* $OpenBSD: window-copy.c,v 1.69 2011/04/24 21:06:12 nicm Exp $ */
+/* $OpenBSD: window-copy.c,v 1.72 2011/05/18 20:24:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -500,6 +500,26 @@ window_copy_key(struct window_pane *wp, struct session *sess, int key)
 		window_copy_start_selection(wp);
 		window_copy_redraw_screen(wp);
 		break;
+	case MODEKEYCOPY_COPYLINE:
+	case MODEKEYCOPY_SELECTLINE:
+		window_copy_cursor_start_of_line(wp);
+		/* FALLTHROUGH */
+	case MODEKEYCOPY_COPYENDOFLINE:
+		window_copy_start_selection(wp);
+		for (; np > 1; np--)
+			window_copy_cursor_down(wp, 0);
+		window_copy_cursor_end_of_line(wp);
+		window_copy_redraw_screen(wp);
+
+		/* If a copy command then copy the selection and exit. */
+		if (sess != NULL &&
+		    (cmd == MODEKEYCOPY_COPYLINE ||
+		    cmd == MODEKEYCOPY_COPYENDOFLINE)) {
+			window_copy_copy_selection(wp);
+			window_pane_reset_mode(wp);
+			return;
+		}
+		break;
 	case MODEKEYCOPY_CLEARSELECTION:
 		window_copy_clear_selection(wp);
 		window_copy_redraw_screen(wp);
@@ -790,7 +810,7 @@ window_copy_mouse(
 	 * If already reading motion, move the cursor while buttons are still
 	 * pressed, or stop the selection on their release.
 	 */
-	if (s->mode & MODE_MOUSE_ANY) {
+	if (s->mode & MODE_MOUSE_BUTTON) {
 		if ((m->b & MOUSE_BUTTON) != MOUSE_UP) {
 			window_copy_update_cursor(wp, m->x, m->y);
 			if (window_copy_update_selection(wp))
@@ -803,7 +823,7 @@ window_copy_mouse(
 	/* Otherwise if other buttons pressed, start selection and motion. */
 	if ((m->b & MOUSE_BUTTON) != MOUSE_UP) {
 		s->mode &= ~MODE_MOUSE_STANDARD;
-		s->mode |= MODE_MOUSE_ANY;
+		s->mode |= MODE_MOUSE_BUTTON;
 
 		window_copy_update_cursor(wp, m->x, m->y);
 		window_copy_start_selection(wp);
@@ -813,7 +833,7 @@ window_copy_mouse(
 	return;
 
 reset_mode:
-	s->mode &= ~MODE_MOUSE_ANY;
+	s->mode &= ~MODE_MOUSE_BUTTON;
 	s->mode |= MODE_MOUSE_STANDARD;
 	if (sess != NULL) {
 		window_copy_copy_selection(wp);
@@ -1324,6 +1344,9 @@ window_copy_copy_selection(struct window_pane *wp)
 		return;
 	}
 	off--;	/* remove final \n */
+
+	if (options_get_number(&global_options, "set-clipboard"))
+		screen_write_setselection(&wp->ictx.ctx, buf, off);
 
 	/* Add the buffer to the stack. */
 	limit = options_get_number(&global_options, "buffer-limit");

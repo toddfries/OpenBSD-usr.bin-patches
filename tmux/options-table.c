@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.5 2011/04/18 19:49:05 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.10 2011/05/20 19:17:39 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -73,6 +73,11 @@ const struct options_table_entry server_options_table[] = {
 	{ .name = "quiet",
 	  .type = OPTIONS_TABLE_FLAG,
 	  .default_num = 0 /* overridden in main() */
+	},
+
+	{ .name = "set-clipboard",
+	  .type = OPTIONS_TABLE_FLAG,
+	  .default_num = 1
 	},
 
 	{ .name = NULL }
@@ -191,6 +196,11 @@ const struct options_table_entry session_options_table[] = {
 	  .minimum = 0,
 	  .maximum = INT_MAX,
 	  .default_num = 20
+	},
+
+	{ .name = "mouse-resize-pane",
+	  .type = OPTIONS_TABLE_FLAG,
+	  .default_num = 0
 	},
 
 	{ .name = "mouse-select-pane",
@@ -356,12 +366,15 @@ const struct options_table_entry session_options_table[] = {
 	{ .name = "terminal-overrides",
 	  .type = OPTIONS_TABLE_STRING,
 	  .default_str = "*88col*:colors=88,*256col*:colors=256"
+	                 ",xterm*:XT:Ms=\\E]52;%p1%s;%p2%s\\007"
+	                 ":Cc=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
+			 ":Cs=\\E[%p1%d q:Csr=\\E[2 q"
 	},
 
 	{ .name = "update-environment",
 	  .type = OPTIONS_TABLE_STRING,
 	  .default_str = "DISPLAY SSH_ASKPASS SSH_AUTH_SOCK SSH_AGENT_PID "
-	                    "SSH_CONNECTION WINDOWID XAUTHORITY"
+	                 "SSH_CONNECTION WINDOWID XAUTHORITY"
 
 	},
 
