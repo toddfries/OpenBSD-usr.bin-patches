@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.51 2011/01/08 00:48:54 nicm Exp $
+# $OpenBSD: Makefile,v 1.53 2011/06/05 11:19:03 nicm Exp $
 
 PROG=	tmux
 SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
@@ -16,7 +16,7 @@ SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
 	cmd-lock-server.c \
 	cmd-move-window.c cmd-new-session.c cmd-new-window.c \
 	cmd-paste-buffer.c \
-	cmd-refresh-client.c \
+	cmd-refresh-client.c cmd-respawn-pane.c \
 	cmd-rename-session.c cmd-rename-window.c cmd-resize-pane.c \
 	cmd-respawn-window.c cmd-rotate-window.c cmd-save-buffer.c \
 	cmd-select-layout.c cmd-select-pane.c cmd-select-window.c \
@@ -31,7 +31,7 @@ SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
 	cmd-pipe-pane.c cmd-capture-pane.c cmd.c \
 	colour.c environ.c grid-view.c grid-utf8.c grid.c input-keys.c \
 	input.c key-bindings.c key-string.c \
-	layout-custom.c layout-set.c layout-string.c layout.c log.c job.c \
+	layout-custom.c layout-set.c layout.c log.c job.c \
 	mode-key.c names.c options.c options-table.c paste.c procname.c \
 	resize.c screen-redraw.c screen-write.c screen.c session.c status.c \
 	signal.c server-fn.c server.c server-client.c server-window.c \

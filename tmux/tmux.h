@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.288 2011/05/20 19:17:39 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.290 2011/06/05 11:19:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1584,6 +1584,7 @@ extern const struct cmd_entry cmd_refresh_client_entry;
 extern const struct cmd_entry cmd_rename_session_entry;
 extern const struct cmd_entry cmd_rename_window_entry;
 extern const struct cmd_entry cmd_resize_pane_entry;
+extern const struct cmd_entry cmd_respawn_pane_entry;
 extern const struct cmd_entry cmd_respawn_window_entry;
 extern const struct cmd_entry cmd_rotate_window_entry;
 extern const struct cmd_entry cmd_run_shell_entry;
@@ -1891,7 +1892,9 @@ struct window	*window_create(const char *, const char *, const char *,
 		     const char *, struct environ *, struct termios *,
 		     u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
+struct window_pane *window_get_active_at(struct window *, u_int, u_int);
 void		 window_set_active_at(struct window *, u_int, u_int);
+struct window_pane *window_find_string(struct window *, const char *);
 void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, u_int);
 void		 window_resize(struct window *, u_int, u_int);
@@ -1970,10 +1973,6 @@ u_int		 layout_set_select(struct window *, u_int);
 u_int		 layout_set_next(struct window *);
 u_int		 layout_set_previous(struct window *);
 void		 layout_set_active_changed(struct window *);
-
-/* layout-string.c */
-struct layout_cell *layout_find_string(struct window *, const char *);
-struct layout_cell *layout_find_bottomright(struct layout_cell *);
 
 /* window-clock.c */
 extern const struct window_mode window_clock_mode;
