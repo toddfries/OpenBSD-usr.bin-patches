@@ -618,22 +618,22 @@ socktrans(struct kinfo_file2 *kf)
 		memcpy(&faddr6, kf->inp_faddru, sizeof(faddr6));
 		getinetproto(kf->so_protocol);
 		if (kf->so_protocol == IPPROTO_TCP) {
-			printf(" %p", (void *)(uintptr_t)kf->inp_ppcb);
-			snprintf(xaddrbuf, sizeof(xaddrbuf), "[%s]",
-			    inet6_addrstr(&laddr6));
-			printf(" %s:%d",
-			    IN6_IS_ADDR_UNSPECIFIED(&laddr6) ? "*" :
-			    xaddrbuf, ntohs(kf->inp_lport));
+			printf(" %p ", (void *)(uintptr_t)kf->inp_ppcb);
+			if (IN6_IS_ADDR_UNSPECIFIED(&laddr6))
+				printf("*");
+			else
+				printf("%s",inet6_addrstr(&laddr6));
+			printf(":%d", ntohs(kf->inp_lport));
 			if (kf->inp_fport) {
 				if (kf->so_state & SS_CONNECTOUT)
 					printf(" --> ");
 				else
 					printf(" <-- ");
-				snprintf(xaddrbuf, sizeof(xaddrbuf), "[%s]",
-				    inet6_addrstr(&faddr6));
-				printf("%s:%d",
-				    IN6_IS_ADDR_UNSPECIFIED(&faddr6) ? "*" :
-				    xaddrbuf, ntohs(kf->inp_fport));
+				if (IN6_IS_ADDR_UNSPECIFIED(&faddr6))
+					printf("*");
+				else
+					printf("%s", inet6_addrstr(&faddr6));
+				printf(":%d", ntohs(kf->inp_fport));
 			}
 		} else if (kf->so_protocol == IPPROTO_UDP) {
 			snprintf(xaddrbuf, sizeof(xaddrbuf), "[%s]",
