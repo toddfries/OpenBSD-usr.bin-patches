@@ -1,5 +1,5 @@
 #!/usr/bin/perl
-# $OpenBSD: pkg-config,v 1.45 2011/06/02 12:46:03 sthen Exp $
+# $OpenBSD: pkg-config,v 1.58 2011/06/11 12:09:06 jasper Exp $
 # $CSK: pkgconfig.pl,v 1.39 2006/11/27 16:26:20 ckuethe Exp $
 
 # Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
@@ -21,6 +21,7 @@ use strict;
 use warnings;
 use Getopt::Long;
 use File::Basename;
+use File::stat;
 use OpenBSD::PkgConfig;
 
 my @PKGPATH = qw(/usr/lib/pkgconfig /usr/local/lib/pkgconfig /usr/X11R6/lib/pkgconfig);
@@ -32,34 +33,34 @@ if (defined($ENV{PKG_CONFIG_LIBDIR}) && $ENV{PKG_CONFIG_LIBDIR}) {
 }
 
 my $logfile = '';
-if (defined($ENV{PKG_CONFIG_LOGFILE}) && $ENV{PKG_CONFIG_LOGFILE}) {
-	$logfile = $ENV{PKG_CONFIG_LOGFILE};
+if (defined($ENV{PKG_CONFIG_LOG}) && $ENV{PKG_CONFIG_LOG}) {
+	$logfile = $ENV{PKG_CONFIG_LOG};
 }
 
 my $allow_uninstalled =
 	defined $ENV{PKG_CONFIG_DISABLE_UNINSTALLED} ? 0 : 1;
 my $found_uninstalled = 0;
 
-my $version = 0.23; # pretend to be this version of pkgconfig
+my $version = 0.25; # pretend to be this version of pkgconfig
 
 my %configs = ();
 setup_self();
 
 my %mode = ();
 my $variables = {};
-my $D = 0; # debug flag
 
-$variables->{pc_top_builddir} = $ENV{PKG_CONFIG_TOP_BUILD_DIR} // 
+$variables->{pc_top_builddir} = $ENV{PKG_CONFIG_TOP_BUILD_DIR} //
 	'$(top_builddir)';
 
 $variables->{pc_sysrootdir} //= $ENV{PKG_CONFIG_SYSROOT_DIR};
 # The default '/' is implied.
 
-$D = 1 if defined $ENV{PKG_CONFIG_DEBUG_SPEW};
+my $D;
+defined $ENV{PKG_CONFIG_DEBUG_SPEW} ? $D = 1 : $D = 0;
 
 if ($logfile) {
 	open my $L, ">>" , $logfile or die;
-	print $L beautify_list($_, @ARGV), "\n";
+	print $L beautify_list($0, @ARGV), "\n";
 	close $L;
 }
 
@@ -145,7 +146,11 @@ while (@ARGV){
 	    	$op = shift @ARGV;
 		$v = shift @ARGV;
 	}
-	handle_config($p, $op, $v, $cfg_full_list);
+	# For these modes we just need some meta-information and
+	# parsing the requirements is not needed.
+	if (!($mode{modversion} || $mode{printprovides})) {
+		handle_config($p, $op, $v, $cfg_full_list);
+	}
 	push(@$top_config, $p);
 }
 
@@ -240,7 +245,7 @@ sub handle_config
 		my $deps = $cfg->get_property($property, $variables);
 		if (defined $deps) {
 			for my $dep (@$deps) {
-				if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+)$/) {
+				if ($dep =~ m/^(.*?)\s*([<=>]+)\s*([\d\.]+|[\d\.]+[\w]*[\d]+)$/) {
 					handle_config($1, $2, $3, $list);
 				} else {
 					handle_config($dep, undef, undef, $list);
@@ -315,13 +320,22 @@ sub validate_config
 {
 	my ($f, $cfg) = @_;
 	my @required_elems = ('Name', 'Description', 'Version');
-	my $e;
+
+	# Check if we're dealing with an empty file, but don't error out just
+	# yet, we'll do that when we realize there's no Name field.
+	if ((stat($f)->size == 0) && $mode{printerr}) {
+		my $p = $f;
+		$p =~ s/(^.*\/)(.*?)$/$2/g;
+		print STDERR "Package file '$p' appears to be empty\n";
+	}
 
 	foreach (@required_elems) {
-		$e = $cfg->get_property($_, $variables);
+		my $e = $cfg->get_property($_, $variables);
 		if (!defined $e) {
 			$f =~ s/(^.*\/)(.*?)\.pc$/$2/g;
-			print STDERR "Package '$f' has no $_: field\n";
+			if ($mode{printerr}) {
+				print STDERR "Package '$f' has no $_: field\n";
+			}
 			return undef;
 		}
 	}
@@ -499,7 +513,7 @@ sub do_list
 		}
 		$fname = basename($f, '.pc');
 		printf("%${x}s %s - %s\n", $fname,
-		    stringize($cfg->get_property('Name', $variables)),
+		    stringize($cfg->get_property('Name', $variables), ' '),
 		    stringize($cfg->get_property('Description', $variables),
 		    ' '));
 	}
@@ -560,20 +574,99 @@ sub self_version
 sub compare
 {
 	my ($a, $b) = @_;
+	my ($full_a, $full_b) = ($a, $b);
+	my (@suffix_a, @suffix_b);
 
 	return 0 if ($a eq $b);
+
+	# is there a valid non-numeric suffix to deal with later?
+	# accepted are (in order): a(lpha) < b(eta) < rc < ' '.
+	# suffix[0] is the 'alpha' part, suffix[1] is the '1' part in 'alpha1'.
+	# XXX: add back 'rc'
+	if ($a =~ s/(beta|b|alpha|a)(\d+)$//) {
+		print STDERR "valid suffix $1$2 found in $a$1$2.\n" if $D;
+		$suffix_a[0] = $1;
+		$suffix_a[1] = $2;
+	}
+
+	if ($b =~ s/(beta|b|alpha|a)(\d+)$//) {
+		print STDERR "valid suffix $1$2 found in $b$1$2.\n" if $D;
+		$suffix_b[0] = $1;
+		$suffix_b[1] = $2;
+	}
 
 	my @a = split /\./, $a;
 	my @b = split /\./, $b;
 
 	while (@a && @b) { #so long as both lists have something
-		return 1 if $a[0] > $b[0];
-		return -1 if $a[0] < $b[0];
+		if (!(@suffix_a || @suffix_b)) {
+			# simple comparison when no suffixes are in the game.
+			my $rc = compare_numeric($a[0], $b[0], 0);
+			return $rc if defined($rc);
+		} else {
+			# extended comparison.
+			if (((@a == 1) || (@b == 1)) &&
+			    ($a[0] == $b[0])){
+				# one of the arrays has reached the last element,
+				# compare the suffix.
+
+				# directly compare suffixes, provided both suffixes
+				# are present.
+				if (@suffix_a && @suffix_b) {
+					my $first_char = sub {
+						return substr(shift, 0, 1);
+					};
+
+					# suffixes are equal, compare on numeric
+					if (&$first_char($suffix_a[0]) eq
+					    &$first_char($suffix_b[0])) {
+					    	return compare_numeric($suffix_a[1], $suffix_b[1], 1);
+					}
+
+					# rc beats beta beats alpha
+					if (&$first_char($suffix_a[0]) lt &$first_char($suffix_b[0])) {
+						print STDERR "$full_a (installed) < $full_b (wanted)\n" if $D;
+						return -1;
+					} else {
+						print STDERR "$full_a (installed) > $full_b (wanted)\n" if $D;
+						return 1;
+					}
+
+				} else {
+					# one of either is lacking a suffix,
+					# thereby beating the other.
+					# e.g.: 1.02 > 1.02b1
+					if (@suffix_a) { # a is older
+						print STDERR "$full_a (installed) < $full_b (wanted)\n" if $D;
+						return 1;
+					}
+
+					if (@suffix_b) { # b is older
+						print STDERR "$full_a (installed) > $full_b (wanted)\n" if $D;
+						return -1;
+					}
+				}
+			} else {
+				my $rc = compare_numeric($a[0], $b[0], 0);
+				return $rc if defined($rc);
+			}
+		}
 		shift @a; shift @b;
 	}
 	return 1 if @a;
 	return -1 if @b;
 	return 0;
+}
+
+# simple numeric comparison, with optional equality test.
+sub compare_numeric
+{
+	my ($x, $y, $eq) = @_;
+
+	return 1 if $x > $y;
+	return -1 if $x < $y;
+	return 0 if (($x == $y) and ($eq == 1));
+	return undef;
 }
 
 # got a package meeting the requested specific version?
@@ -602,7 +695,7 @@ sub versionmatch
 sub mismatch
 {
 	my ($p, $cfg, $op, $v) = @_;
-	my $name = stringize($cfg->get_property('Name'));
+	my $name = stringize($cfg->get_property('Name'), ' ');
 	my $version = stringize($cfg->get_property('Version'));
 	my $url = stringize($cfg->get_property('URL'));
 
