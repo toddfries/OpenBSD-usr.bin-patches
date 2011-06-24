@@ -1,4 +1,4 @@
-/* $OpenBSD: servconf.c,v 1.220 2011/06/17 21:47:35 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.222 2011/06/22 21:57:01 djm Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -266,7 +266,7 @@ fill_default_server_options(ServerOptions *options)
 
 	/* Turn privilege separation on by default */
 	if (use_privsep == -1)
-		use_privsep = 1;
+		use_privsep = PRIVSEP_ON;
 }
 
 /* Keyword tokens. */
@@ -662,6 +662,12 @@ static const struct multistate multistate_gatewayports[] = {
 	{ "no",				0 },
 	{ NULL, -1 }
 };
+static const struct multistate multistate_privsep[] = {
+	{ "sandbox",			PRIVSEP_SANDBOX },
+	{ "yes",			PRIVSEP_ON },
+	{ "no",				PRIVSEP_OFF },
+	{ NULL, -1 }
+};
 
 int
 process_server_config_line(ServerOptions *options, char *line,
@@ -1021,7 +1027,8 @@ process_server_config_line(ServerOptions *options, char *line,
 
 	case sUsePrivilegeSeparation:
 		intptr = &use_privsep;
-		goto parse_flag;
+		multistate_ptr = multistate_privsep;
+		goto parse_multistate;
 
 	case sAllowUsers:
 		while ((arg = strdelim(&cp)) && *arg != '\0') {
@@ -1504,31 +1511,34 @@ parse_server_config(ServerOptions *options, const char *filename, Buffer *conf,
 }
 
 static const char *
+fmt_multistate_int(int val, const struct multistate *m)
+{
+	u_int i;
+
+	for (i = 0; m[i].key != NULL; i++) {
+		if (m[i].value == val)
+			return m[i].key;
+	}
+	return "UNKNOWN";
+}
+
+static const char *
 fmt_intarg(ServerOpCodes code, int val)
 {
-	if (code == sAddressFamily) {
-		switch (val) {
-		case AF_INET:
-			return "inet";
-		case AF_INET6:
-			return "inet6";
-		case AF_UNSPEC:
-			return "any";
-		default:
-			return "UNKNOWN";
-		}
-	}
-	if (code == sPermitRootLogin) {
-		switch (val) {
-		case PERMIT_NO_PASSWD:
-			return "without-password";
-		case PERMIT_FORCED_ONLY:
-			return "forced-commands-only";
-		case PERMIT_YES:
-			return "yes";
-		}
-	}
-	if (code == sProtocol) {
+	if (val == -1)
+		return "unset";
+	switch (code) {
+	case sAddressFamily:
+		return fmt_multistate_int(val, multistate_addressfamily);
+	case sPermitRootLogin:
+		return fmt_multistate_int(val, multistate_permitrootlogin);
+	case sGatewayPorts:
+		return fmt_multistate_int(val, multistate_gatewayports);
+	case sCompression:
+		return fmt_multistate_int(val, multistate_compression);
+	case sUsePrivilegeSeparation:
+		return fmt_multistate_int(val, multistate_privsep);
+	case sProtocol:
 		switch (val) {
 		case SSH_PROTO_1:
 			return "1";
@@ -1539,20 +1549,16 @@ fmt_intarg(ServerOpCodes code, int val)
 		default:
 			return "UNKNOWN";
 		}
+	default:
+		switch (val) {
+		case 0:
+			return "no";
+		case 1:
+			return "yes";
+		default:
+			return "UNKNOWN";
+		}
 	}
-	if (code == sGatewayPorts && val == 2)
-		return "clientspecified";
-	if (code == sCompression && val == COMP_DELAYED)
-		return "delayed";
-	switch (val) {
-	case -1:
-		return "unset";
-	case 0:
-		return "no";
-	case 1:
-		return "yes";
-	}
-	return "UNKNOWN";
 }
 
 static const char *
