@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.234 2011/06/05 11:19:03 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.237 2011/07/03 19:07:54 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: June 5 2011 $
+.Dd $Mdocdate: July 3 2011 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -233,6 +233,8 @@ Break the current pane out of the window.
 Split the current pane into two, top and bottom.
 .It #
 List all paste buffers.
+.It $
+Rename the current session.
 .It %
 Split the current pane into two, left and right.
 .It &
@@ -1777,6 +1779,11 @@ window of that session,
 means all bells are ignored and
 .Ic current
 means only bell in windows other than the current window are ignored.
+.It Xo Ic bell-on-alert
+.Op Ic on | off
+.Xc
+If on, ring the terminal bell when an activity, content or silence alert
+occurs.
 .It Ic default-command Ar shell-command
 Set the command used for new windows (if not specified when the window is
 created) to
@@ -2631,6 +2638,7 @@ session option.
 Commands related to the status line are as follows:
 .Bl -tag -width Ds
 .It Xo Ic command-prompt
+.Op Fl I Ar inputs
 .Op Fl p Ar prompts
 .Op Fl t Ar target-client
 .Op Ar template
@@ -2643,6 +2651,9 @@ to execute commands interactively.
 If
 .Ar template
 is specified, it is used as the command.
+If present,
+.Fl I
+is a comma-separated list of the initial text for each prompt.
 If
 .Fl p
 is given,
@@ -2653,7 +2664,10 @@ a single prompt is displayed, constructed from
 if it is present, or
 .Ql \&:
 if not.
-The
+.Pp
+Both
+.Ar inputs
+and
 .Ar prompts
 may contain the special character sequences supported by the
 .Ic status-left
