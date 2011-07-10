@@ -1,6 +1,6 @@
-#ifdef DEBUG
+/* $OpenBSD: ssh-sandbox.h,v 1.1 2011/06/23 09:34:13 djm Exp $ */
 /*
- * Copyright (c) 2003-2007 Alexandre Ratchov <alex@caoua.org>
+ * Copyright (c) 2011 Damien Miller <djm@mindrot.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -15,17 +15,9 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef MIDISH_DBG_H
-#define MIDISH_DBG_H
+struct ssh_sandbox;
 
-void	 dbg_puts(char *);
-void	 dbg_putx(unsigned long);
-void	 dbg_putu(unsigned long);
-void	 dbg_puti(long);
-void	 dbg_panic(void);
-void	 dbg_flush(void);
-
-extern unsigned dbg_sync;
-
-#endif /* MIDISH_DBG_H */
-#endif /* DEBUG */
+struct ssh_sandbox *ssh_sandbox_init(void);
+void ssh_sandbox_child(struct ssh_sandbox *);
+void ssh_sandbox_parent_finish(struct ssh_sandbox *);
+void ssh_sandbox_parent_preauth(struct ssh_sandbox *, pid_t);
