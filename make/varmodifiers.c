@@ -1,4 +1,4 @@
-/*	$OpenBSD: varmodifiers.c,v 1.27 2010/07/19 19:46:44 espie Exp $	*/
+/*	$OpenBSD: varmodifiers.c,v 1.29 2011/07/30 21:02:13 espie Exp $	*/
 /*	$NetBSD: var.c,v 1.18 1997/03/18 19:24:46 christos Exp $	*/
 
 /*
