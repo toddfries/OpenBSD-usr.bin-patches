@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.60 2011/07/17 07:49:34 otto Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.62 2011/07/28 10:33:36 otto Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -34,20 +34,29 @@
 #include <sys/uio.h>
 #include <sys/ktrace.h>
 #include <sys/ioctl.h>
+#include <sys/malloc.h>
+#include <sys/namei.h>
 #include <sys/ptrace.h>
+#include <sys/sem.h>
+#include <sys/shm.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/vmmeter.h>
 #include <sys/stat.h>
+#include <sys/tty.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define _KERNEL
 #include <sys/errno.h>
 #undef _KERNEL
+#include <ddb/db_var.h>
+#include <machine/cpu.h>
 
 #include <ctype.h>
 #include <err.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -139,10 +148,12 @@ static void ktrgenio(struct ktr_genio *, size_t);
 static void ktrnamei(const char *, size_t);
 static void ktrpsig(struct ktr_psig *);
 static void ktrsyscall(struct ktr_syscall *);
+static const char *kresolvsysctl(int, int *, int);
 static void ktrsysret(struct ktr_sysret *);
 static void ktrstruct(char *, size_t);
 static void setemul(const char *);
 static void usage(void);
+static void atfd(int);
 
 int
 main(int argc, char *argv[])
@@ -509,18 +520,22 @@ ktrsyscall(struct ktr_syscall *ktr)
 		break;
 	}
 	case SYS___sysctl: {
-		int *np, n;
+		const char *s;
+		int *np, n, i, *top;
 
 		if (!fancy)
 			break;
 		n = ap[1];
 		if (n > CTL_MAXNAME)
 			n = CTL_MAXNAME;
-		np = (int *)(ap + 6);
-		for (; n--; np++) {
+		np = top = (int *)(ap + 6);
+		for (i = 0; n--; np++, i++) {
 			if (sep)
 				putchar(sep);
-			printf("%d", *np);
+			if (resolv && (s = kresolvsysctl(i, top, *np)) != NULL)
+				printf("%s", s);
+			else
+				printf("%d", *np);
 			sep = '.';
 		}
 
@@ -540,7 +555,7 @@ ktrsyscall(struct ktr_syscall *ktr)
 		break;
 	case SYS_chmod:
 	case SYS_fchmod: 
-		pn( NULL);
+		pn(NULL);
 		pn(modename);
 		break;
 	case SYS_fcntl: {
@@ -728,6 +743,84 @@ ktrsyscall(struct ktr_syscall *ktr)
 		pn(NULL);
 		pn(wait4optname);
 		break;
+	case SYS_faccessat:
+		pn(atfd);
+		pn(NULL);
+		pn(accessmodename);
+		pn(atflagsname);
+		break;
+	case SYS_fchmodat:
+		pn(atfd);
+		pn(NULL);
+		pn(modename);
+		pn(atflagsname);
+		break;
+	case SYS_fchownat:
+		pn(atfd);
+		pn(NULL);
+		pn(NULL);
+		pn(NULL);
+		pn(atflagsname);
+		break;
+	case SYS_fstatat:
+		pn(atfd);
+		pn(NULL);
+		pn(NULL);
+		pn(atflagsname);
+		break;
+	case SYS_linkat:
+		pn(atfd);
+		pn(NULL);
+		pn(atfd);
+		pn(NULL);
+		pn(atflagsname);
+		break;
+	case SYS_mkdirat:
+	case SYS_mkfifoat:
+	case SYS_mknodat:
+		pn(atfd);
+		pn(NULL);
+		pn(modename);
+		break;
+	case SYS_openat: {
+		int     flags;
+		int     mode;
+
+		pn(atfd);
+		pn(NULL);
+		if (!fancy)
+			break;
+		flags = ap[0];
+		mode = ap[1];
+		(void)putchar(',');
+		flagsandmodename(flags, mode);
+		ap += 2;
+		narg -= 2;
+		break;
+	}
+	case SYS_readlinkat:
+		pn(atfd);
+		break;
+	case SYS_renameat:
+		pn(atfd);
+		pn(NULL);
+		pn(atfd);
+		break;
+	case SYS_symlinkat:
+		pn(NULL);
+		pn(atfd);
+		break;
+	case SYS_unlinkat:
+		pn(atfd);
+		pn(NULL);
+		pn(atflagsname);
+		break;
+	case SYS_utimensat:
+		pn(atfd);
+		pn(NULL);
+		pn(NULL);
+		pn(atflagsname);
+		break;
 	}
 
 nonnative:
@@ -743,6 +836,115 @@ nonnative:
 		narg--;
 	}
 	(void)printf(")\n");
+}
+
+static struct ctlname topname[] = CTL_NAMES;
+static struct ctlname kernname[] = CTL_KERN_NAMES;
+static struct ctlname vmname[] = CTL_VM_NAMES;
+static struct ctlname fsname[] = CTL_FS_NAMES;
+static struct ctlname netname[] = CTL_NET_NAMES;
+static struct ctlname hwname[] = CTL_HW_NAMES;
+static struct ctlname username[] = CTL_USER_NAMES;
+static struct ctlname debugname[CTL_DEBUG_MAXID];
+static struct ctlname kernmallocname[] = CTL_KERN_MALLOC_NAMES;
+static struct ctlname forkstatname[] = CTL_KERN_FORKSTAT_NAMES;
+static struct ctlname nchstatsname[] = CTL_KERN_NCHSTATS_NAMES;
+static struct ctlname ttysname[] = CTL_KERN_TTY_NAMES;
+static struct ctlname semname[] = CTL_KERN_SEMINFO_NAMES;
+static struct ctlname shmname[] = CTL_KERN_SHMINFO_NAMES;
+static struct ctlname watchdogname[] = CTL_KERN_WATCHDOG_NAMES;
+static struct ctlname tcname[] = CTL_KERN_TIMECOUNTER_NAMES;
+#ifdef CTL_MACHDEP_NAMES
+static struct ctlname machdepname[] = CTL_MACHDEP_NAMES;
+#endif
+static struct ctlname ddbname[] = CTL_DDB_NAMES;
+
+#ifndef nitems
+#define nitems(_a)    (sizeof((_a)) / sizeof((_a)[0]))
+#endif
+
+#define SETNAME(name) do { names = (name); limit = nitems(name); } while (0)
+
+static const char *
+kresolvsysctl(int depth, int *top, int idx)
+{
+	struct ctlname *names;
+	size_t		limit;
+
+	names = NULL;
+
+	switch (depth) {
+	case 0:
+		SETNAME(topname);
+		break;
+	case 1:
+		switch (top[0]) {
+		case CTL_KERN:
+			SETNAME(kernname);
+			break;
+		case CTL_VM:
+			SETNAME(vmname);
+			break;
+		case CTL_FS:
+			SETNAME(fsname);
+			break;
+		case CTL_NET:
+			SETNAME(netname);
+			break;
+		case CTL_DEBUG:
+			SETNAME(debugname);
+			break;
+		case CTL_HW:
+			SETNAME(hwname);
+			break;
+#ifdef CTL_MACHDEP_NAMES
+		case CTL_MACHDEP:
+			SETNAME(machdepname);
+			break;
+#endif
+		case CTL_USER:
+			SETNAME(username);
+			break;
+		case CTL_DDB:
+			SETNAME(ddbname);
+			break;
+		}
+		break;
+	case 2:
+		switch (top[0]) {
+		case CTL_KERN:
+			switch (top[1]) {
+			case KERN_MALLOCSTATS:
+				SETNAME(kernmallocname);
+				break;
+			case KERN_FORKSTAT:
+				SETNAME(forkstatname);
+				break;
+			case KERN_NCHSTATS:
+				SETNAME(nchstatsname);
+				break;
+			case KERN_TTY:
+				SETNAME(ttysname);
+				break;
+			case KERN_SEMINFO:
+				SETNAME(semname);
+				break;
+			case KERN_SHMINFO:
+				SETNAME(shmname);
+				break;
+			case KERN_WATCHDOG:
+				SETNAME(watchdogname);
+				break;
+			case KERN_TIMECOUNTER:
+				SETNAME(tcname);
+				break;
+			}
+		}
+		break;
+	}
+	if (names != NULL && idx > 0 && idx < limit)
+		return (names[idx].ctl_name);
+	return (NULL);
 }
 
 static void
@@ -1159,4 +1361,15 @@ setemul(const char *name)
 			return;
 		}
 	warnx("Emulation `%s' unknown", name);
+}
+
+static void
+atfd(int fd)
+{
+	if (fd == AT_FDCWD)
+		(void)printf("AT_FDCWD");
+	else if (decimal)
+		(void)printf("%d", fd);
+	else
+		(void)printf("%#x", fd);
 }

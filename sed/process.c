@@ -1,4 +1,4 @@
-/*	$OpenBSD: process.c,v 1.15 2009/10/27 23:59:43 deraadt Exp $	*/
+/*	$OpenBSD: process.c,v 1.17 2011/07/26 08:47:07 schwarze Exp $	*/
 
 /*-
  * Copyright (c) 1992 Diomidis Spinellis.
