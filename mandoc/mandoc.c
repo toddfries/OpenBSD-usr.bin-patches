@@ -1,4 +1,4 @@
-/*	$Id: mandoc.c,v 1.26 2011/05/29 21:22:18 schwarze Exp $ */
+/*	$Id: mandoc.c,v 1.28 2011/09/18 15:54:48 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
@@ -428,6 +428,16 @@ mandoc_realloc(void *ptr, size_t size)
 	return(ptr);
 }
 
+char *
+mandoc_strndup(const char *ptr, size_t sz)
+{
+	char		*p;
+
+	p = mandoc_malloc(sz + 1);
+	memcpy(p, ptr, sz);
+	p[(int)sz] = '\0';
+	return(p);
+}
 
 char *
 mandoc_strdup(const char *ptr)
@@ -540,12 +550,12 @@ a2time(time_t *t, const char *fmt, const char *p)
 static char *
 time2a(time_t t)
 {
-	struct tm	 tm;
+	struct tm	*tm;
 	char		*buf, *p;
 	size_t		 ssz;
 	int		 isz;
 
-	localtime_r(&t, &tm);
+	tm = localtime(&t);
 
 	/*
 	 * Reserve space:
@@ -555,15 +565,15 @@ time2a(time_t t)
 	 */
 	p = buf = mandoc_malloc(10 + 4 + 4 + 1);
 
-	if (0 == (ssz = strftime(p, 10 + 1, "%B ", &tm)))
+	if (0 == (ssz = strftime(p, 10 + 1, "%B ", tm)))
 		goto fail;
 	p += (int)ssz;
 
-	if (-1 == (isz = snprintf(p, 4 + 1, "%d, ", tm.tm_mday)))
+	if (-1 == (isz = snprintf(p, 4 + 1, "%d, ", tm->tm_mday)))
 		goto fail;
 	p += isz;
 
-	if (0 == strftime(p, 4 + 1, "%Y", &tm))
+	if (0 == strftime(p, 4 + 1, "%Y", tm))
 		goto fail;
 	return(buf);
 
@@ -636,33 +646,6 @@ mandoc_eos(const char *p, size_t sz, int enclosed)
 	return(found && !enclosed);
 }
 
-int
-mandoc_hyph(const char *start, const char *c)
-{
-
-	/*
-	 * Choose whether to break at a hyphenated character.  We only
-	 * do this if it's free-standing within a word.
-	 */
-
-	/* Skip first/last character of buffer. */
-	if (c == start || '\0' == *(c + 1))
-		return(0);
-	/* Skip first/last character of word. */
-	if ('\t' == *(c + 1) || '\t' == *(c - 1))
-		return(0);
-	if (' ' == *(c + 1) || ' ' == *(c - 1))
-		return(0);
-	/* Skip double invocations. */
-	if ('-' == *(c + 1) || '-' == *(c - 1))
-		return(0);
-	/* Skip escapes. */
-	if ('\\' == *(c - 1))
-		return(0);
-
-	return(1);
-}
-
 /*
  * Find out whether a line is a macro line or not.  If it is, adjust the
  * current position and return one; if it isn't, return zero and don't
@@ -694,7 +677,7 @@ mandoc_getcontrol(const char *cp, int *ppos)
  * If the string is invalid, or is less than 0, return -1.
  */
 int
-mandoc_strntou(const char *p, size_t sz, int base)
+mandoc_strntoi(const char *p, size_t sz, int base)
 {
 	char		 buf[32];
 	char		*ep;
@@ -712,11 +695,10 @@ mandoc_strntou(const char *p, size_t sz, int base)
 	if (buf[0] == '\0' || *ep != '\0')
 		return(-1);
 
-	if ((errno == ERANGE && 
-			(v == LONG_MAX || v == LONG_MIN)) ||
-			(v > INT_MAX || v < 0))
-		return(-1);
+	if (v > INT_MAX)
+		v = INT_MAX;
+	if (v < INT_MIN)
+		v = INT_MIN;
 
 	return((int)v);
 }
-

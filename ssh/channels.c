@@ -1,4 +1,4 @@
-/* $OpenBSD: channels.c,v 1.313 2011/09/10 22:26:34 markus Exp $ */
+/* $OpenBSD: channels.c,v 1.315 2011/09/23 07:45:05 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -120,6 +120,9 @@ static int num_permitted_opens = 0;
 
 /* Number of permitted host/port pair in the array permitted by the admin. */
 static int num_adm_permitted_opens = 0;
+
+/* special-case port number meaning allow any port */
+#define FWD_PERMIT_ANY_PORT	0
 
 /*
  * If this is true, all opens are permitted.  This is the case on the server
@@ -2783,8 +2786,12 @@ channel_setup_fwd_listener(int type, const char *listen_addr,
 		    0, "port listener", 1);
 		c->path = xstrdup(host);
 		c->host_port = port_to_connect;
-		c->listening_port = listen_port;
 		c->listening_addr = addr == NULL ? NULL : xstrdup(addr);
+		if (listen_port == 0 && allocated_listen_port != NULL &&
+		    !(datafellows & SSH_BUG_DYNAMIC_RPORT))
+			c->listening_port = *allocated_listen_port;
+		else
+			c->listening_port = listen_port;
 		success = 1;
 	}
 	if (success == 0)
@@ -2893,12 +2900,14 @@ channel_rfwd_bind_host(const char *listen_host)
 /*
  * Initiate forwarding of connections to port "port" on remote host through
  * the secure channel to host:port from local side.
+ * Returns handle (index) for updating the dynamic listen port with
+ * channel_update_permitted_opens().
  */
 int
 channel_request_remote_forwarding(const char *listen_host, u_short listen_port,
     const char *host_to_connect, u_short port_to_connect)
 {
-	int type, success = 0;
+	int type, success = 0, idx = -1;
 
 	/* Send the forward request to the remote side. */
 	if (compat20) {
@@ -2937,12 +2946,12 @@ channel_request_remote_forwarding(const char *listen_host, u_short listen_port,
 		/* Record that connection to this host/port is permitted. */
 		permitted_opens = xrealloc(permitted_opens,
 		    num_permitted_opens + 1, sizeof(*permitted_opens));
-		permitted_opens[num_permitted_opens].host_to_connect = xstrdup(host_to_connect);
-		permitted_opens[num_permitted_opens].port_to_connect = port_to_connect;
-		permitted_opens[num_permitted_opens].listen_port = listen_port;
-		num_permitted_opens++;
+		idx = num_permitted_opens++;
+		permitted_opens[idx].host_to_connect = xstrdup(host_to_connect);
+		permitted_opens[idx].port_to_connect = port_to_connect;
+		permitted_opens[idx].listen_port = listen_port;
 	}
-	return (success ? 0 : -1);
+	return (idx);
 }
 
 /*
@@ -3045,6 +3054,35 @@ channel_add_permitted_opens(char *host, int port)
 	all_opens_permitted = 0;
 }
 
+/*
+ * Update the listen port for a dynamic remote forward, after
+ * the actual 'newport' has been allocated. If 'newport' < 0 is
+ * passed then they entry will be invalidated.
+ */
+void
+channel_update_permitted_opens(int idx, int newport)
+{
+	if (idx < 0 || idx >= num_permitted_opens) {
+		debug("channel_update_permitted_opens: index out of range:"
+		    " %d num_permitted_opens %d", idx, num_permitted_opens);
+		return;
+	}
+	debug("%s allowed port %d for forwarding to host %s port %d",
+	    newport > 0 ? "Updating" : "Removing",
+	    newport,
+	    permitted_opens[idx].host_to_connect,
+	    permitted_opens[idx].port_to_connect);
+	if (newport >= 0)  {
+		permitted_opens[idx].listen_port = 
+		    (datafellows & SSH_BUG_DYNAMIC_RPORT) ? 0 : newport;
+	} else {
+		permitted_opens[idx].listen_port = 0;
+		permitted_opens[idx].port_to_connect = 0;
+		xfree(permitted_opens[idx].host_to_connect);
+		permitted_opens[idx].host_to_connect = NULL;
+	}
+}
+
 int
 channel_add_adm_permitted_opens(char *host, int port)
 {
@@ -3103,6 +3141,28 @@ channel_print_adm_permitted_opens(void)
 			printf(" %s:%d", permitted_adm_opens[i].host_to_connect,
 			    permitted_adm_opens[i].port_to_connect);
 	printf("\n");
+}
+
+/* returns port number, FWD_PERMIT_ANY_PORT or -1 on error */
+int
+permitopen_port(const char *p)
+{
+	int port;
+
+	if (strcmp(p, "*") == 0)
+		return FWD_PERMIT_ANY_PORT;
+	if ((port = a2port(p)) > 0)
+		return port;
+	return -1;
+}
+
+static int
+port_match(u_short allowedport, u_short requestedport)
+{
+	if (allowedport == FWD_PERMIT_ANY_PORT ||
+	    allowedport == requestedport)
+		return 1;
+	return 0;
 }
 
 /* Try to start non-blocking connect to next host in cctx list */
@@ -3207,7 +3267,7 @@ channel_connect_by_listen_address(u_short listen_port, char *ctype, char *rname)
 
 	for (i = 0; i < num_permitted_opens; i++) {
 		if (permitted_opens[i].host_to_connect != NULL &&
-		    permitted_opens[i].listen_port == listen_port) {
+		    port_match(permitted_opens[i].listen_port, listen_port)) {
 			return connect_to(
 			    permitted_opens[i].host_to_connect,
 			    permitted_opens[i].port_to_connect, ctype, rname);
@@ -3228,7 +3288,7 @@ channel_connect_to(const char *host, u_short port, char *ctype, char *rname)
 	if (!permit) {
 		for (i = 0; i < num_permitted_opens; i++)
 			if (permitted_opens[i].host_to_connect != NULL &&
-			    permitted_opens[i].port_to_connect == port &&
+			    port_match(permitted_opens[i].port_to_connect, port) &&
 			    strcmp(permitted_opens[i].host_to_connect, host) == 0)
 				permit = 1;
 	}
@@ -3237,7 +3297,7 @@ channel_connect_to(const char *host, u_short port, char *ctype, char *rname)
 		permit_adm = 0;
 		for (i = 0; i < num_adm_permitted_opens; i++)
 			if (permitted_adm_opens[i].host_to_connect != NULL &&
-			    permitted_adm_opens[i].port_to_connect == port &&
+			    port_match(permitted_adm_opens[i].port_to_connect, port) &&
 			    strcmp(permitted_adm_opens[i].host_to_connect, host)
 			    == 0)
 				permit_adm = 1;

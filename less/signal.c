@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 1984-2002  Mark Nudelman
+ * Copyright (C) 1984-2011  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
@@ -23,13 +23,15 @@
 /*
  * "sigs" contains bits indicating signals which need to be processed.
  */
-public int sigs;
+public volatile sig_atomic_t sigs;
 
 extern int sc_width, sc_height;
 extern int screen_trashed;
 extern int lnloop;
 extern int linenums;
 extern int wscroll;
+extern int quit_on_intr;
+extern long jump_sline_fraction;
 
 /*
  * Interrupt signal handler.
@@ -137,13 +139,12 @@ init_signals(on)
 #endif
 #ifdef SIGWINCH
 		(void) LSIGNAL(SIGWINCH, winch);
-#else
+#endif
 #ifdef SIGWIND
 		(void) LSIGNAL(SIGWIND, winch);
 #endif
 #ifdef SIGQUIT
 		(void) LSIGNAL(SIGQUIT, SIG_IGN);
-#endif
 #endif
 	} else
 	{
@@ -226,6 +227,8 @@ psignals()
 		if (sc_width != old_width || sc_height != old_height)
 		{
 			wscroll = (sc_height + 1) / 2;
+			calc_jump_sline();
+			calc_shift_count();
 			screen_trashed = 1;
 		}
 	}
@@ -233,24 +236,8 @@ psignals()
 	if (tsignals & S_INTERRUPT)
 	{
 		bell();
-		/*
-		 * {{ You may wish to replace the bell() with 
-		 *    error("Interrupt", NULL_PARG); }}
-		 */
-
-		/*
-		 * If we were interrupted while in the "calculating 
-		 * line numbers" loop, turn off line numbers.
-		 */
-		if (lnloop)
-		{
-			lnloop = 0;
-			if (linenums == OPT_ONPLUS)
-				screen_trashed = 1;
-			linenums = 0;
-			error("Line numbers turned off", NULL_PARG);
-		}
-
+		if (quit_on_intr)
+			quit(QUIT_INTERRUPT);
 	}
 }
 
