@@ -1,4 +1,4 @@
-/*	$OpenBSD: aparams.c,v 1.10 2010/01/10 21:47:41 ratchov Exp $	*/
+/*	$OpenBSD: aparams.c,v 1.13 2011/04/28 07:20:03 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -45,6 +45,7 @@ int aparams_ctltovol[128] = {
  */
 struct aparams aparams_none = { 1, 0, 0, 0, 0, 0, 0, 0 };
 
+#ifdef DEBUG
 /*
  * Generate a string corresponding to the encoding in par,
  * return the length of the resulting string.
@@ -74,6 +75,7 @@ aparams_enctostr(struct aparams *par, char *ostr)
 	*p++ = '\0';
 	return p - ostr - 1;
 }
+#endif /* DEBUG */
 
 /*
  * Parse an encoding string, examples: s8, u8, s16, s16le, s24be ...
@@ -116,7 +118,7 @@ aparams_strtoenc(struct aparams *par, char *istr)
 		return 0;
 	bps = APARAMS_BPS(bits);
 	msb = 1;
-	le = NATIVE_LE;
+	le = ADATA_LE;
 
 	/*
 	 * get (optional) endianness
@@ -174,11 +176,11 @@ done:
 void
 aparams_init(struct aparams *par, unsigned cmin, unsigned cmax, unsigned rate)
 {
-	par->bps = 2;		/* 2 bytes per sample */
-	par->bits = 16;		/* 16 significant bits per sample */
-	par->sig = 1;		/* samples are signed */
-	par->le = NATIVE_LE;
-	par->msb = 1;		/* msb justified */
+	par->bps = sizeof(adata_t);
+	par->bits = ADATA_BITS;
+	par->le = ADATA_LE;
+	par->sig = 1;
+	par->msb = 0;
 	par->cmin = cmin;
 	par->cmax = cmax;
 	par->rate = rate;
@@ -219,29 +221,6 @@ aparams_eqenc(struct aparams *par1, struct aparams *par2)
 	if (par1->bps > 1 && par1->le != par2->le)
 		return 0;
 	return 1;
-}
-
-/*
- * Return true if both parameters are the same.
- */
-int
-aparams_eq(struct aparams *par1, struct aparams *par2)
-{
-	if (!aparams_eqenc(par1, par2) ||
-	    par1->cmin != par2->cmin ||
-	    par1->cmax != par2->cmax ||
-	    par1->rate != par2->rate)
-		return 0;
-	return 1;
-}
-
-/*
- * Return true if first channel range includes second range.
- */
-int
-aparams_subset(struct aparams *subset, struct aparams *set)
-{
-	return subset->cmin >= set->cmin && subset->cmax <= set->cmax;
 }
 
 /*

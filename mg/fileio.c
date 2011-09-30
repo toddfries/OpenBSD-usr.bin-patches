@@ -1,4 +1,4 @@
-/*	$OpenBSD: fileio.c,v 1.82 2008/09/15 16:11:35 kjell Exp $	*/
+/*	$OpenBSD: fileio.c,v 1.85 2011/08/31 08:58:29 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -6,7 +6,6 @@
  *	POSIX fileio.c
  */
 #include "def.h"
-
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -78,7 +77,7 @@ fupdstat(struct buffer *bp)
 		return (FIOERR);
 	}
 	ffstat(bp);
-	ffclose(bp);
+	(void)ffclose(bp);
 	return (FIOSUC);
 }
 
@@ -123,14 +122,14 @@ ffwopen(const char *fn, struct buffer *bp)
 
 /*
  * Close a file.
- * XXX - Should look at the status.
  */
 /* ARGSUSED */
 int
 ffclose(struct buffer *bp)
 {
-	(void) fclose(ffp);
-	return (FIOSUC);
+	if (fclose(ffp) == 0)
+		return (FIOSUC);
+	return (FIOERR);	
 }
 
 /*
@@ -529,10 +528,8 @@ make_file_list(char *buf)
 
 	while ((dent = readdir(dirp)) != NULL) {
 		int isdir;
-
-		if (dent->d_namlen < len || memcmp(cp, dent->d_name, len) != 0)
+		if (strncmp(cp, dent->d_name, len) != 0)
 			continue;
-
 		isdir = 0;
 		if (dent->d_type == DT_DIR) {
 			isdir = 1;

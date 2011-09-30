@@ -1,4 +1,4 @@
-/*	$OpenBSD: sensors.c,v 1.23 2010/04/21 19:40:59 deraadt Exp $	*/
+/*	$OpenBSD: sensors.c,v 1.26 2011/09/16 20:52:48 yuo Exp $	*/
 
 /*
  * Copyright (c) 2007 Deanna Phillips <deanna@openbsd.org>
@@ -72,12 +72,10 @@ field_def fields_sn[] = {
 	{"DESCRIPTION", 20, 45, 1, FLD_ALIGN_LEFT, -1, 0, 0, 0}
 };
 
-#define FIELD_ADDR(x) (&fields_sn[x])
-
-#define FLD_SN_SENSOR	FIELD_ADDR(0)
-#define FLD_SN_VALUE	FIELD_ADDR(1)
-#define FLD_SN_STATUS	FIELD_ADDR(2)
-#define FLD_SN_DESCR	FIELD_ADDR(3)
+#define FLD_SN_SENSOR	FIELD_ADDR(fields_sn,0)
+#define FLD_SN_VALUE	FIELD_ADDR(fields_sn,1)
+#define FLD_SN_STATUS	FIELD_ADDR(fields_sn,2)
+#define FLD_SN_DESCR	FIELD_ADDR(fields_sn,3)
 
 /* Define views */
 field_def *view_sn_0[] = {
@@ -230,11 +228,24 @@ showsensor(struct sensinfo *s)
 		tbprintf("%10.2f V DC",
 		    s->sn_value / 1000000.0);
 		break;
+	case SENSOR_VOLTS_AC:
+		tbprintf("%10.2f V AC",
+		    s->sn_value / 1000000.0);
+		break;
+	case SENSOR_OHMS:
+		tbprintf("%11lld ohm", s->sn_value);
+		break;
 	case SENSOR_WATTS:
 		tbprintf("%10.2f W", s->sn_value / 1000000.0);
 		break;
 	case SENSOR_AMPS:
 		tbprintf("%10.2f A", s->sn_value / 1000000.0);
+		break;
+	case SENSOR_WATTHOUR:
+		tbprintf("%12.2f Wh", s->sn_value / 1000000.0);
+		break;
+	case SENSOR_AMPHOUR:
+		tbprintf("%10.2f Ah", s->sn_value / 1000000.0);
 		break;
 	case SENSOR_INDICATOR:
 		tbprintf("%15s", s->sn_value ? "On" : "Off");
@@ -258,17 +269,11 @@ showsensor(struct sensinfo *s)
 	case SENSOR_TIMEDELTA:
 		tbprintf("%15s", fmttime(s->sn_value / 1000000000.0));
 		break;
-	case SENSOR_WATTHOUR:
-		tbprintf("%12.2f Wh", s->sn_value / 1000000.0);
-		break;
-	case SENSOR_AMPHOUR:
-		tbprintf("%10.2f Ah", s->sn_value / 1000000.0);
-		break;
 	case SENSOR_HUMIDITY:
 		tbprintf("%3.2f%%", s->sn_value / 1000.0);
 		break;
 	case SENSOR_FREQ:
-		tbprintf("%11lld Hz", s->sn_value);
+		tbprintf("%11.2f Hz", s->sn_value / 1000000.0);
 		break;
 	case SENSOR_ANGLE:
 		tbprintf("%3.4f degrees", s->sn_value / 1000000.0);

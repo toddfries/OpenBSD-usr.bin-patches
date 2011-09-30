@@ -1,4 +1,4 @@
-/*	$OpenBSD: docmd.c,v 1.21 2009/10/27 23:59:42 deraadt Exp $	*/
+/*	$OpenBSD: docmd.c,v 1.24 2011/04/21 02:44:15 krw Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -94,7 +94,7 @@ static void
 notify(char *rhost, struct namelist *to, time_t lmod)
 {
 	int fd;
-	size_t len;
+	ssize_t len;
 	FILE *pf;
 	struct stat stb;
 	static char buf[BUFSIZ];
@@ -308,7 +308,7 @@ makeconn(char *rhost)
 	char *ruser, *cp;
 	static char *cur_host = NULL;
 	extern char *locuser;
-	extern long min_freefiles, min_freespace;
+	extern int64_t min_freefiles, min_freespace;
 	extern char *remotemsglist;
 	char tuser[BUFSIZ], buf[BUFSIZ];
 	u_char respbuff[BUFSIZ];
@@ -404,13 +404,13 @@ makeconn(char *rhost)
 			return(0);
 	}
 	if (min_freespace) {
-		(void) sendcmd(C_SETCONFIG, "%c%d", SC_FREESPACE, 
+		(void) sendcmd(C_SETCONFIG, "%c%lld", SC_FREESPACE, 
 			       min_freespace);
 		if (response() < 0)
 			return(0);
 	}
 	if (min_freefiles) {
-		(void) sendcmd(C_SETCONFIG, "%c%d", SC_FREEFILES, 
+		(void) sendcmd(C_SETCONFIG, "%c%lld", SC_FREEFILES, 
 			       min_freefiles);
 		if (response() < 0)
 			return(0);

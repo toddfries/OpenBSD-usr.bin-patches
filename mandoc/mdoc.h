@@ -1,6 +1,6 @@
-/*	$Id: mdoc.h,v 1.33 2010/08/20 00:53:35 schwarze Exp $ */
+/*	$Id: mdoc.h,v 1.46 2011/04/24 16:22:02 schwarze Exp $ */
 /*
- * Copyright (c) 2008, 2009, 2010 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,16 +16,6 @@
  */
 #ifndef MDOC_H
 #define MDOC_H
-
-/*
- * This library implements a validating scanner/parser for ``mdoc'' roff
- * macro documents, a.k.a. BSD manual page documents.  The mdoc.c file
- * drives the parser, while macro.c describes the macro ontologies.
- * validate.c pre- and post-validates parsed macros, and action.c
- * performs actions on parsed and validated macros.
- */
-
-/* What follows is a list of ALL possible macros. */
 
 enum	mdoct {
 	MDOC_Ap = 0,
@@ -153,40 +143,37 @@ enum	mdoct {
 	MDOC_MAX
 };
 
-/* What follows is a list of ALL possible macro arguments. */
-
 enum	mdocargt {
-	MDOC_Split,
-	MDOC_Nosplit,
-	MDOC_Ragged,
-	MDOC_Unfilled,
-	MDOC_Literal,
-	MDOC_File,
-	MDOC_Offset,
-	MDOC_Bullet,
-	MDOC_Dash,
-	MDOC_Hyphen,
-	MDOC_Item,
-	MDOC_Enum,
-	MDOC_Tag,
-	MDOC_Diag,
-	MDOC_Hang,
-	MDOC_Ohang,
-	MDOC_Inset,
-	MDOC_Column,
-	MDOC_Width,
-	MDOC_Compact,
-	MDOC_Std,
-	MDOC_Filled,
-	MDOC_Words,
-	MDOC_Emphasis,
-	MDOC_Symbolic,
-	MDOC_Nested,
-	MDOC_Centred,
+	MDOC_Split, /* -split */
+	MDOC_Nosplit, /* -nospli */
+	MDOC_Ragged, /* -ragged */
+	MDOC_Unfilled, /* -unfilled */
+	MDOC_Literal, /* -literal */
+	MDOC_File, /* -file */
+	MDOC_Offset, /* -offset */
+	MDOC_Bullet, /* -bullet */
+	MDOC_Dash, /* -dash */
+	MDOC_Hyphen, /* -hyphen */
+	MDOC_Item, /* -item */
+	MDOC_Enum, /* -enum */
+	MDOC_Tag, /* -tag */
+	MDOC_Diag, /* -diag */
+	MDOC_Hang, /* -hang */
+	MDOC_Ohang, /* -ohang */
+	MDOC_Inset, /* -inset */
+	MDOC_Column, /* -column */
+	MDOC_Width, /* -width */
+	MDOC_Compact, /* -compact */
+	MDOC_Std, /* -std */
+	MDOC_Filled, /* -filled */
+	MDOC_Words, /* -words */
+	MDOC_Emphasis, /* -emphasis */
+	MDOC_Symbolic, /* -symbolic */
+	MDOC_Nested, /* -nested */
+	MDOC_Centred, /* -centered */
 	MDOC_ARG_MAX
 };
 
-/* Type of a syntax node. */
 enum	mdoc_type {
 	MDOC_TEXT,
 	MDOC_ELEM,
@@ -194,103 +181,121 @@ enum	mdoc_type {
 	MDOC_TAIL,
 	MDOC_BODY,
 	MDOC_BLOCK,
+	MDOC_TBL,
+	MDOC_EQN,
 	MDOC_ROOT
 };
 
-/* Section (named/unnamed) of `Sh'. */
+/* 
+ * Section (named/unnamed) of `Sh'.   Note that these appear in the
+ * conventional order imposed by mdoc.7.  In the case of SEC_NONE, no
+ * section has been invoked (this shouldn't happen).  SEC_CUSTOM refers
+ * to other sections.
+ */
 enum	mdoc_sec {
-	SEC_NONE,		/* No section, yet. */
-	SEC_NAME,
-	SEC_LIBRARY,
-	SEC_SYNOPSIS,
-	SEC_DESCRIPTION,
-	SEC_IMPLEMENTATION,
-	SEC_RETURN_VALUES,
-	SEC_ENVIRONMENT, 
-	SEC_FILES,
-	SEC_EXIT_STATUS,
-	SEC_EXAMPLES,
-	SEC_DIAGNOSTICS,
-	SEC_COMPATIBILITY,
-	SEC_ERRORS,
-	SEC_SEE_ALSO,
-	SEC_STANDARDS,
-	SEC_HISTORY,
-	SEC_AUTHORS,
-	SEC_CAVEATS,
-	SEC_BUGS,
-	SEC_SECURITY,
-	SEC_CUSTOM,		/* User-defined. */
+	SEC_NONE = 0,
+	SEC_NAME, /* NAME */
+	SEC_LIBRARY, /* LIBRARY */
+	SEC_SYNOPSIS, /* SYNOPSIS */
+	SEC_DESCRIPTION, /* DESCRIPTION */
+	SEC_IMPLEMENTATION, /* IMPLEMENTATION NOTES */
+	SEC_RETURN_VALUES, /* RETURN VALUES */
+	SEC_ENVIRONMENT,  /* ENVIRONMENT */
+	SEC_FILES, /* FILES */
+	SEC_EXIT_STATUS, /* EXIT STATUS */
+	SEC_EXAMPLES, /* EXAMPLES */
+	SEC_DIAGNOSTICS, /* DIAGNOSTICS */
+	SEC_COMPATIBILITY, /* COMPATIBILITY */
+	SEC_ERRORS, /* ERRORS */
+	SEC_SEE_ALSO, /* SEE ALSO */
+	SEC_STANDARDS, /* STANDARDS */
+	SEC_HISTORY, /* HISTORY */
+	SEC_AUTHORS, /* AUTHORS */
+	SEC_CAVEATS, /* CAVEATS */
+	SEC_BUGS, /* BUGS */
+	SEC_SECURITY, /* SECURITY */
+	SEC_CUSTOM, 
 	SEC__MAX
 };
 
-/* Information from prologue. */
 struct	mdoc_meta {
-	char		 *msec;
-	char		 *vol;
-	char		 *arch;
-	time_t		  date;
-	char		 *title;
-	char		 *os;
-	char		 *name;
+	char		 *msec; /* `Dt' section (1, 3p, etc.) */
+	char		 *vol; /* `Dt' volume (implied) */
+	char		 *arch; /* `Dt' arch (i386, etc.) */
+	char		 *date; /* `Dd' normalised date */
+	char		 *title; /* `Dt' title (FOO, etc.) */
+	char		 *os; /* `Os' system (OpenBSD, etc.) */
+	char		 *name; /* leading `Nm' name */
 };
 
-/* An argument to a macro (multiple values = `It -column'). */
+/* 
+ * An argument to a macro (multiple values = `-column xxx yyy'). 
+ */
 struct	mdoc_argv {
-	enum mdocargt  	  arg;
+	enum mdocargt  	  arg; /* type of argument */
 	int		  line;
 	int		  pos;
-	size_t		  sz;
-	char		**value;
+	size_t		  sz; /* elements in "value" */
+	char		**value; /* argument strings */
 };
 
+/*
+ * Reference-counted macro arguments.  These are refcounted because
+ * blocks have multiple instances of the same arguments spread across
+ * the HEAD, BODY, TAIL, and BLOCK node types.
+ */
 struct 	mdoc_arg {
 	size_t		  argc;
 	struct mdoc_argv *argv;
 	unsigned int	  refcnt;
 };
 
+/*
+ * Indicates that a BODY's formatting has ended, but the scope is still
+ * open.  Used for syntax-broken blocks.
+ */
 enum	mdoc_endbody {
 	ENDBODY_NOT = 0,
-	ENDBODY_SPACE,
-	ENDBODY_NOSPACE
+	ENDBODY_SPACE, /* is broken: append a space */
+	ENDBODY_NOSPACE /* is broken: don't append a space */
 };
 
 enum	mdoc_list {
 	LIST__NONE = 0,
-	LIST_bullet,
-	LIST_column,
-	LIST_dash,
-	LIST_diag,
-	LIST_enum,
-	LIST_hang,
-	LIST_hyphen,
-	LIST_inset,
-	LIST_item,
-	LIST_ohang,
-	LIST_tag
+	LIST_bullet, /* -bullet */
+	LIST_column, /* -column */
+	LIST_dash, /* -dash */
+	LIST_diag, /* -diag */
+	LIST_enum, /* -enum */
+	LIST_hang, /* -hang */
+	LIST_hyphen, /* -hyphen */
+	LIST_inset, /* -inset */
+	LIST_item, /* -item */
+	LIST_ohang, /* -ohang */
+	LIST_tag, /* -tag */
+	LIST_MAX
 };
 
 enum	mdoc_disp {
 	DISP__NONE = 0,
-	DISP_centred,
-	DISP_ragged,
-	DISP_unfilled,
-	DISP_filled,
-	DISP_literal
+	DISP_centred, /* -centered */
+	DISP_ragged, /* -ragged */
+	DISP_unfilled, /* -unfilled */
+	DISP_filled, /* -filled */
+	DISP_literal /* -literal */
 };
 
 enum	mdoc_auth {
 	AUTH__NONE = 0,
-	AUTH_split,
-	AUTH_nosplit
+	AUTH_split, /* -split */
+	AUTH_nosplit /* -nosplit */
 };
 
 enum	mdoc_font {
 	FONT__NONE = 0,
-	FONT_Em,
-	FONT_Li,
-	FONT_Sy
+	FONT_Em, /* Em, -emphasis */
+	FONT_Li, /* Li, -literal */
+	FONT_Sy /* Sy, -symbolic */
 };
 
 struct	mdoc_bd {
@@ -316,10 +321,30 @@ struct	mdoc_an {
 	enum mdoc_auth	  auth; /* -split, etc. */
 };
 
-/* Node in AST. */
+struct	mdoc_rs {
+	int		  quote_T; /* whether to quote %T */
+};
+
+/*
+ * Consists of normalised node arguments.  These should be used instead
+ * of iterating through the mdoc_arg pointers of a node: defaults are
+ * provided, etc.
+ */
+union	mdoc_data {
+	struct mdoc_an 	  An;
+	struct mdoc_bd	  Bd;
+	struct mdoc_bf	  Bf;
+	struct mdoc_bl	  Bl;
+	struct mdoc_rs	  Rs;
+};
+
+/* 
+ * Single node in tree-linked AST. 
+ */
 struct	mdoc_node {
 	struct mdoc_node *parent; /* parent AST node */
 	struct mdoc_node *child; /* first child AST node */
+	struct mdoc_node *last; /* last child AST node */
 	struct mdoc_node *next; /* sibling AST node */
 	struct mdoc_node *prev; /* prior sibling AST node */
 	int		  nchild; /* number children */
@@ -328,48 +353,39 @@ struct	mdoc_node {
 	enum mdoct	  tok; /* tok or MDOC__MAX if none */
 	int		  flags;
 #define	MDOC_VALID	 (1 << 0) /* has been validated */
-#define	MDOC_ACTED	 (1 << 1) /* has been acted upon */
 #define	MDOC_EOS	 (1 << 2) /* at sentence boundary */
 #define	MDOC_LINE	 (1 << 3) /* first macro/text on line */
 #define	MDOC_SYNPRETTY	 (1 << 4) /* SYNOPSIS-style formatting */
 #define	MDOC_ENDED	 (1 << 5) /* rendering has been ended */
+#define	MDOC_DELIMO	 (1 << 6)
+#define	MDOC_DELIMC	 (1 << 7)
 	enum mdoc_type	  type; /* AST node type */
 	enum mdoc_sec	  sec; /* current named section */
+	union mdoc_data	 *norm; /* normalised args */
 	/* FIXME: these can be union'd to shave a few bytes. */
-	struct mdoc_arg	 *args; 	/* BLOCK/ELEM */
-	struct mdoc_node *pending;	/* BLOCK */
-	struct mdoc_node *head;		/* BLOCK */
-	struct mdoc_node *body;		/* BLOCK */
-	struct mdoc_node *tail;		/* BLOCK */
-	char		 *string;	/* TEXT */
-	enum mdoc_endbody end;		/* BODY */
-
-	union {
-		struct mdoc_an  An;
-		struct mdoc_bd *Bd;
-		struct mdoc_bf *Bf;
-		struct mdoc_bl *Bl;
-	} data;
+	struct mdoc_arg	 *args; /* BLOCK/ELEM */
+	struct mdoc_node *pending; /* BLOCK */
+	struct mdoc_node *head; /* BLOCK */
+	struct mdoc_node *body; /* BLOCK */
+	struct mdoc_node *tail; /* BLOCK */
+	char		 *string; /* TEXT */
+	const struct tbl_span *span; /* TBL */
+	const struct eqn *eqn; /* EQN */
+	enum mdoc_endbody end; /* BODY */
 };
 
-/* See mdoc.3 for documentation. */
-
+/* Names of macros.  Index is enum mdoct. */
 extern	const char *const *mdoc_macronames;
+
+/* Names of macro args.  Index is enum mdocargt. */
 extern	const char *const *mdoc_argnames;
 
 __BEGIN_DECLS
 
 struct	mdoc;
 
-/* See mdoc.3 for documentation. */
-
-void	 	  mdoc_free(struct mdoc *);
-struct	mdoc	 *mdoc_alloc(struct regset *, void *, mandocmsg);
-void		  mdoc_reset(struct mdoc *);
-int	 	  mdoc_parseln(struct mdoc *, int, char *, int);
 const struct mdoc_node *mdoc_node(const struct mdoc *);
 const struct mdoc_meta *mdoc_meta(const struct mdoc *);
-int		  mdoc_endparse(struct mdoc *);
 
 __END_DECLS
 

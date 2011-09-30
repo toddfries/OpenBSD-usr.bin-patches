@@ -1,4 +1,4 @@
-/* $OpenBSD: sftp-client.c,v 1.93 2010/09/22 22:58:51 djm Exp $ */
+/* $OpenBSD: sftp-client.c,v 1.96 2011/09/12 08:46:15 markus Exp $ */
 /*
  * Copyright (c) 2001-2004 Damien Miller <djm@openbsd.org>
  *
@@ -68,6 +68,7 @@ struct sftp_conn {
 #define SFTP_EXT_POSIX_RENAME	0x00000001
 #define SFTP_EXT_STATVFS	0x00000002
 #define SFTP_EXT_FSTATVFS	0x00000004
+#define SFTP_EXT_HARDLINK	0x00000008
 	u_int exts;
 	u_int64_t limit_kbps;
 	struct bwlimit bwlimit_in, bwlimit_out;
@@ -371,9 +372,13 @@ do_init(int fd_in, int fd_out, u_int transfer_buflen, u_int num_requests,
 		    strcmp(value, "2") == 0) {
 			ret->exts |= SFTP_EXT_STATVFS;
 			known = 1;
-		} if (strcmp(name, "fstatvfs@openssh.com") == 0 &&
+		} else if (strcmp(name, "fstatvfs@openssh.com") == 0 &&
 		    strcmp(value, "2") == 0) {
 			ret->exts |= SFTP_EXT_FSTATVFS;
+			known = 1;
+		} else if (strcmp(name, "hardlink@openssh.com") == 0 &&
+		    strcmp(value, "1") == 0) {
+			ret->exts |= SFTP_EXT_HARDLINK;
 			known = 1;
 		}
 		if (known) {
@@ -450,12 +455,12 @@ do_lsreaddir(struct sftp_conn *conn, char *path, int printflag,
 	buffer_put_cstring(&msg, path);
 	send_msg(conn, &msg);
 
-	buffer_clear(&msg);
-
 	handle = get_handle(conn, id, &handle_len,
 	    "remote readdir(\"%s\")", path);
-	if (handle == NULL)
+	if (handle == NULL) {
+		buffer_free(&msg);
 		return -1;
+	}
 
 	if (dir) {
 		ents = 0;
@@ -498,6 +503,7 @@ do_lsreaddir(struct sftp_conn *conn, char *path, int printflag,
 				    fx2txt(status));
 				do_close(conn, handle, handle_len);
 				xfree(handle);
+				buffer_free(&msg);
 				return(status);
 			}
 		} else if (type != SSH2_FXP_NAME)
@@ -788,6 +794,39 @@ do_rename(struct sftp_conn *conn, char *oldpath, char *newpath)
 }
 
 int
+do_hardlink(struct sftp_conn *conn, char *oldpath, char *newpath)
+{
+	Buffer msg;
+	u_int status, id;
+
+	if ((conn->exts & SFTP_EXT_HARDLINK) == 0) {
+		error("Server does not support hardlink@openssh.com extension");
+		return -1;
+	}
+
+	buffer_init(&msg);
+
+	/* Send link request */
+	id = conn->msg_id++;
+	buffer_put_char(&msg, SSH2_FXP_EXTENDED);
+	buffer_put_int(&msg, id);
+	buffer_put_cstring(&msg, "hardlink@openssh.com");
+	buffer_put_cstring(&msg, oldpath);
+	buffer_put_cstring(&msg, newpath);
+	send_msg(conn, &msg);
+	debug3("Sent message hardlink@openssh.com \"%s\" -> \"%s\"",
+	       oldpath, newpath);
+	buffer_free(&msg);
+
+	status = get_status(conn, id);
+	if (status != SSH2_FX_OK)
+		error("Couldn't link file \"%s\" to \"%s\": %s", oldpath,
+		    newpath, fx2txt(status));
+
+	return(status);
+}
+
+int
 do_symlink(struct sftp_conn *conn, char *oldpath, char *newpath)
 {
 	Buffer msg;
@@ -844,6 +883,7 @@ do_readlink(struct sftp_conn *conn, char *path)
 		u_int status = buffer_get_int(&msg);
 
 		error("Couldn't readlink: %s", fx2txt(status));
+		buffer_free(&msg);
 		return(NULL);
 	} else if (type != SSH2_FXP_NAME)
 		fatal("Expected SSH2_FXP_NAME(%u) packet, got %u",

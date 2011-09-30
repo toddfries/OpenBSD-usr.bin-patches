@@ -1,4 +1,4 @@
-/*	$OpenBSD: rcs.h,v 1.96 2010/09/03 08:37:52 tobias Exp $	*/
+/*	$OpenBSD: rcs.h,v 1.99 2011/06/03 10:02:25 chl Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -26,6 +26,10 @@
 
 #ifndef RCS_H
 #define RCS_H
+
+#include <stdio.h>
+#include <time.h>
+
 #include "buf.h"
 
 #define RCS_DIFF_DIV \
@@ -103,7 +107,7 @@ struct rcs_kw {
 
 /* file flags */
 #define RCS_READ	  (1<<0)
-#define RCS_WRITE	  (1<<1)
+#define RCS_WRITE	  (1<<1)  /* flush changes on rcs_close() */
 #define RCS_CREATE	  (1<<2)  /* create the file */
 #define RCS_PARSE_FULLY   (1<<3)  /* fully parse it on open */
 
@@ -169,7 +173,7 @@ struct rcs_delta {
 
 
 typedef struct rcs_file {
-	int	 rf_fd;
+	FILE	*rf_file;
 	int	 rf_dead;
 	char	*rf_path;
 	mode_t	 rf_mode;

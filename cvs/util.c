@@ -1,4 +1,4 @@
-/*	$OpenBSD: util.c,v 1.153 2010/09/23 18:10:16 nicm Exp $	*/
+/*	$OpenBSD: util.c,v 1.155 2011/04/20 18:43:57 nicm Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * Copyright (c) 2005, 2006 Joris Vink <joris@openbsd.org>
@@ -33,7 +33,6 @@
 #include <atomicio.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <md5.h>
 #include <stdlib.h>
 #include <string.h>
 #include <paths.h>
@@ -197,29 +196,6 @@ cvs_modetostr(mode_t mode, char *buf, size_t len)
 		if (strlcat(buf, tmp, len) >= len)
 			fatal("cvs_modetostr: string truncation");
 	}
-}
-
-/*
- * cvs_cksum()
- *
- * Calculate the MD5 checksum of the file whose path is <file> and generate
- * a CVS-format 32 hex-digit string, which is stored in <dst>, whose size is
- * given in <len> and must be at least 33.
- * Returns 0 on success, or -1 on failure.
- */
-int
-cvs_cksum(const char *file, char *dst, size_t len)
-{
-	if (len < CVS_CKSUM_LEN) {
-		cvs_log(LP_ERR, "buffer too small for checksum");
-		return (-1);
-	}
-	if (MD5File(file, dst) == NULL) {
-		cvs_log(LP_ERR, "failed to generate checksum for %s", file);
-		return (-1);
-	}
-
-	return (0);
 }
 
 /*

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: vi.1,v 1.47 2010/09/29 07:44:57 jmc Exp $
+.\"	$OpenBSD: vi.1,v 1.54 2011/07/29 13:24:50 jmc Exp $
 .\"
 .\" Copyright (c) 1994
 .\"     The Regents of the University of California.  All rights reserved.
@@ -14,7 +14,7 @@
 .\"
 .\"     @(#)vi.1	8.51 (Berkeley) 10/10/96
 .\"
-.Dd $Mdocdate: September 29 2010 $
+.Dd $Mdocdate: July 29 2011 $
 .Dt VI 1
 .Os
 .Sh NAME
@@ -79,9 +79,6 @@ This manual page is intended for users already familiar with
 .Nm ex Ns / Ns Nm vi .
 Anyone else should almost certainly read a good tutorial on the
 editor before this manual page.
-See the
-.Sx SEE ALSO
-section below for a list of additional materials.
 If you're in an unfamiliar environment,
 and you absolutely have to get work done immediately,
 read the section after the options description, entitled
@@ -320,12 +317,182 @@ The above commands work on
 characters and lines,
 i.e. they affect the entire line no matter how many screen lines it takes up
 and the entire character no matter how many screen columns it takes up.
+.Sh REGULAR EXPRESSIONS
+.Nm ex Ns / Ns Nm vi
+supports regular expressions
+.Pq REs ,
+as documented in
+.Xr re_format 7 ,
+for line addresses, as the first part of the
+.Nm ex Cm substitute ,
+.Cm global
+and
+.Cm v
+commands, and in search patterns.
+Basic regular expressions
+.Pq BREs
+are enabled by default;
+extended regular expressions
+.Pq EREs
+are used if the
+.Cm extended
+option is enabled.
+The use of regular expressions can be largely disabled using the
+.Cm magic
+option.
+.Pp
+The following strings have special meanings in the
+.Nm ex Ns / Ns Nm vi
+version of regular expressions:
+.Bl -bullet -offset 6u
+.It
+An empty regular expression is equivalent to the last regular expression used.
+.It
+.Sq \e\(la
+matches the beginning of the word.
+.It
+.Sq \e\(ra
+matches the end of the word.
+.It
+.Sq \(a~
+matches the replacement part of the last
+.Cm substitute
+command.
+.El
+.Sh BUFFERS
+A buffer is an area where commands can save changed or deleted text
+for later use.
+.Nm vi
+buffers are named with a single character preceded by a double quote,
+for example
+.Pf \&" Ns Aq c ;
+.Nm ex
+buffers are the same,
+but without the double quote.
+.Nm nex Ns / Ns Nm nvi
+permits the use of any character without another meaning in the position where
+a buffer name is expected.
+.Pp
+All buffers are either in
+.Em line mode
+or
+.Em character mode .
+Inserting a buffer in line mode into the text creates new lines for each of the
+lines it contains, while a buffer in character mode creates new lines for any
+lines
+.Em other
+than the first and last lines it contains.
+The first and last lines are inserted at the current cursor position, becoming
+part of the current line.
+If there is more than one line in the buffer,
+the current line itself will be split.
+All
+.Nm ex
+commands which store text into buffers do so in line mode.
+The
+.Nm ex
+command
+.Cm display buffers
+displays the current mode for each buffer.
+.Pp
+Buffers named
+.Sq a
+through
+.Sq z
+may be referred to using their uppercase equivalent, in which case new content
+will be appended to the buffer, instead of replacing it.
+.Pp
+Buffers named
+.Sq 1
+through
+.Sq 9
+are special.
+A region of text modified using the
+.Cm c
+.Pq change
+or
+.Cm d
+.Pq delete
+commands is placed into the numeric buffer
+.Sq 1
+if no other buffer is specified and if it meets one of the following conditions:
+.Bl -bullet -offset 6u
+.It
+It includes characters from more than one line.
+.It
+It is specified using a line-oriented motion.
+.It
+It is specified using one of the following motion commands:
+.Aq Cm control-A ,
+.Cm ` Ns Aq Cm character ,
+.Cm n ,
+.Cm N ,
+.Cm % ,
+.Cm / ,
+.Cm { ,
+.Cm } ,
+.Cm \&( ,
+.Cm \&) ,
+and
+.Cm \&? .
+.El
+.Pp
+Before this copy is done, the previous contents of buffer
+.Sq 1
+are moved into buffer
+.Sq 2 ,
+.Sq 2
+into buffer
+.Sq 3 ,
+and so on.
+The contents of buffer
+.Sq 9
+are discarded.
+Note that this rotation occurs
+.Em regardless
+of the user specifying another buffer.
+In
+.Nm vi ,
+text may be explicitly stored into the numeric buffers.
+In this case, the buffer rotation occurs before the replacement of the buffer's
+contents.
+The numeric buffers are only available in
+.Nm vi
+mode.
 .Sh VI COMMANDS
 The following section describes the commands available in the command
 mode of the
 .Nm vi
 editor.
-In each entry below, the tag line is a usage synopsis for the command character.
+In each command synopsis below, the following notation is used:
+.Pp
+.Bl -tag -width buffer -compact -offset 3u
+.It Ar buffer
+Temporary area where commands may place text.
+If not specified, the default buffer is used.
+See also
+.Sx BUFFERS ,
+above.
+.It Ar motion
+A cursor movement command which indicates the other end of the affected region
+of text, the first being the current cursor position.
+Repeating the command character makes it affect the whole
+current line.
+.It Ar count
+A positive number used to specify the desired number of iterations
+of a command.
+It defaults to 1 if not specified.
+.El
+.Pp
+.Ar buffer
+and
+.Ar count ,
+if both present, may be specified in any order.
+.Ar motion
+and
+.Ar count ,
+if both present, are effectively multiplied together
+and considered part of the motion.
 .Pp
 .Bl -tag -width Ds -compact
 .It Xo
@@ -535,19 +702,24 @@ The second form returns to the first character of the context marked by
 .Pp
 .It Xo
 .Op Ar count
-.Cm (\&
+.Cm \&(
 .Xc
-Back up
-.Ar count
-sentences.
-.Pp
 .It Xo
 .Op Ar count
-.Cm )\&
+.Cm \&)
 .Xc
-Move forward
+Move
 .Ar count
-sentences.
+sentences backward or forward, respectively.
+A sentence is an area of text that begins with the first nonblank character
+following the previous sentence, paragraph, or section
+boundary and continues until the next period, exclamation mark,
+or question mark character, followed by any number of closing parentheses,
+brackets, double or single quote characters, followed by
+either an end-of-line or two whitespace characters.
+Groups of empty lines
+.Pq or lines containing only whitespace characters
+are treated as a single sentence.
 .Pp
 .It Xo
 .Op Ar count
@@ -626,13 +798,16 @@ times.
 .Pp
 .It Xo
 .Op Ar count
-.Pf \ \&< Ar motion
+.Cm <
+.Ar motion
 .Xc
 .It Xo
 .Op Ar count
-.Pf \ \&> Ar motion
+.Cm >
+.Ar motion
 .Xc
-Shift lines left or right.
+Shift lines left or right, respectively, by an amount of
+.Cm shiftwidth .
 .Pp
 .It Cm @ Ar buffer
 Execute a named
@@ -1350,9 +1525,9 @@ Delete the lines from the file.
 .Pp
 .It Xo
 .Cm di Ns Op Cm splay
-.Cm b Ns Oo Cm uffers Oc \&|
-.Cm c Ns Oo Cm onnections Oc \&|
-.Cm s Ns Oo Cm creens Oc \&|
+.Cm b Ns Oo Cm uffers Oc |
+.Cm c Ns Oo Cm onnections Oc |
+.Cm s Ns Oo Cm creens Oc |
 .Cm t Ns Op Cm ags
 .Xc
 Display buffers, Cscope connections, screens or tags.
@@ -1603,6 +1778,45 @@ commands from a file.
 .Op Ar flags
 .Xc
 Make substitutions.
+The
+.Ar replace
+field may contain any of the following sequences:
+.Bl -tag -width Ds
+.It Sq \*(Am
+The text matched by
+.Ar pattern .
+.It Sq \(a~
+The replacement part of the previous
+.Cm substitute
+command.
+.It Sq %
+If this is the entire
+.Ar replace
+pattern, the replacement part of the previous
+.Cm substitute
+command.
+.It Sq \e\(sh
+Where
+.Sq \(sh
+is an integer from 1 to 9, the text matched by the #'th subexpression in
+.Ar pattern .
+.It Sq \eL
+Causes the characters up to the end of the line of the next occurrence of
+.Sq \eE
+or
+.Sq \ee
+to be converted to lowercase.
+.It Sq \el
+Causes the next character to be converted to lowercase.
+.It Sq \eU
+Causes the characters up to the end of the line of the next occurrence of
+.Sq \eE
+or
+.Sq \ee
+to be converted to uppercase.
+.It Sq \eu
+Causes the next character to be converted to uppercase.
+.El
 .Pp
 .It Xo
 .Cm su Ns Op Cm spend Ns
@@ -1870,7 +2084,14 @@ Display lines in an unambiguous fashion.
 .It Cm lock Bq on
 Attempt to get an exclusive lock on any file being edited, read or written.
 .It Cm magic Bq on
-Treat certain characters specially in regular expressions.
+When turned off, all regular expression characters except for
+.Sq \(ha
+and
+.Sq \(Do
+are treated as ordinary characters.
+Preceding individual characters by
+.Sq \e
+re-enables them.
 .It Cm matchtime Bq 7
 .Nm vi
 only.
@@ -2096,9 +2317,11 @@ enters the value into the environment.
 .It Ev EXINIT
 A list of
 .Nm ex
-startup commands; read if the variable
+startup commands, read after
+.Pa /etc/vi.exrc
+unless the variable
 .Ev NEXINIT
-is not set.
+is also set.
 .It Ev HOME
 The user's home directory, used as the initial directory path for the startup
 .Pa $HOME/.nexrc
@@ -2124,7 +2347,8 @@ enters the value into the environment.
 .It Ev NEXINIT
 A list of
 .Nm ex
-startup commands.
+startup commands, read after
+.Pa /etc/vi.exrc .
 .It Ev SHELL
 The user's shell of choice (see also the
 .Cm shell
@@ -2186,25 +2410,52 @@ for more information.
 .\" ignores these signals.
 .El
 .Sh FILES
-.Bl -tag -width "/var/tmp/vi.recover" -compact
+.Bl -tag -width "/var/tmp/vi.recover"
 .It Pa /bin/sh
 The default user shell.
 .It Pa /etc/vi.exrc
 System-wide
 .Nm vi
 startup file.
+It is read for
+.Nm ex
+commands first in the startup sequence.
+Must be owned by root or the user,
+and writable only by the owner.
 .It Pa /tmp
 Temporary file directory.
 .It Pa /var/tmp/vi.recover
 The default recovery file directory.
 .It Pa $HOME/.nexrc
-First choice for user's home directory startup file.
+First choice for user's home directory startup file, read for
+.Nm ex
+commands right after
+.Pa /etc/vi.exrc
+unless either
+.Ev NEXINIT
+or
+.Ev EXINIT
+are set.
+Must be owned by root or the user,
+and writable only by the owner.
 .It Pa $HOME/.exrc
-Second choice for user's home directory startup file.
+Second choice for user's home directory startup file, read for
+.Nm ex
+commands under the same conditions as
+.Pa $HOME/.nexrc .
 .It Pa .nexrc
-First choice for local directory startup file.
+First choice for local directory startup file, read for
+.Nm ex
+commands at the end of the startup sequence if the
+.Cm exrc
+option was turned on earlier.
+Must be owned by the user
+and writable only by the owner.
 .It Pa .exrc
-Second choice for local directory startup file.
+Second choice for local directory startup file, read for
+.Nm ex
+commands under the same conditions as
+.Pa .nexrc .
 .El
 .Sh EXIT STATUS
 The
@@ -2216,55 +2467,6 @@ and \*(Gt0 if an error occurs.
 .Sh SEE ALSO
 .Xr ctags 1 ,
 .Xr re_format 7
-.Pp
-The
-.Qq Vi Quick Reference
-card,
-.Pa /usr/share/doc/usd/12.vi/vi.summary .
-.Pp
-.Qq \&An Introduction to Display Editing with Vi ,
-.Pa /usr/share/doc/usd/12.vi/ .
-This document is the closest thing available to an introduction to the
-.Nm vi
-screen editor.
-.Pp
-.Qq \&Ex Reference Manual ,
-.Pa /usr/share/doc/usd/13.ex/ .
-This document is the final reference for the
-.Nm ex
-editor.
-.Pp
-.Qq Ex: A Tutorial ,
-.Pa /usr/share/doc/usd/11.edit/ .
-This document is the closest thing available to an introduction to the
-.Nm ex
-editor.
-.Pp
-.Qq Vi/Ex Reference Manual ,
-.Pa /usr/share/doc/usd/13.viref/ .
-This document is the final reference for the
-.Nm nex Ns / Ns Nm nvi
-text editors.
-.Pp
-Roff source for all of these documents is distributed with
-.Nm nex Ns / Ns Nm nvi
-in the
-.Pa vi/docs/USD.doc
-directory of the
-.Nm nex Ns / Ns Nm nvi
-source code.
-.Pp
-The files
-.Pa autowrite ,
-.Pa input ,
-.Pa quoting ,
-and
-.Pa structures
-found in the
-.Pa vi/docs/internals
-directory of the
-.Nm nex Ns / Ns Nm nvi
-source code.
 .Sh STANDARDS
 .Nm nex Ns / Ns Nm nvi
 is close to

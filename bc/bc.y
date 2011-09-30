@@ -1,5 +1,5 @@
 %{
-/*	$OpenBSD: bc.y,v 1.33 2009/10/27 23:59:36 deraadt Exp $	*/
+/*	$OpenBSD: bc.y,v 1.39 2011/08/03 08:48:19 otto Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -36,12 +36,14 @@
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
+#include <histedit.h>
 #include <limits.h>
 #include <search.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "extern.h"
@@ -1057,20 +1059,29 @@ void
 sigchld(int signo)
 {
 	pid_t pid;
-	int status;
+	int status, save_errno = errno;
 
 	for (;;) {
-		pid = waitpid(dc, &status, WCONTINUED);
+		pid = waitpid(dc, &status, WCONTINUED | WNOHANG);
 		if (pid == -1) {
 			if (errno == EINTR)
 				continue;
 			_exit(0);
-		}
+		} else if (pid == 0)
+			break;
 		if (WIFEXITED(status) || WIFSIGNALED(status))
 			_exit(0);
 		else
 			break;
 	}
+	errno = save_errno;
+}
+
+static const char *
+dummy_prompt(void)
+{
+
+        return ("");
 }
 
 int
@@ -1129,6 +1140,19 @@ main(int argc, char *argv[])
 			dup(p[1]);
 			close(p[0]);
 			close(p[1]);
+			if (interactive) {
+				gettty(&ttysaved);
+				el = el_init("bc", stdin, stderr, stderr);
+				hist = history_init();
+				history(hist, &he, H_SETSIZE, 100);
+				el_set(el, EL_HIST, history, hist);
+				el_set(el, EL_EDITOR, "emacs");
+				el_set(el, EL_SIGNAL, 0);
+				el_set(el, EL_PROMPT, dummy_prompt);
+				el_set(el, EL_ADDFN, "bc_eof", "", bc_eof);
+				el_set(el, EL_BIND, "^D", "bc_eof", NULL);
+				el_source(el, NULL);
+			}
 		} else {
 			close(STDIN_FILENO);
 			dup(p[0]);

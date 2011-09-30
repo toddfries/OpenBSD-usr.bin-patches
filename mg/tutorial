@@ -1,4 +1,4 @@
-$Id: tutorial,v 1.5 2008/07/30 17:39:31 kjell Exp $
+$Id: tutorial,v 1.7 2011/09/10 17:48:04 lum Exp $
 
 The mg Tutorial
 ---------------
@@ -71,10 +71,10 @@ moves the cursor down one page and M-v moves it up one page.
 >> Try using M-v and C-v to move up and down, one page at a time.
 
 The final two motion commands we will learn are M-< (Meta-Less than) and 
-M-> (Meta-Greater than) which move you to the beginning and end of this file.
-You may not want to try that now as you will probably lose your place in this 
-tutorial. Note that on most terminals, < is above the , key, so you'll need
-to press the Shift key to type <.
+M-> (Meta-Greater than) which move you to the beginning and end of a file,
+respectively. You may not want to try that now as you will probably lose your
+place in this tutorial. Note that on most terminals, < is above the , key, so
+you'll need to press the Shift key to type <.
 
 Movement Summary
 -----------------
@@ -140,7 +140,7 @@ Inserting/Deleting Text
 
 To insert text anywhere, simply move your cursor to the appropriate position
 and begin typing. To delete characters, use the backspace key. If you use
-M-<backspace (Meta and backspace key), you will delete one word instead
+M-<backspace> (Meta and backspace key), you will delete one word instead
 of one character at a time.
 
 To delete characters to the right of the cursor, you can use C-d to delete
@@ -215,8 +215,8 @@ to restore it immediately, then move to the region you want to copy it to and
 then type C-y again to restore the last cut text block again.
 
 Another way to cut or copy chunks of text is to first position your cursor at
-the starting point of the chunk of text. Then type C-space to mark this as the
-starting point to cut or copy. Then move the cursor to the end point of the 
+the starting point of the chunk of text. Then type C-<space> to mark this as
+the starting point to cut or copy. Then move the cursor to the end point of the 
 text chunk that you wish to manipulate. Then type C-w to cut the region, or 
 M-w to copy the region. If you wish to cancel marking a block of text, simply
 type C-g to cancel the operation.
@@ -243,7 +243,7 @@ you should see the line and column number change.
 In the middle of the screen, you should see the word "(fundamental)" which 
 indicates that the current editing mode is "fundamental-mode". The mg editor
 also supports a c-mode that is more suited to editing C code. There are also
-some other useful editing modes for different situations. See the man pages 
+some other useful editing modes for different situations. See the man page 
 for mg(1) to learn about the various editing modes.
 
 Opening and Saving Files
@@ -316,7 +316,7 @@ for autocompleting the command.
 For instance, to replace text, you can type M-x repl TAB enter to execute 
 the replace-text command. To cancel this command, type C-g. 
 
-To see a list of all available mg(1) commands, consult the man pages.
+To see a list of all available mg(1) commands, consult the man page.
 
 Exiting mg
 ----------
@@ -332,9 +332,9 @@ Conclusion
 ----------
 
 This tutorial is meant to get new users up and running with mg. There is more
-information available via the mg(1) man pages. If you have any suggestions for
+information available via the mg(1) man page. If you have any suggestions for
 improvement, please don't hesitate to drop a message or (better still) submit
-a diff listing.
+a diff to tech@openbsd.org.
 
 History
 -------
@@ -360,7 +360,7 @@ Author Info
 -----------
 
 Original Author of this document: Mayukh Bose, 
-Date last updated: 2008-07-29
+Date last updated: 2011-09-10
 
 Copyright
 ---------

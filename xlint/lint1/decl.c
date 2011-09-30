@@ -1,4 +1,4 @@
-/*	$OpenBSD: decl.c,v 1.26 2010/07/27 20:07:56 guenther Exp $	*/
+/*	$OpenBSD: decl.c,v 1.30 2011/09/21 18:08:07 jsg Exp $	*/
 /*	$NetBSD: decl.c,v 1.11 1995/10/02 17:34:16 jpo Exp $	*/
 
 /*
@@ -31,10 +31,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef lint
-static char rcsid[] = "$OpenBSD: decl.c,v 1.26 2010/07/27 20:07:56 guenther Exp $";
-#endif
 
 #include <sys/param.h>
 #include <limits.h>
@@ -141,7 +137,7 @@ initdecl(void)
 		{ DOUBLE,   { sizeof (double) * CHAR_BIT, 8 * CHAR_BIT, -1,
 			      DOUBLE, DOUBLE,
 			      0, 0, 1, 1, 1, "double" } },
-		{ LDOUBLE,  { sizeof (ldbl_t) * CHAR_BIT, 10 * CHAR_BIT, -1,
+		{ LDOUBLE,  { sizeof (ldbl_t) * CHAR_BIT, 16 * CHAR_BIT, -1,
 			      LDOUBLE, LDOUBLE,
 			      0, 0, 1, 1, 1, "long double" } },
 		{ COMPLEX,  { sizeof (float _Complex) * CHAR_BIT,
@@ -153,7 +149,7 @@ initdecl(void)
 			      DCOMPLEX, DCOMPLEX,
 			      0, 0, 1, 1, 3, "double _Complex" } },
 		{ LDCOMPLEX,{ sizeof (long double _Complex) * CHAR_BIT,
-			      20 * CHAR_BIT, -1,
+			      32 * CHAR_BIT, -1,
 			      LDCOMPLEX, LDCOMPLEX,
 			      0, 0, 1, 1, 3, "long double _Complex" } },
 #if 0
@@ -166,7 +162,7 @@ initdecl(void)
 			      DIMAGINARY, DIMAGINARY,
 			      0, 0, 1, 1, 2, "double _Imaginary" } },
 		{ LDIMAGINARY,{ sizeof (long double _Imaginary) * CHAR_BIT,
-			      10 * CHAR_BIT, -1,
+			      16 * CHAR_BIT, -1,
 			      LDIMAGINARY, LDIMAGINARY,
 			      0, 0, 1, 1, 2, "long double _Imaginary" } },
 #endif
@@ -1782,8 +1778,10 @@ compltag(type_t *tp, sym_t *fmem)
 		sp->size = dcs->d_offset;
 		sp->memb = fmem;
 		if (sp->size == 0) {
-			/* zero sized %s */
-			(void)gnuism(47, ttab[t].tt_name);
+			if (sflag) {
+				/* zero sized %s */
+				warning(47, ttab[t].tt_name);
+			}
 		} else {
 			n = 0;
 			for (mem = fmem; mem != NULL; mem = mem->s_nxt) {
@@ -1891,7 +1889,7 @@ decl1ext(sym_t *dsym, int initflg)
 	if (plibflg && llibflg &&
 	    dsym->s_type->t_tspec == FUNC && dsym->s_type->t_proto) {
 		/*
-		 * With both LINTLIBRARY and PROTOLIB the prototyp is
+		 * With both LINTLIBRARY and PROTOLIB the prototype is
 		 * written as a function definition to the output file.
 		 */
 		rval = dsym->s_type->t_subt->t_tspec != VOID;

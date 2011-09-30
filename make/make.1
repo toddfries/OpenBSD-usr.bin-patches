@@ -1,4 +1,4 @@
-.\"	$OpenBSD: make.1,v 1.89 2010/09/29 07:44:56 jmc Exp $
+.\"	$OpenBSD: make.1,v 1.92 2011/05/02 11:14:11 jmc Exp $
 .\"	$NetBSD: make.1,v 1.18 1997/03/10 21:19:53 christos Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	from: @(#)make.1	8.4 (Berkeley) 3/19/94
 .\"
-.Dd $Mdocdate: September 29 2010 $
+.Dd $Mdocdate: May 2 2011 $
 .Dt MAKE 1
 .Os
 .Sh NAME
@@ -991,13 +991,13 @@ The
 .Ar operator
 may be any one of the following:
 .Bl -tag -width "Cm XX"
-.It Cm \&|\&|
+.It Cm ||
 logical OR
 .It Cm \&&&
 Logical
 .Tn AND ;
 of higher precedence than
-.Dq \&|\&| .
+.Cm || .
 .El
 .Pp
 As in C,
@@ -1093,13 +1093,9 @@ is found.
 For loops are typically used to apply a set of rules to a list of files.
 The syntax of a for loop is:
 .Bd -unfilled -offset indent
-.Xo
-.Ic .for Ar variable Op Ar variable ...
-.Ic in
-.Ar expression
-.Xc
+.Ic .for Ar variable Oo Ar variable ... Oc Ic in Ar expression
 	<make-rules>
-.Ic \&.endfor
+.Ic .endfor
 .Ed
 .Pp
 After the for
@@ -1365,9 +1361,6 @@ utility exits with a value of 0 on success, and \*(Gt0 if an error occurred.
 .Xr getcwd 3 ,
 .Xr regex 3 ,
 .Xr uname 3
-.Pp
-"Make \(em A Tutorial",
-.Pa /usr/share/doc/psd/12.make/ .
 .Sh STANDARDS
 The
 .Nm

@@ -1,4 +1,4 @@
-/*	$OpenBSD: update.c,v 1.164 2010/09/29 18:14:52 nicm Exp $	*/
+/*	$OpenBSD: update.c,v 1.166 2010/10/28 15:02:41 millert Exp $	*/
 /*
  * Copyright (c) 2006 Joris Vink <joris@openbsd.org>
  *
@@ -235,7 +235,7 @@ cvs_update_enterdir(struct cvs_file *cf)
 void
 cvs_update_leavedir(struct cvs_file *cf)
 {
-	long base;
+	off_t base;
 	int nbytes;
 	int isempty;
 	size_t bufsize;
@@ -580,7 +580,6 @@ update_has_conflict_markers(struct cvs_file *cf)
 void
 update_join_file(struct cvs_file *cf)
 {
-	int flag;
 	time_t told;
 	RCSNUM *rev1, *rev2;
 	const char *state1, *state2;
@@ -688,8 +687,7 @@ update_join_file(struct cvs_file *cf)
 		goto out;
 	}
 
-	flag = rcs_kwexp_get(cf->file_rcs);
-	if (flag & RCS_KWEXP_NONE) {
+	if (rcs_kwexp_get(cf->file_rcs) & RCS_KWEXP_NONE) {
 		cvs_printf("non-mergable file: %s needs merge!\n",
 		    cf->file_path);
 		goto out;

@@ -1,4 +1,4 @@
-.\"	$OpenBSD: aucat.1,v 1.73 2010/07/31 08:48:01 ratchov Exp $
+.\"	$OpenBSD: aucat.1,v 1.86 2011/06/29 07:39:02 ratchov Exp $
 .\"
 .\" Copyright (c) 2006 Alexandre Ratchov <alex@caoua.org>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: July 31 2010 $
+.Dd $Mdocdate: June 29 2011 $
 .Dt AUCAT 1
 .Os
 .Sh NAME
@@ -23,7 +23,7 @@
 .Sh SYNOPSIS
 .Nm aucat
 .Bk -words
-.Op Fl dlnu
+.Op Fl dln
 .Op Fl a Ar flag
 .Op Fl b Ar nframes
 .Op Fl C Ar min : Ns Ar max
@@ -33,6 +33,7 @@
 .Op Fl h Ar fmt
 .Op Fl i Ar file
 .Op Fl j Ar flag
+.Op Fl L Ar addr
 .Op Fl m Ar mode
 .Op Fl o Ar file
 .Op Fl q Ar device
@@ -40,7 +41,9 @@
 .Op Fl s Ar name
 .Op Fl t Ar mode
 .Op Fl U Ar unit
+.Op Fl u Ar flag
 .Op Fl v Ar volume
+.Op Fl w Ar flag
 .Op Fl x Ar policy
 .Op Fl z Ar nframes
 .Ek
@@ -73,6 +76,7 @@ The options are as follows:
 Control whether
 .Nm
 opens the audio device only when needed or keeps it open all the time.
+This applies to MIDI ports controlling the device as well.
 If the flag is
 .Va on
 then the device is kept open all the time, ensuring no other program can
@@ -98,7 +102,9 @@ The default is 0:1, i.e. stereo.
 .It Fl d
 Increase log verbosity.
 .Nm
-logs on stderr until it daemonizes.
+logs on
+.Em stderr
+until it daemonizes.
 .It Fl e Ar enc
 Encoding of the playback or recording stream (see below).
 The default is signed, 16-bit, native byte order.
@@ -111,7 +117,7 @@ Preceding streams
 control MIDI ports
 .Pq Fl q ,
 and per-device options
-.Pq Fl abz
+.Pq Fl abuwz
 apply to this device.
 Device mode and parameters are determined from streams
 attached to it.
@@ -138,6 +144,22 @@ For instance, this feature could be used to request mono streams to
 be sent on multiple outputs or to record a stereo input into a mono stream.
 The default is
 .Ar on .
+.It Fl L Ar addr
+Specify a local network address to listen on in server mode.
+.Nm
+will listen on TCP port 11025+n, where n is the unit number
+specified with
+.Fl U .
+Without this option,
+.Nm
+listens on the
+.Ux Ns -domain
+socket only, and is not reachable from any network.
+If the option argument is
+.Sq -
+then
+.Nm
+will accept connections from any address.
 .It Fl l
 Detach and become a daemon.
 .It Fl m Ar mode
@@ -217,25 +239,50 @@ used in
 .Xr sndio 7
 device names.
 The default is 0.
-.It Fl u
-Normally
+.It Fl u Ar flag
+Control how parameters of the audio device are chosen.
+If the flag is
+.Va on
+then
 .Nm
-tries to automatically determine the optimal parameters for the audio device;
-if this option is specified,
+tries to automatically determine the optimal parameters to
+match stream parameters and avoid conversions if possible.
+If the flag is
+.Va off
 it will instead use the parameters specified by the
 .Fl Ccer
 options.
+The default is
+.Va on .
 .It Fl v Ar volume
 Software volume attenuation of the playback stream.
 The value must be between 1 and 127,
-corresponding to \-42dB and \-0dB attenuation.
+corresponding to \-42dB and \-0dB attenuation in 1/3dB steps.
 In server mode, clients inherit this parameter.
-Reducing the volume in advance reduces a client's dynamic range,
-but allows client volume to stay independent from the number
-of clients as long as their number is small enough.
-A good compromise is to use \-4dB attenuation (12 volume units)
-for each additional client expected
-(115 if 2 clients are expected, 103 for 3 clients, and so on).
+Reducing the volume in advance allows a client's volume to stay independent
+from the number of clients as long as their number is small enough.
+18 volume units (i.e. \-6dB attenuation) allows the number
+of playback streams to be doubled.
+The default is 127 i.e. no attenuation.
+.It Fl w Ar flag
+Control
+.Nm
+behaviour when the maximum volume of the hardware is reached
+and a new stream is connected.
+This happens only when stream volumes
+are not properly set using the
+.Fl v
+option.
+If the flag is
+.Va on ,
+then the master volume (corresponding to the mix of all playback streams)
+is automatically adjusted to avoid clipping.
+Using
+.Va off
+makes sense when all streams are recorded or produced with properly lowered
+volumes.
+The default is
+.Va on .
 .It Fl x Ar policy
 Action when the output stream cannot accept
 recorded data fast enough or the input stream
@@ -279,7 +326,7 @@ to a 400 frame block size.
 .Pp
 On the command line,
 per-device parameters
-.Pq Fl abz
+.Pq Fl abuwz
 must precede the device definition
 .Pq Fl f ,
 and per-stream parameters
@@ -288,13 +335,13 @@ must precede the stream definition
 .Pq Fl ios .
 MIDI ports
 .Pq Fl q
-and streams definitions
+and stream definitions
 .Pq Fl ios
 must precede the definition of the device
 .Pq Fl f
 to which they are attached.
 Global parameters
-.Pq Fl dlnu
+.Pq Fl dlnUu
 are position-independent.
 .Pp
 If no audio devices
@@ -447,11 +494,11 @@ Streams created with the
 option are controlled by the following MMC messages:
 .Bl -tag -width relocateXXX -offset indent
 .It relocate
-Streams are relocated to the requested time postion
+Streams are relocated to the requested time position
 relative to the beginning of the stream, at which playback
 and recording must start.
 If the requested position is beyond the end of file,
-the stream is temporarly disabled until a valid postion is requested.
+the stream is temporarly disabled until a valid position is requested.
 This message is ignored by client streams (server mode).
 The given time position is sent to MIDI ports as an MTC
 .Dq "full frame"
@@ -479,21 +526,23 @@ Streams created with the
 .Fl t
 option export the server clock using MTC, allowing non-audio
 software or hardware to be synchronized to the audio stream.
+Maximum accuracy is achieved when the number of blocks per
+second is equal to one of the standard MTC clock rates (96, 100 and 120Hz).
 The following sample rates
 .Pq Fl r
 and block sizes
 .Pq Fl z
-are recommended for maximum accuracy:
+are recommended:
 .Pp
 .Bl -bullet -offset indent -compact
 .It
-44100Hz, 441 frames
+44100Hz, 441 frames (MTC rate is 100Hz)
 .It
-48000Hz, 400 frames
+48000Hz, 400 frames (MTC rate is 120Hz)
 .It
-48000Hz, 480 frames
+48000Hz, 480 frames (MTC rate is 100Hz)
 .It
-48000Hz, 500 frames
+48000Hz, 500 frames (MTC rate is 96Hz)
 .El
 .Pp
 For instance, the following command will create two devices:
@@ -531,7 +580,9 @@ Note that the sequencer must use
 .Va aucat:0
 as the MTC source, i.e. the audio server, not the audio player.
 .Sh ENVIRONMENT
-.Bl -tag -width "AUDIODEVICE" -compact
+.Bl -tag -width "AUCAT_COOKIE" -compact
+.It Ev AUCAT_COOKIE
+File containing user's session cookie.
 .It Ev AUDIODEVICE
 .Xr sndio 7
 audio device to use if the
@@ -539,27 +590,27 @@ audio device to use if the
 option is not specified.
 .El
 .Sh EXAMPLES
-The following will mix and play two stereo streams,
+Mix and play two stereo streams,
 the first at 48kHz and the second at 44.1kHz:
 .Bd -literal -offset indent
 $ aucat -r 48000 -i file1.raw -r 44100 -i file2.raw
 .Ed
 .Pp
-The following will record channels 2 and 3 into one stereo file and
+Record channels 2 and 3 into one stereo file and
 channels 6 and 7 into another stereo file using a 96kHz sampling rate for
 both:
 .Bd -literal -offset indent
-$ aucat -r 96000 -C 2:3 -o file1.raw -C 6:7 -o file2.raw
+$ aucat -j off -r 96000 -C 2:3 -o file1.raw -C 6:7 -o file2.raw
 .Ed
 .Pp
-The following will split a stereo file into two mono files:
+Split a stereo file into two mono files:
 .Bd -literal -offset indent
-$ aucat -n -i stereo.wav -C 0:0 -o left.wav -C 1:1 -o right.wav
+$ aucat -n -j off -i stereo.wav -C 0:0 -o left.wav -C 1:1 -o right.wav
 .Ed
 .Pp
-The following will start
+Start
 .Nm
-in server mode using default parameters, but will create an
+in server mode using default parameters, creating an
 additional sub-device for output to channels 2:3 only (rear speakers
 on most cards), exposing the
 .Pa aucat:0
@@ -570,9 +621,9 @@ devices:
 $ aucat -l -s default -c 2:3 -s rear
 .Ed
 .Pp
-The following will start
+Start
 .Nm
-in server mode creating the default sub-device with low volume and
+in server mode, creating the default sub-device with low volume and
 an additional sub-device for high volume output, exposing the
 .Pa aucat:0
 and
@@ -582,9 +633,9 @@ devices:
 $ aucat -l -v 65 -s default -v 127 -s max
 .Ed
 .Pp
-The following will start
+Start
 .Nm
-in server mode configuring the audio device to use
+in server mode, configuring the audio device to use
 a 48kHz sample frequency, 240-frame block size,
 and 2-block buffers.
 The corresponding latency is 10ms, which is
@@ -625,7 +676,7 @@ creates sub-devices to expose first
 and then opens the audio hardware on demand.
 Technically, this allows
 .Nm
-to attempt to use one of the sub-devices it exposes as audio device,
+to attempt to use one of the sub-devices it exposes as an audio device,
 creating a deadlock.
 To avoid this,
 .Fl a Ar off

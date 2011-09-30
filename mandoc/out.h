@@ -1,6 +1,6 @@
-/*	$Id: out.h,v 1.6 2010/07/25 18:05:54 schwarze Exp $ */
+/*	$Id: out.h,v 1.12 2011/09/18 15:54:48 schwarze Exp $ */
 /*
- * Copyright (c) 2009 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,37 +17,23 @@
 #ifndef OUT_H
 #define OUT_H
 
-#define	DATESIZ		24
-
-__BEGIN_DECLS
-
 enum	roffscale {
-	SCALE_CM,
-	SCALE_IN,
-	SCALE_PC,
-	SCALE_PT,
-	SCALE_EM,
-	SCALE_MM,
-	SCALE_EN,
-	SCALE_BU,
-	SCALE_VS,
-	SCALE_FS,
+	SCALE_CM, /* centimeters (c) */
+	SCALE_IN, /* inches (i) */
+	SCALE_PC, /* pica (P) */
+	SCALE_PT, /* points (p) */
+	SCALE_EM, /* ems (m) */
+	SCALE_MM, /* mini-ems (M) */
+	SCALE_EN, /* ens (n) */
+	SCALE_BU, /* default horizontal (u) */
+	SCALE_VS, /* default vertical (v) */
+	SCALE_FS, /* syn. for u (f) */
 	SCALE_MAX
 };
 
-enum	roffdeco {
-	DECO_NONE,
-	DECO_SPECIAL, /* special character */
-	DECO_SSPECIAL, /* single-char special */
-	DECO_RESERVED, /* reserved word */
-	DECO_BOLD,
-	DECO_ITALIC,
-	DECO_ROMAN,
-	DECO_PREVIOUS,
-	DECO_NOSPACE,
-	DECO_FONT, /* font */
-	DECO_FFONT, /* font family */
-	DECO_MAX
+struct	roffcol {
+	size_t		 width; /* width of cell */
+	size_t		 decimal; /* decimal position in cell */
 };
 
 struct	roffsu {
@@ -55,9 +41,17 @@ struct	roffsu {
 	double		  scale;
 };
 
-#define	SCALE_INVERT(p) \
-	do { (p)->scale = -(p)->scale; } \
-	while (/* CONSTCOND */ 0)
+typedef	size_t	(*tbl_strlen)(const char *, void *);
+typedef	size_t	(*tbl_len)(size_t, void *);
+
+struct	rofftbl {
+	tbl_strlen	 slen; /* calculate string length */
+	tbl_len		 len; /* produce width of empty space */
+	struct roffcol	*cols; /* master column specifiers */
+	void		*arg; /* passed to slen and len */
+};
+
+__BEGIN_DECLS
 
 #define	SCALE_VS_INIT(p, v) \
 	do { (p)->unit = SCALE_VS; \
@@ -69,11 +63,9 @@ struct	roffsu {
 	     (p)->scale = (v); } \
 	while (/* CONSTCOND */ 0)
 
-int		  a2roffsu(const char *, 
-			struct roffsu *, enum roffscale);
-int		  a2roffdeco(enum roffdeco *, const char **, size_t *);
-void		  time2a(time_t, char *, size_t);
+int	  	  a2roffsu(const char *, struct roffsu *, enum roffscale);
+void	  	  tblcalc(struct rofftbl *tbl, const struct tbl_span *);
 
 __END_DECLS
 
-#endif /*!HTML_H*/
+#endif /*!OUT_H*/

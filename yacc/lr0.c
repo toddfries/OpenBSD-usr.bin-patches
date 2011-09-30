@@ -1,4 +1,4 @@
-/*	$OpenBSD: lr0.c,v 1.9 2009/10/27 23:59:50 deraadt Exp $	*/
+/*	$OpenBSD: lr0.c,v 1.11 2011/04/03 20:42:54 nicm Exp $	*/
 /*	$NetBSD: lr0.c,v 1.4 1996/03/19 03:21:35 jtc Exp $	*/
 
 /*
@@ -54,17 +54,11 @@ void free_storage(void);
 void generate_states(void);
 void initialize_states(void);
 void new_itemsets(void);
-void show_cores(void);
-void show_ritems(void);
-void show_rrhs(void);
-void show_shifts(void);
 void save_shifts(void);
 void save_reductions(void);
 void set_derives(void);
 void print_derives(void);
 void set_nullable(void);
-void free_derives(void);
-void free_nullable(void);
 
 static core **state_set;
 static core *this_state;
@@ -368,86 +362,6 @@ new_state(int symbol)
 }
 
 
-/* show_cores is used for debugging */
-
-void
-show_cores(void)
-{
-    core *p;
-    int i, j, k, n;
-    int itemno;
-
-    k = 0;
-    for (p = first_state; p; ++k, p = p->next)
-    {
-	if (k) printf("\n");
-	printf("state %d, number = %d, accessing symbol = %s\n",
-		k, p->number, symbol_name[p->accessing_symbol]);
-	n = p->nitems;
-	for (i = 0; i < n; ++i)
-	{
-	    itemno = p->items[i];
-	    printf("%4d  ", itemno);
-	    j = itemno;
-	    while (ritem[j] >= 0) ++j;
-	    printf("%s :", symbol_name[rlhs[-ritem[j]]]);
-	    j = rrhs[-ritem[j]];
-	    while (j < itemno)
-		printf(" %s", symbol_name[ritem[j++]]);
-	    printf(" .");
-	    while (ritem[j] >= 0)
-		printf(" %s", symbol_name[ritem[j++]]);
-	    printf("\n");
-	    fflush(stdout);
-	}
-    }
-}
-
-
-/* show_ritems is used for debugging */
-
-void
-show_ritems(void)
-{
-    int i;
-
-    for (i = 0; i < nitems; ++i)
-	printf("ritem[%d] = %d\n", i, ritem[i]);
-}
-
-
-/* show_rrhs is used for debugging */
-
-void
-show_rrhs(void)
-{
-    int i;
-
-    for (i = 0; i < nrules; ++i)
-	printf("rrhs[%d] = %d\n", i, rrhs[i]);
-}
-
-
-/* show_shifts is used for debugging */
-
-void
-show_shifts(void)
-{
-    shifts *p;
-    int i, j, k;
-
-    k = 0;
-    for (p = first_shift; p; ++k, p = p->next)
-    {
-	if (k) printf("\n");
-	printf("shift %d, number = %d, nshifts = %d\n", k, p->number,
-		p->nshifts);
-	j = p->nshifts;
-	for (i = 0; i < j; ++i)
-	    printf("\t%d\n", p->shift[i]);
-    }
-}
-
 void
 save_shifts(void)
 {
@@ -602,8 +516,7 @@ set_nullable(void)
     nullable = MALLOC(nsyms);
     if (nullable == 0) no_space();
 
-    for (i = 0; i < nsyms; ++i)
-	nullable[i] = 0;
+    memset(nullable, 0, nsyms);
 
     done = 0;
     while (!done)

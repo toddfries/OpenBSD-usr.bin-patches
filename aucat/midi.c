@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.28 2010/07/06 01:12:45 ratchov Exp $	*/
+/*	$OpenBSD: midi.c,v 1.36 2011/06/27 07:57:38 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -32,6 +32,7 @@
 #include "conf.h"
 #include "dev.h"
 #include "midi.h"
+#include "sysex.h"
 #ifdef DEBUG
 #include "dbg.h"
 #endif
@@ -278,6 +279,10 @@ thru_eof(struct aproc *p, struct abuf *ibuf)
 void
 thru_hup(struct aproc *p, struct abuf *obuf)
 {
+	if (!(p->flags & APROC_QUIT))
+		return;
+	if (LIST_EMPTY(&p->ins))
+		aproc_del(p);
 }
 
 void
@@ -381,50 +386,60 @@ ctl_slotdbg(struct aproc *p, int slot)
 #endif
 
 /*
+ * send a message to the given output
+ */
+void
+ctl_copymsg(struct abuf *obuf, unsigned char *msg, unsigned len)
+{
+	unsigned ocount, itodo;
+	unsigned char *odata, *idata;
+
+	itodo = len;
+	idata = msg;
+	while (itodo > 0) {
+		if (!ABUF_WOK(obuf)) {
+#ifdef DEBUG
+			if (debug_level >= 3) {
+				abuf_dbg(obuf);
+				dbg_puts(": overrun, discarding ");
+				dbg_putu(obuf->used);
+				dbg_puts(" bytes\n");
+			}
+#endif
+			abuf_rdiscard(obuf, obuf->used);
+		}
+		odata = abuf_wgetblk(obuf, &ocount, 0);
+		if (ocount > itodo)
+			ocount = itodo;
+#ifdef DEBUG
+		if (debug_level >= 4) {
+			abuf_dbg(obuf);
+			dbg_puts(": stored ");
+			dbg_putu(ocount);
+			dbg_puts(" bytes\n");
+		}
+#endif
+		memcpy(odata, idata, ocount);
+		abuf_wcommit(obuf, ocount);
+		itodo -= ocount;
+		idata += ocount;
+	}
+}
+
+/*
  * broadcast a message to all output buffers on the behalf of ibuf.
  * ie. don't sent back the message to the sender
  */
 void
 ctl_sendmsg(struct aproc *p, struct abuf *ibuf, unsigned char *msg, unsigned len)
 {
-	unsigned ocount, itodo;
-	unsigned char *odata, *idata;
 	struct abuf *i, *inext;
 
 	for (i = LIST_FIRST(&p->outs); i != NULL; i = inext) {
 		inext = LIST_NEXT(i, oent);
 		if (i->duplex && i->duplex == ibuf)
 			continue;
-		itodo = len;
-		idata = msg;
-		while (itodo > 0) {
-			if (!ABUF_WOK(i)) {
-#ifdef DEBUG
-				if (debug_level >= 3) {
-					abuf_dbg(i);
-					dbg_puts(": overrun, discarding ");
-					dbg_putu(i->used);
-					dbg_puts(" bytes\n");
-				}
-#endif
-				abuf_rdiscard(i, i->used);
-			}
-			odata = abuf_wgetblk(i, &ocount, 0);
-			if (ocount > itodo)
-				ocount = itodo;
-#ifdef DEBUG
-			if (debug_level >= 4) {
-				abuf_dbg(i);
-				dbg_puts(": stored ");
-				dbg_putu(ocount);
-				dbg_puts(" bytes\n");
-			}
-#endif
-			memcpy(odata, idata, ocount);
-			abuf_wcommit(i, ocount);
-			itodo -= ocount;
-			idata += ocount;
-		}
+		ctl_copymsg(i, msg, len);
 		(void)abuf_flush(i);
 	}
 }
@@ -471,7 +486,7 @@ ctl_qfr(struct aproc *p)
 		p->u.ctl.fr -= p->u.ctl.fps;
 		p->u.ctl.sec++;
 		if (p->u.ctl.sec < 60)
-			break;;
+			break;
 		p->u.ctl.sec = 0;
 		p->u.ctl.min++;
 		if (p->u.ctl.min < 60)
@@ -522,6 +537,60 @@ ctl_full(struct aproc *p)
 	ctl_sendmsg(p, NULL, buf, 10);
 }
 
+void
+ctl_msg_info(struct aproc *p, int slot, char *msg)
+{
+	struct ctl_slot *s;
+	struct sysex *x = (struct sysex *)msg;
+
+	s = p->u.ctl.slot + slot;
+	memset(x, 0, sizeof(struct sysex));
+	x->start = SYSEX_START;
+	x->type = SYSEX_TYPE_EDU;
+	x->id0 = SYSEX_AUCAT;
+	x->id1 = SYSEX_AUCAT_MIXINFO;
+	if (*s->name != '\0') {
+		snprintf(x->u.mixinfo.name,
+		    SYSEX_NAMELEN, "%s%u", s->name, s->unit);
+	}
+	x->u.mixinfo.chan = slot;
+	x->u.mixinfo.end = SYSEX_END;
+}
+
+void
+ctl_msg_vol(struct aproc *p, int slot, char *msg)
+{
+	struct ctl_slot *s;
+
+	s = p->u.ctl.slot + slot;	
+	msg[0] = MIDI_CTL | slot;
+	msg[1] = MIDI_CTLVOL;
+	msg[2] = s->vol;
+}
+
+void
+ctl_dump(struct aproc *p, struct abuf *obuf)
+{
+	unsigned i;
+	unsigned char msg[sizeof(struct sysex)];
+	struct ctl_slot *s;
+
+	for (i = 0, s = p->u.ctl.slot; i < CTL_NSLOT; i++, s++) {
+		ctl_msg_info(p, i, msg);
+		ctl_copymsg(obuf, msg, SYSEX_SIZE(mixinfo));
+		ctl_msg_vol(p, i, msg);
+		ctl_copymsg(obuf, msg, 3);
+	}
+	msg[0] = SYSEX_START;
+	msg[1] = SYSEX_TYPE_EDU;
+	msg[2] = 0;
+	msg[3] = SYSEX_AUCAT;
+	msg[4] = SYSEX_AUCAT_DUMPEND;
+	msg[5] = SYSEX_END;
+	ctl_copymsg(obuf, msg, 6);
+	abuf_flush(obuf);
+}
+
 /*
  * find the best matching free slot index (ie midi channel).
  * return -1, if there are no free slots anymore
@@ -560,20 +629,19 @@ ctl_getidx(struct aproc *p, char *who)
 			umap |= (1 << i);
 	} 
 	for (unit = 0; ; unit++) {
-		if (unit == CTL_NSLOT)
+		if (unit == CTL_NSLOT) {
+#ifdef DEBUG
+			if (debug_level >= 1) {
+				dbg_puts(name);
+				dbg_puts(": too many instances\n");
+			}
+#endif
 			return -1;
+		}
 		if ((umap & (1 << unit)) == 0)
 			break;
 	}
-#ifdef DEBUG
-	if (debug_level >= 3) {
-		aproc_dbg(p);
-		dbg_puts(": new control name is ");
-		dbg_puts(name);
-		dbg_putu(unit);
-		dbg_puts("\n");
-	}
-#endif
+
 	/*
 	 * find a free controller slot with the same name/unit
 	 */
@@ -583,7 +651,8 @@ ctl_getidx(struct aproc *p, char *who)
 		    slot->unit == unit) {
 #ifdef DEBUG
 			if (debug_level >= 3) {
-				aproc_dbg(p);
+				dbg_puts(name);
+				dbg_putu(unit);
 				dbg_puts(": found slot ");
 				dbg_putu(i);
 				dbg_puts("\n");
@@ -608,8 +677,16 @@ ctl_getidx(struct aproc *p, char *who)
 			bestidx = i;
 		}
 	}
-	if (bestidx == CTL_NSLOT)
+	if (bestidx == CTL_NSLOT) {
+#ifdef DEBUG
+		if (debug_level >= 1) {
+			dbg_puts(name);
+			dbg_putu(unit);
+			dbg_puts(": out of mixer slots\n");
+		}
+#endif
 		return -1;
+	}
 	slot = p->u.ctl.slot + bestidx;
 	if (slot->name[0] != '\0')
 		slot->vol = MIDI_MAXCTL;
@@ -618,7 +695,8 @@ ctl_getidx(struct aproc *p, char *who)
 	slot->unit = unit;
 #ifdef DEBUG
 	if (debug_level >= 3) {
-		aproc_dbg(p);
+		dbg_puts(name);
+		dbg_putu(unit);
 		dbg_puts(": overwritten slot ");
 		dbg_putu(bestidx);
 		dbg_puts("\n");
@@ -710,6 +788,7 @@ ctl_slotnew(struct aproc *p, char *who, struct ctl_ops *ops, void *arg, int tr)
 {
 	int idx;
 	struct ctl_slot *s;
+	unsigned char msg[sizeof(struct sysex)];
 
 	if (!APROC_OK(p)) {
 #ifdef DEBUG
@@ -729,7 +808,10 @@ ctl_slotnew(struct aproc *p, char *who, struct ctl_ops *ops, void *arg, int tr)
 	s->arg = arg;
 	s->tstate = tr ? CTL_STOP : CTL_OFF;
 	s->ops->vol(s->arg, s->vol);
-	ctl_slotvol(p, idx, s->vol);
+	ctl_msg_info(p, idx, msg);
+	ctl_sendmsg(p, NULL, msg, SYSEX_SIZE(mixinfo));
+	ctl_msg_vol(p, idx, msg);
+	ctl_sendmsg(p, NULL, msg, 3);
 	return idx;
 }
 
@@ -751,7 +833,7 @@ ctl_slotdel(struct aproc *p, int index)
 		if (s->ops)
 			return;
 	}
-	if (!LIST_EMPTY(&p->outs) || !LIST_EMPTY(&p->ins))
+	if (LIST_EMPTY(&p->ins))
 		aproc_del(p);
 }
 
@@ -806,9 +888,7 @@ ctl_slotvol(struct aproc *p, int slot, unsigned vol)
 	}
 #endif
 	p->u.ctl.slot[slot].vol = vol;
-	msg[0] = MIDI_CTL | slot;
-	msg[1] = MIDI_CTLVOL;
-	msg[2] = vol;
+	ctl_msg_vol(p, slot, msg);
 	ctl_sendmsg(p, NULL, msg, 3);
 }
 
@@ -977,7 +1057,8 @@ ctl_ev(struct aproc *p, struct abuf *ibuf)
 {
 	unsigned chan;
 	struct ctl_slot *slot;
-	unsigned fps;
+	struct sysex *x;
+	unsigned fps, len;
 #ifdef DEBUG
 	unsigned i;
 
@@ -992,7 +1073,7 @@ ctl_ev(struct aproc *p, struct abuf *ibuf)
 	}
 #endif
 	if ((ibuf->r.midi.msg[0] & MIDI_CMDMASK) == MIDI_CTL &&
-	    ibuf->r.midi.msg[1] == MIDI_CTLVOL) {
+	    (ibuf->r.midi.msg[1] == MIDI_CTLVOL)) {
 		chan = ibuf->r.midi.msg[0] & MIDI_CHANMASK;
 		if (chan >= CTL_NSLOT)
 			return;
@@ -1003,13 +1084,20 @@ ctl_ev(struct aproc *p, struct abuf *ibuf)
 		slot->ops->vol(slot->arg, slot->vol);
 		ctl_sendmsg(p, ibuf, ibuf->r.midi.msg, ibuf->r.midi.len);
 	}
-	if (ibuf->r.midi.idx == 6 &&
-	    ibuf->r.midi.msg[0] == 0xf0 &&
-	    ibuf->r.midi.msg[1] == 0x7f &&	/* type is realtime */
-	    ibuf->r.midi.msg[3] == 0x06	&&	/* subtype is mmc */
-	    ibuf->r.midi.msg[5] == 0xf7) {	/* subtype is mmc */
-		switch (ibuf->r.midi.msg[4]) {
-		case 0x01:	/* mmc stop */
+	x = (struct sysex *)ibuf->r.midi.msg;
+	len = ibuf->r.midi.idx;
+	if (x->start != SYSEX_START)
+		return;
+	if (len < SYSEX_SIZE(empty))
+		return;
+	switch (x->type) {
+	case SYSEX_TYPE_RT:
+		if (x->id0 != SYSEX_MMC)
+			return;
+		switch (x->id1) {
+		case SYSEX_MMC_STOP:
+			if (len != SYSEX_SIZE(stop))
+				return;
 #ifdef DEBUG
 			if (debug_level >= 3) {
 				abuf_dbg(ibuf);
@@ -1018,7 +1106,9 @@ ctl_ev(struct aproc *p, struct abuf *ibuf)
 #endif
 			ctl_stop(p);
 			break;
-		case 0x02:	/* mmc start */
+		case SYSEX_MMC_START:
+			if (len != SYSEX_SIZE(start))
+				return;
 #ifdef DEBUG
 			if (debug_level >= 3) {
 				abuf_dbg(ibuf);
@@ -1027,36 +1117,42 @@ ctl_ev(struct aproc *p, struct abuf *ibuf)
 #endif
 			ctl_start(p);
 			break;
+		case SYSEX_MMC_LOC:
+			if (len != SYSEX_SIZE(loc) ||
+			    x->u.loc.len != SYSEX_MMC_LOC_LEN ||
+			    x->u.loc.cmd != SYSEX_MMC_LOC_CMD)
+				return;
+			switch (x->u.loc.hr >> 5) {
+			case MTC_FPS_24:
+				fps = 24;
+				break;
+			case MTC_FPS_25:
+				fps = 25;
+				break;
+			case MTC_FPS_30:
+				fps = 30;
+				break;
+			default:
+				p->u.ctl.origin = 0;
+				return;
+			}
+			ctl_loc(p,
+			    (x->u.loc.hr & 0x1f) * 3600 * MTC_SEC +
+			     x->u.loc.min * 60 * MTC_SEC +
+			     x->u.loc.sec * MTC_SEC +
+			     x->u.loc.fr * (MTC_SEC / fps) +
+			     x->u.loc.cent * (MTC_SEC / 100 / fps));
+			break;
 		}
-	}
-	if (ibuf->r.midi.idx == 13 &&
-	    ibuf->r.midi.msg[0] == 0xf0 &&
-	    ibuf->r.midi.msg[1] == 0x7f &&
-	    ibuf->r.midi.msg[3] == 0x06 &&
-	    ibuf->r.midi.msg[4] == 0x44 &&
-	    ibuf->r.midi.msg[5] == 0x06 &&
-	    ibuf->r.midi.msg[6] == 0x01 &&
-	    ibuf->r.midi.msg[12] == 0xf7) {
-		switch (ibuf->r.midi.msg[7] >> 5) {
-		case MTC_FPS_24:
-			fps = 24;
-			break;
-		case MTC_FPS_25:
-			fps = 25;
-			break;
-		case MTC_FPS_30:
-			fps = 30;
-			break;
-		default:
-			p->u.ctl.origin = 0;
+		break;
+	case SYSEX_TYPE_EDU:
+		if (x->id0 != SYSEX_AUCAT || x->id1 != SYSEX_AUCAT_DUMPREQ)
 			return;
-		}
-		ctl_loc(p,
-		    (ibuf->r.midi.msg[7] & 0x1f) * 3600 * MTC_SEC +
-		    ibuf->r.midi.msg[8] * 60 * MTC_SEC +
-		    ibuf->r.midi.msg[9] * MTC_SEC +
-		    ibuf->r.midi.msg[10] * (MTC_SEC / fps) +
-		    ibuf->r.midi.msg[11] * (MTC_SEC / 100 / fps));
+		if (len != SYSEX_SIZE(dumpreq))
+			return;
+		if (ibuf->duplex)
+			ctl_dump(p, ibuf->duplex);
+		break;
 	}
 }
 
@@ -1123,7 +1219,7 @@ ctl_eof(struct aproc *p, struct abuf *ibuf)
 		if (s->ops != NULL)
 			s->ops->quit(s->arg);
 	}
-	if (!LIST_EMPTY(&p->outs) || !LIST_EMPTY(&p->ins))
+	if (LIST_EMPTY(&p->ins))
 		aproc_del(p);
 }
 
@@ -1139,7 +1235,7 @@ ctl_hup(struct aproc *p, struct abuf *obuf)
 		if (s->ops)
 			return;
 	}
-	if (!LIST_EMPTY(&p->outs) || !LIST_EMPTY(&p->ins))
+	if (LIST_EMPTY(&p->ins))
 		aproc_del(p);
 }
 

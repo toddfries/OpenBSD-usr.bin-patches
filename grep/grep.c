@@ -1,4 +1,4 @@
-/*	$OpenBSD: grep.c,v 1.42 2010/07/02 22:18:03 tedu Exp $	*/
+/*	$OpenBSD: grep.c,v 1.44 2011/07/08 01:20:24 tedu Exp $	*/
 
 /*-
  * Copyright (c) 1999 James Howard and Dag-Erling Coïdan Smørgrav
@@ -62,6 +62,7 @@ int	 Bflag;		/* -B x: print x lines leading each match */
 int	 Eflag;		/* -E: interpret pattern as extended regexp */
 int	 Fflag;		/* -F: interpret pattern as list of fixed strings */
 int	 Gflag;		/* -G: interpret pattern as basic regexp */
+int	 Hflag;		/* -H: always print filename header */
 int	 Lflag;		/* -L: only show names of files with no matches */
 int	 Rflag;		/* -R: recursively search directory trees */
 #ifndef NOZ
@@ -73,6 +74,7 @@ int	 hflag;		/* -h: don't print filename headers */
 int	 iflag;		/* -i: ignore case */
 int	 lflag;		/* -l: only show names of files with matches */
 int	 nflag;		/* -n: show line numbers in front of matching lines */
+int	 oflag;		/* -o: print each match */
 int	 qflag;		/* -q: quiet mode (don't output anything) */
 int	 sflag;		/* -s: silent mode (ignore errors) */
 int	 vflag;		/* -v: only show non-matching lines */
@@ -106,9 +108,9 @@ usage(void)
 {
 	fprintf(stderr,
 #ifdef NOZ
-	    "usage: %s [-abcEFGhIiLlnqRsUVvwx] [-A num] [-B num] [-C[num]]\n"
+	    "usage: %s [-abcEFGHhIiLlnoqRsUVvwx] [-A num] [-B num] [-C[num]]\n"
 #else
-	    "usage: %s [-abcEFGhIiLlnqRsUVvwxZ] [-A num] [-B num] [-C[num]]\n"
+	    "usage: %s [-abcEFGHhIiLlnoqRsUVvwxZ] [-A num] [-B num] [-C[num]]\n"
 #endif
 	    "\t[-e pattern] [-f file] [--binary-files=value] [--context[=num]]\n"
 	    "\t[--line-buffered] [pattern] [file ...]\n", __progname);
@@ -116,9 +118,9 @@ usage(void)
 }
 
 #ifdef NOZ
-static char *optstr = "0123456789A:B:CEFGILRUVabce:f:hilnqrsuvwxy";
+static char *optstr = "0123456789A:B:CEFGHILRUVabce:f:hilnoqrsuvwxy";
 #else
-static char *optstr = "0123456789A:B:CEFGILRUVZabce:f:hilnqrsuvwxy";
+static char *optstr = "0123456789A:B:CEFGHILRUVZabce:f:hilnoqrsuvwxy";
 #endif
 
 struct option long_options[] =
@@ -134,6 +136,7 @@ struct option long_options[] =
 	{"extended-regexp",	no_argument,		NULL, 'E'},
 	{"fixed-strings",	no_argument,		NULL, 'F'},
 	{"basic-regexp",	no_argument,		NULL, 'G'},
+	{"with-filename",	no_argument,		NULL, 'H'},
 	{"binary",		no_argument,		NULL, 'U'},
 	{"version",		no_argument,		NULL, 'V'},
 	{"text",		no_argument,		NULL, 'a'},
@@ -315,6 +318,9 @@ main(int argc, char *argv[])
 			Eflag = Fflag = 0;
 			Gflag++;
 			break;
+		case 'H':
+			Hflag++;
+			break;
 		case 'I':
 			binbehave = BIN_FILE_SKIP;
 			break;
@@ -377,6 +383,9 @@ main(int argc, char *argv[])
 			break;
 		case 'n':
 			nflag = 1;
+			break;
+		case 'o':
+			oflag = 1;
 			break;
 		case 'q':
 			qflag = 1;
@@ -476,7 +485,7 @@ main(int argc, char *argv[])
 	if (lbflag)
 		setlinebuf(stdout);
 
-	if ((argc == 0 || argc == 1) && !Rflag)
+	if ((argc == 0 || argc == 1) && !Rflag && !Hflag)
 		hflag = 1;
 
 	if (argc == 0)

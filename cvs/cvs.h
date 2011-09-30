@@ -1,4 +1,4 @@
-/*	$OpenBSD: cvs.h,v 1.179 2010/09/29 18:14:52 nicm Exp $	*/
+/*	$OpenBSD: cvs.h,v 1.181 2011/09/20 12:43:45 nicm Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -39,8 +39,6 @@
 #include "xmalloc.h"
 
 #define CVS_VERSION	"OpenCVS 4.5"
-
-#define CVS_CKSUM_LEN	MD5_DIGEST_STRING_LENGTH
 
 #define CVS_REV_BUFSZ	32
 #define CVS_TIME_BUFSZ	64
@@ -287,7 +285,6 @@ extern struct cvsroot *current_cvsroot;
 extern char *cvs_tagname;
 extern char *cvs_editor;
 extern char *cvs_homedir;
-extern char *cvs_msg;
 extern char *cvs_rsh;
 extern char *cvs_tmpdir;
 extern char *import_repository;

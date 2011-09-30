@@ -1,4 +1,4 @@
-/*	$OpenBSD: err.c,v 1.26 2006/06/02 17:38:59 cloder Exp $	*/
+/*	$OpenBSD: err.c,v 1.28 2011/09/21 18:08:07 jsg Exp $	*/
 /*	$NetBSD: err.c,v 1.8 1995/10/02 17:37:00 jpo Exp $	*/
 
 /*
@@ -31,10 +31,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef lint
-static char rcsid[] = "$OpenBSD: err.c,v 1.26 2006/06/02 17:38:59 cloder Exp $";
-#endif
 
 /* number of errors found */
 int	nerr;
@@ -369,6 +365,8 @@ const	char *msgs[] = {
 	"suspicious operator for sizeof: %s",			      /* 312 */
 	"conversion of %s() return value from '%s' to '%s'",	      /* 313 */
 	"hexadecimal float constants are illegal in traditional C",   /* 314 */
+	"empty body of the if statement",			      /* 315 */
+	"empty body of the else statement",			      /* 316 */
 };
 
 /*

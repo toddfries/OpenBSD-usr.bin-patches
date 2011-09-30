@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.26 2009/12/20 16:15:26 schwarze Exp $	*/
+/*	$OpenBSD: main.c,v 1.28 2011/06/14 21:04:05 naddy Exp $	*/
 
 /*-
  * Copyright (c) 1990, 1993
@@ -99,7 +99,7 @@ main(int argc, char *argv[])
 			break;
 		case '?':
 		default:
-			break;
+			usage();
 		}
 
 	argc -= optind;	
@@ -126,8 +126,7 @@ main(int argc, char *argv[])
 
 	dotfd = open(".", O_RDONLY, 0);
 
-	find_execute(find_formplan(argv), paths);
-	exit(0);
+	exit(find_execute(find_formplan(argv), paths));
 }
 
 static void

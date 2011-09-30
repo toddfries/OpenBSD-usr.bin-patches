@@ -1,4 +1,4 @@
-/* $OpenBSD: sftp.c,v 1.129 2010/09/26 22:26:33 djm Exp $ */
+/* $OpenBSD: sftp.c,v 1.133 2011/09/22 06:29:03 djm Exp $ */
 /*
  * Copyright (c) 2001-2004 Damien Miller <djm@openbsd.org>
  *
@@ -109,6 +109,7 @@ int remote_glob(struct sftp_conn *, const char *, int,
 #define I_GET		5
 #define I_HELP		6
 #define I_LCHDIR	7
+#define I_LINK		25
 #define I_LLS		8
 #define I_LMKDIR	9
 #define I_LPWD		10
@@ -153,7 +154,7 @@ static const struct CMD cmds[] = {
 	{ "lchdir",	I_LCHDIR,	LOCAL	},
 	{ "lls",	I_LLS,		LOCAL	},
 	{ "lmkdir",	I_LMKDIR,	LOCAL	},
-	{ "ln",		I_SYMLINK,	REMOTE	},
+	{ "ln",		I_LINK,		REMOTE	},
 	{ "lpwd",	I_LPWD,		LOCAL	},
 	{ "ls",		I_LS,		REMOTE	},
 	{ "lumask",	I_LUMASK,	NOARGS	},
@@ -217,7 +218,7 @@ help(void)
 	    "lcd path                           Change local directory to 'path'\n"
 	    "lls [ls-options [path]]            Display local directory listing\n"
 	    "lmkdir path                        Create local directory\n"
-	    "ln oldpath newpath                 Symlink remote file\n"
+	    "ln [-s] oldpath newpath            Link remote file (-s for symlink)\n"
 	    "lpwd                               Print local working directory\n"
 	    "ls [-1afhlnrSt] [path]             Display remote directory listing\n"
 	    "lumask umask                       Set local umask to 'umask'\n"
@@ -246,7 +247,7 @@ local_do_shell(const char *args)
 	if (!*args)
 		args = NULL;
 
-	if ((shell = getenv("SHELL")) == NULL)
+	if ((shell = getenv("SHELL")) == NULL || *shell == '\0')
 		shell = _PATH_BSHELL;
 
 	if ((pid = fork()) == -1)
@@ -343,6 +344,30 @@ parse_getput_flags(const char *cmd, char **argv, int argc, int *pflag,
 		case 'r':
 		case 'R':
 			*rflag = 1;
+			break;
+		default:
+			error("%s: Invalid flag -%c", cmd, optopt);
+			return -1;
+		}
+	}
+
+	return optind;
+}
+
+static int
+parse_link_flags(const char *cmd, char **argv, int argc, int *sflag)
+{
+	extern int opterr, optind, optopt, optreset;
+	int ch;
+
+	optind = optreset = 1;
+	opterr = 0;
+
+	*sflag = 0;
+	while ((ch = getopt(argc, argv, "s")) != -1) {
+		switch (ch) {
+		case 's':
+			*sflag = 1;
 			break;
 		default:
 			error("%s: Invalid flag -%c", cmd, optopt);
@@ -745,7 +770,8 @@ do_globbed_ls(struct sftp_conn *conn, char *path, char *strip_path,
 	memset(&g, 0, sizeof(g));
 
 	if (remote_glob(conn, path,
-	    GLOB_MARK|GLOB_NOCHECK|GLOB_BRACE|GLOB_KEEPSTAT, NULL, &g) ||
+	    GLOB_MARK|GLOB_NOCHECK|GLOB_BRACE|GLOB_KEEPSTAT|GLOB_NOSORT,
+	    NULL, &g) ||
 	    (g.gl_pathc && !g.gl_matchc)) {
 		if (g.gl_pathc)
 			globfree(&g);
@@ -1065,7 +1091,7 @@ makeargv(const char *arg, int *argcp, int sloppy, char *lastquote,
 
 static int
 parse_args(const char **cpp, int *pflag, int *rflag, int *lflag, int *iflag,
-    int *hflag, unsigned long *n_arg, char **path1, char **path2)
+    int *hflag, int *sflag, unsigned long *n_arg, char **path1, char **path2)
 {
 	const char *cmd, *cp = *cpp;
 	char *cp2, **argv;
@@ -1115,7 +1141,8 @@ parse_args(const char **cpp, int *pflag, int *rflag, int *lflag, int *iflag,
 	switch (cmdnum) {
 	case I_GET:
 	case I_PUT:
-		if ((optidx = parse_getput_flags(cmd, argv, argc, pflag, rflag)) == -1)
+		if ((optidx = parse_getput_flags(cmd, argv, argc,
+		    pflag, rflag)) == -1)
 			return -1;
 		/* Get first pathname (mandatory) */
 		if (argc - optidx < 1) {
@@ -1131,8 +1158,11 @@ parse_args(const char **cpp, int *pflag, int *rflag, int *lflag, int *iflag,
 			undo_glob_escape(*path2);
 		}
 		break;
-	case I_RENAME:
+	case I_LINK:
+		if ((optidx = parse_link_flags(cmd, argv, argc, sflag)) == -1)
+			return -1;
 	case I_SYMLINK:
+	case I_RENAME:
 		if (argc - optidx < 2) {
 			error("You must specify two paths after a %s "
 			    "command.", cmd);
@@ -1235,7 +1265,8 @@ parse_dispatch_command(struct sftp_conn *conn, const char *cmd, char **pwd,
     int err_abort)
 {
 	char *path1, *path2, *tmp;
-	int pflag = 0, rflag = 0, lflag = 0, iflag = 0, hflag = 0, cmdnum, i;
+	int pflag = 0, rflag = 0, lflag = 0, iflag = 0, hflag = 0, sflag = 0;
+	int cmdnum, i;
 	unsigned long n_arg = 0;
 	Attrib a, *aa;
 	char path_buf[MAXPATHLEN];
@@ -1243,8 +1274,8 @@ parse_dispatch_command(struct sftp_conn *conn, const char *cmd, char **pwd,
 	glob_t g;
 
 	path1 = path2 = NULL;
-	cmdnum = parse_args(&cmd, &pflag, &rflag, &lflag, &iflag, &hflag, &n_arg,
-	    &path1, &path2);
+	cmdnum = parse_args(&cmd, &pflag, &rflag, &lflag, &iflag, &hflag,
+	    &sflag, &n_arg, &path1, &path2);
 
 	if (iflag != 0)
 		err_abort = 0;
@@ -1272,8 +1303,11 @@ parse_dispatch_command(struct sftp_conn *conn, const char *cmd, char **pwd,
 		err = do_rename(conn, path1, path2);
 		break;
 	case I_SYMLINK:
+		sflag = 1;
+	case I_LINK:
+		path1 = make_absolute(path1, *pwd);
 		path2 = make_absolute(path2, *pwd);
-		err = do_symlink(conn, path1, path2);
+		err = (sflag ? do_symlink : do_hardlink)(conn, path1, path2);
 		break;
 	case I_RM:
 		path1 = make_absolute(path1, *pwd);
@@ -1701,6 +1735,7 @@ complete_match(EditLine *el, struct sftp_conn *conn, char *remote_path,
 			case '"':
 			case '\\':
 			case '\t':
+			case '[':
 			case ' ':
 				if (quote == '\0' || tmp2[i] == quote) {
 					if (el_insertstr(el, ins) == -1)
@@ -1828,7 +1863,7 @@ interactive_loop(struct sftp_conn *conn, char *file1, char *file2)
 
 		/* Tab Completion */
 		el_set(el, EL_ADDFN, "ftp-complete", 
-		    "Context senstive argument completion", complete);
+		    "Context sensitive argument completion", complete);
 		complete_ctx.conn = conn;
 		complete_ctx.remote_pathp = &remote_path;
 		el_set(el, EL_CLIENTDATA, (void*)&complete_ctx);

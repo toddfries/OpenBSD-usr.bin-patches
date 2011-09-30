@@ -1,4 +1,4 @@
-/*	$OpenBSD: systat.h,v 1.15 2010/07/22 12:33:29 giovanni Exp $	*/
+/*	$OpenBSD: systat.h,v 1.17 2011/03/31 06:12:34 lum Exp $	*/
 /*	$NetBSD: systat.h,v 1.2 1995/01/20 08:52:14 jtc Exp $	*/
 
 /*-
@@ -48,6 +48,7 @@
 #define	TCP	0x1
 #define	UDP	0x2
 
+#define FIELD_ADDR(struct, x) (&struct[x])
 #define KREAD(addr, buf, len)  kvm_ckread((addr), (buf), (len))
 #define NVAL(indx)  namelist[(indx)].n_value
 #define NPTR(indx)  (void *)NVAL((indx))
@@ -68,6 +69,8 @@ extern size_t	nports;
 extern int	protos;
 extern int	verbose;
 extern int	nflag;
+extern char	uloadbuf[];
+extern char	timebuf[];
 
 struct inpcb;
 
