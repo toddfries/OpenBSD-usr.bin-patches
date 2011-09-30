@@ -65,6 +65,7 @@ struct {
 	int	  Sflag;	/* Socket buffer size (tcp mode) */
 	u_int	  rflag;	/* Report rate (ms) */
 	int	  sflag;	/* True if server */
+	int	  Tflag;	/* ToS if != -1 */
 	int	  vflag;	/* Verbose */
 	int	  uflag;	/* UDP mode */
 	kvm_t	 *kvmh;		/* Kvm handler */
@@ -109,11 +110,12 @@ static void	tcp_server_handle_sc(int, short, void *);
 static void	tcp_server_accept(int, short, void *);
 static void	server_init(struct addrinfo *, struct statctx *);
 static void	client_handle_sc(int, short, void *);
-static void	client_init(struct addrinfo *, int, struct statctx *);
+static void	client_init(struct addrinfo *, int, struct statctx *,
+    struct addrinfo *);
 static int	clock_gettime_tv(clockid_t, struct timeval *);
 static void	udp_server_handle_sc(int, short, void *);
 static void	udp_process_slice(int, short, void *);
-
+static int	map_tos(char *, int *);
 /*
  * We account the mainstats here, that is the stats
  * for all connections, all variables starting with slice
@@ -172,10 +174,11 @@ usage(void)
 {
 	fprintf(stderr,
 	    "usage: tcpbench -l\n"
-	    "       tcpbench [-uv] [-B buf] [-k kvars] [-n connections] [-p port]\n"
-	    "                [-r interval] [-S space] [-V rtable] hostname\n"
+	    "       tcpbench [-uv] [-B buf] [-b addr] [-k kvars] [-n connections]\n"
+	    "                [-p port] [-r interval] [-S space] [-T toskeyword]\n"
+	    "                [-V rtable] hostname\n"
 	    "       tcpbench -s [-uv] [-B buf] [-k kvars] [-p port]\n"
-	    "                [-r interval] [-S space] [-V rtable]\n");
+	    "                [-r interval] [-S space] [-T toskeyword] [-V rtable]\n");
 	exit(1);
 }
 
@@ -642,6 +645,7 @@ again:
 	} else if (n == 0) {
 		if (ptb->vflag)
 			fprintf(stderr, "%8d closed by remote end\n", sc->fd);
+		event_del(&sc->ev);
 		close(sc->fd);
 		TAILQ_REMOVE(&sc_queue, sc, entry);
 		free(sc);
@@ -679,6 +683,16 @@ again:
 	r |= O_NONBLOCK;
 	if (fcntl(sock, F_SETFL, r) == -1)
 		err(1, "fcntl(F_SETFL, O_NONBLOCK)");
+	if (ptb->Tflag != -1 && ss.ss_family == AF_INET) {
+		if (setsockopt(sock, IPPROTO_IP, IP_TOS,
+		    &ptb->Tflag, sizeof(ptb->Tflag)))
+			err(1, "setsockopt IP_TOS");
+	}
+	if (ptb->Tflag != -1 && ss.ss_family == AF_INET6) {
+		if (setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS,
+		    &ptb->Tflag, sizeof(ptb->Tflag)))
+			err(1, "setsockopt IPV6_TCLASS");
+	}
 	/* Alloc client structure and register reading callback */
 	if ((sc = calloc(1, sizeof(*sc))) == NULL)
 		err(1, "calloc");
@@ -719,12 +733,25 @@ server_init(struct addrinfo *aitop, struct statctx *udp_sc)
 				warn("socket");
 			continue;
 		}
-		if (ptb->Vflag && ai->ai_family == AF_INET) {
-			if (setsockopt(sock, IPPROTO_IP, SO_RTABLE,
-			    &ptb->Vflag, sizeof(ptb->Vflag)) == -1)
-				err(1, "setsockopt SO_RTABLE");
-		} else if (ptb->Vflag)
-			warnx("rtable only supported on AF_INET");
+		if (ptb->Vflag) {
+			if (setsockopt(sock, SOL_SOCKET, SO_RTABLE,
+			    &ptb->Vflag, sizeof(ptb->Vflag)) == -1) {
+				if (errno == ENOPROTOOPT)
+					warn("set rtable");
+				else
+					err(1, "setsockopt SO_RTABLE");
+			}
+		}
+		if (ptb->Tflag != -1 && ai->ai_family == AF_INET) {
+			if (setsockopt(sock, IPPROTO_IP, IP_TOS,
+			    &ptb->Tflag, sizeof(ptb->Tflag)))
+				err(1, "setsockopt IP_TOS");
+		}
+		if (ptb->Tflag != -1 && ai->ai_family == AF_INET6) {
+			if (setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS,
+			    &ptb->Tflag, sizeof(ptb->Tflag)))
+				err(1, "setsockopt IPV6_TCLASS");
+		}
 		if (setsockopt(sock, SOL_SOCKET, SO_REUSEADDR,
 		    &on, sizeof(on)) == -1)
 			warn("reuse port");
@@ -795,7 +822,8 @@ again:
 }
 
 static void
-client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc)
+client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc,
+    struct addrinfo *aib)
 {
 	struct statctx *sc;
 	struct addrinfo *ai;
@@ -817,12 +845,36 @@ client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc)
 					warn("socket");
 				continue;
 			}
-			if (ptb->Vflag && ai->ai_family == AF_INET) {
-				if (setsockopt(sock, IPPROTO_IP, SO_RTABLE,
-				    &ptb->Vflag, sizeof(ptb->Vflag)) == -1)
-					err(1, "setsockopt SO_RTABLE");
-			} else if (ptb->Vflag)
-				warnx("rtable only supported on AF_INET");
+			if (aib != NULL) {
+				saddr_ntop(aib->ai_addr, aib->ai_addrlen,
+				    tmp, sizeof(tmp));
+				if (ptb->vflag)
+					fprintf(stderr,
+					    "Try to bind to %s\n", tmp);
+				if (bind(sock, (struct sockaddr *)aib->ai_addr,
+				    aib->ai_addrlen) == -1)
+					err(1, "bind");
+				freeaddrinfo(aib);
+			}
+			if (ptb->Tflag != -1 && ai->ai_family == AF_INET) {
+				if (setsockopt(sock, IPPROTO_IP, IP_TOS,
+				    &ptb->Tflag, sizeof(ptb->Tflag)))
+					err(1, "setsockopt IP_TOS");
+			}
+			if (ptb->Tflag != -1 && ai->ai_family == AF_INET6) {
+				if (setsockopt(sock, IPPROTO_IPV6, IPV6_TCLASS,
+				    &ptb->Tflag, sizeof(ptb->Tflag)))
+					err(1, "setsockopt IPV6_TCLASS");
+			}
+			if (ptb->Vflag) {
+				if (setsockopt(sock, SOL_SOCKET, SO_RTABLE,
+				    &ptb->Vflag, sizeof(ptb->Vflag)) == -1) {
+					if (errno == ENOPROTOOPT)
+						warn("set rtable");
+					else
+						err(1, "setsockopt SO_RTABLE");
+				}
+			}
 			if (ptb->Sflag) {
 				if (setsockopt(sock, SOL_SOCKET, SO_SNDBUF,
 				    &ptb->Sflag, sizeof(ptb->Sflag)) == -1)
@@ -868,6 +920,54 @@ client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc)
 		fprintf(stderr, "%u connections established\n", nconn);
 }
 
+static int
+map_tos(char *s, int *val)
+{
+	/* DiffServ Codepoints and other TOS mappings */
+	const struct toskeywords {
+		const char	*keyword;
+		int		 val;
+	} *t, toskeywords[] = {
+		{ "af11",		IPTOS_DSCP_AF11 },
+		{ "af12",		IPTOS_DSCP_AF12 },
+		{ "af13",		IPTOS_DSCP_AF13 },
+		{ "af21",		IPTOS_DSCP_AF21 },
+		{ "af22",		IPTOS_DSCP_AF22 },
+		{ "af23",		IPTOS_DSCP_AF23 },
+		{ "af31",		IPTOS_DSCP_AF31 },
+		{ "af32",		IPTOS_DSCP_AF32 },
+		{ "af33",		IPTOS_DSCP_AF33 },
+		{ "af41",		IPTOS_DSCP_AF41 },
+		{ "af42",		IPTOS_DSCP_AF42 },
+		{ "af43",		IPTOS_DSCP_AF43 },
+		{ "critical",		IPTOS_PREC_CRITIC_ECP },
+		{ "cs0",		IPTOS_DSCP_CS0 },
+		{ "cs1",		IPTOS_DSCP_CS1 },
+		{ "cs2",		IPTOS_DSCP_CS2 },
+		{ "cs3",		IPTOS_DSCP_CS3 },
+		{ "cs4",		IPTOS_DSCP_CS4 },
+		{ "cs5",		IPTOS_DSCP_CS5 },
+		{ "cs6",		IPTOS_DSCP_CS6 },
+		{ "cs7",		IPTOS_DSCP_CS7 },
+		{ "ef",			IPTOS_DSCP_EF },
+		{ "inetcontrol",	IPTOS_PREC_INTERNETCONTROL },
+		{ "lowdelay",		IPTOS_LOWDELAY },
+		{ "netcontrol",		IPTOS_PREC_NETCONTROL },
+		{ "reliability",	IPTOS_RELIABILITY },
+		{ "throughput",		IPTOS_THROUGHPUT },
+		{ NULL, 		-1 },
+	};
+	
+	for (t = toskeywords; t->keyword != NULL; t++) {
+		if (strcmp(s, t->keyword) == 0) {
+			*val = t->val;
+			return (1);
+		}
+	}
+	
+	return (0);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -875,12 +975,12 @@ main(int argc, char **argv)
 	extern char *optarg;
 
 	char kerr[_POSIX2_LINE_MAX], *tmp;
-	struct addrinfo *aitop, hints;
+	struct addrinfo *aitop, *aib, hints;
 	const char *errstr;
 	struct rlimit rl;
 	int ch, herr, nconn;
 	struct nlist nl[] = { { "_tcbtable" }, { "" } };
-	const char *host = NULL, *port = DEFAULT_PORT;
+	const char *host = NULL, *port = DEFAULT_PORT, *srcbind = NULL;
 	struct event ev_sigint, ev_sigterm, ev_sighup;
 	struct statctx *udp_sc = NULL;
 
@@ -891,10 +991,15 @@ main(int argc, char **argv)
 	ptb->kvmh  = NULL;
 	ptb->kvars = NULL;
 	ptb->rflag = DEFAULT_STATS_INTERVAL;
+	ptb->Tflag = -1;
 	nconn = 1;
+	aib = NULL;
 
-	while ((ch = getopt(argc, argv, "B:hlk:n:p:r:sS:uvV:")) != -1) {
+	while ((ch = getopt(argc, argv, "b:B:hlk:n:p:r:sS:T:uvV:")) != -1) {
 		switch (ch) {
+		case 'b':
+			srcbind = optarg;
+			break;
 		case 'l':
 			list_kvars();
 			exit(0);
@@ -950,6 +1055,19 @@ main(int argc, char **argv)
 		case 'u':
 			ptb->uflag = 1;
 			break;
+		case 'T':
+			if (map_tos(optarg, &ptb->Tflag))
+				break;
+			errstr = NULL;
+			if (strlen(optarg) > 1 && optarg[0] == '0' &&
+			    optarg[1] == 'x')
+				ptb->Tflag = (int)strtol(optarg, NULL, 16);
+			else
+				ptb->Tflag = (int)strtonum(optarg, 0, 255,
+				    &errstr);
+			if (ptb->Tflag == -1 || ptb->Tflag > 255 || errstr)
+				errx(1, "illegal tos value %s", optarg);
+			break;
 		case 'h':
 		default:
 			usage();
@@ -978,12 +1096,27 @@ main(int argc, char **argv)
 	}
 
 	bzero(&hints, sizeof(hints));
-	if (UDP_MODE)
+	if (UDP_MODE) {
 		hints.ai_socktype = SOCK_DGRAM;
-	else
+		hints.ai_protocol = IPPROTO_UDP;
+	}
+	else {
 		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_protocol = IPPROTO_TCP;
+	}
 	if (ptb->sflag)
 		hints.ai_flags = AI_PASSIVE;
+	if (srcbind != NULL) {
+		hints.ai_flags |= AI_NUMERICHOST;
+		herr = getaddrinfo(srcbind, NULL, &hints, &aib);
+		hints.ai_flags &= ~AI_NUMERICHOST;
+		if (herr != 0) {
+			if (herr == EAI_SYSTEM)
+				err(1, "getaddrinfo");
+			else
+				errx(1, "getaddrinfo: %s", gai_strerror(herr));
+		}
+	}
 	if ((herr = getaddrinfo(host, port, &hints, &aitop)) != 0) {
 		if (herr == EAI_SYSTEM)
 			err(1, "getaddrinfo");
@@ -1044,7 +1177,7 @@ main(int argc, char **argv)
 	if (ptb->sflag) {
 		server_init(aitop, udp_sc);
 	} else
-		client_init(aitop, nconn, udp_sc);
+		client_init(aitop, nconn, udp_sc, aib);
 	
 	/* libevent main loop*/
 	event_dispatch();

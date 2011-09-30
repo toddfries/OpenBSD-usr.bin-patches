@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.233 2011/05/30 21:02:28 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.246 2011/08/26 13:07:49 jmc Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: May 30 2011 $
+.Dd $Mdocdate: August 26 2011 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -233,6 +233,8 @@ Break the current pane out of the window.
 Split the current pane into two, top and bottom.
 .It #
 List all paste buffers.
+.It $
+Rename the current session.
 .It %
 Split the current pane into two, left and right.
 .It &
@@ -489,7 +491,8 @@ $ tmux bind-key F1 set-window-option force-width 81
 Multiple commands may be specified together as part of a
 .Em command sequence .
 Each command should be separated by spaces and a semicolon;
-commands are executed sequentially from left to right.
+commands are executed sequentially from left to right and
+lines ending with a backslash continue on to the next line.
 A literal semicolon may be included by escaping it with a backslash (for
 example, when specifying a command sequence to
 .Ic bind-key ) .
@@ -505,6 +508,9 @@ rename-session -tfirst newname
 set-window-option -t:0 monitor-activity on
 
 new-window ; split-window -d
+
+bind-key R source-file ~/.tmux.conf \e; \e
+	display-message "source-file done"
 .Ed
 .Pp
 Or from
@@ -556,7 +562,9 @@ is specified, any other clients attached to the session are detached.
 .Fl r
 signifies the client is read-only (only keys bound to the
 .Ic detach-client
-command have any effect)
+or
+.Ic switch-client
+commands have any effect)
 .Pp
 If no server is started,
 .Ic attach-session
@@ -609,6 +617,7 @@ is specified, list only clients connected to that session.
 List the syntax of all commands supported by
 .Nm .
 .It Ic list-sessions
+.Op Fl F Ar format
 .D1 (alias: Ic ls )
 List all sessions managed by the server.
 .It Ic lock-client Op Fl t Ar target-client
@@ -618,6 +627,11 @@ Lock
 see the
 .Ic lock-server
 command.
+For the meaning of the
+.Fl F
+flag, see the
+.Sx FORMATS
+section.
 .It Ic lock-session Op Fl t Ar target-session
 .D1 (alias: Ic locks )
 Lock all clients attached to
@@ -712,7 +726,7 @@ Suspend a client by sending
 .Dv SIGTSTP
 (tty stop).
 .It Xo Ic switch-client
-.Op Fl lnp
+.Op Fl lnpr
 .Op Fl c Ar target-client
 .Op Fl t Ar target-session
 .Xc
@@ -728,6 +742,10 @@ or
 .Fl p
 is used, the client is moved to the last, next or previous session
 respectively.
+.Fl r
+toggles whether a client is read-only (see the
+.Ic attach-session
+command).
 .El
 .Sh WINDOWS AND PANES
 A
@@ -1135,6 +1153,7 @@ If
 is given, the newly linked window is not selected.
 .It Xo Ic list-panes
 .Op Fl as
+.Op Fl F Ar format
 .Op Fl t Ar target
 .Xc
 .D1 (alias: Ic lsp )
@@ -1153,6 +1172,7 @@ If neither is given,
 is a window (or the current window).
 .It Xo Ic list-windows
 .Op Fl a
+.Op Fl F Ar format
 .Op Fl t Ar target-session
 .Xc
 .D1 (alias: Ic lsw )
@@ -1161,6 +1181,11 @@ If
 is given, list all windows on the server.
 Otherwise, list windows in the current session or in
 .Ar target-session .
+For the meaning of the
+.Fl F
+flag, see the
+.Sx FORMATS
+section.
 .It Xo Ic move-window
 .Op Fl dk
 .Op Fl s Ar src-window
@@ -1307,6 +1332,21 @@ and to the right with
 The
 .Ar adjustment
 is given in lines or cells (the default is 1).
+.It Xo Ic respawn-pane
+.Op Fl k
+.Op Fl t Ar target-pane
+.Op Ar shell-command
+.Xc
+.D1 (alias: Ic respawnp )
+Reactivate a pane in which the command has exited (see the
+.Ic remain-on-exit
+window option).
+If
+.Ar shell-command
+is not given, the command used when the pane was created is executed.
+The pane must be already inactive, unless
+.Fl k
+is given, in which case any existing command is killed.
 .It Xo Ic respawn-window
 .Op Fl k
 .Op Fl t Ar target-window
@@ -1705,6 +1745,22 @@ Available server options are:
 Set the number of buffers; as new buffers are added to the top of the stack,
 old ones are removed from the bottom if necessary to maintain this maximum
 length.
+.It Ic escape-time Ar time
+Set the time in milliseconds for which
+.Nm
+waits after an escape is input to determine if it is part of a function or meta
+key sequences.
+The default is 500 milliseconds.
+.It Xo Ic exit-unattached
+.Op Ic on | off
+.Xc
+If enabled, the server will exit when there are no attached clients.
+.It Xo Ic quiet
+.Op Ic on | off
+.Xc
+Enable or disable the display of various informational messages (see also the
+.Fl q
+command line flag).
 .It Xo Ic set-clipboard
 .Op Ic on | off
 .Xc
@@ -1727,22 +1783,6 @@ disallowedWindowOps: 20,21,SetXprop
 Or changing this property from the
 .Xr xterm 1
 interactive menu when required.
-.It Ic escape-time Ar time
-Set the time in milliseconds for which
-.Nm
-waits after an escape is input to determine if it is part of a function or meta
-key sequences.
-The default is 500 milliseconds.
-.It Xo Ic exit-unattached
-.Op Ic on | off
-.Xc
-If enabled, the server will exit when there are no attached clients.
-.It Xo Ic quiet
-.Op Ic on | off
-.Xc
-Enable or disable the display of various informational messages (see also the
-.Fl q
-command line flag).
 .El
 .Pp
 Available session options are:
@@ -1762,6 +1802,11 @@ window of that session,
 means all bells are ignored and
 .Ic current
 means only bell in windows other than the current window are ignored.
+.It Xo Ic bell-on-alert
+.Op Ic on | off
+.Xc
+If on, ring the terminal bell when an activity, content or silence alert
+occurs.
 .It Ic default-command Ar shell-command
 Set the command used for new windows (if not specified when the window is
 created) to
@@ -1929,6 +1974,10 @@ The mouse click is also passed through to the application as normal.
 .Xc
 If on, clicking the mouse on a window name in the status line will select that
 window.
+.It Xo Ic mouse-utf8
+.Op Ic on | off
+.Xc
+If enabled, request mouse input as UTF-8 on UTF-8 terminals.
 .It Ic pane-active-border-bg Ar colour
 .It Ic pane-active-border-fg Ar colour
 Set the pane border colour for the currently active pane.
@@ -1952,10 +2001,6 @@ flag to
 Repeat is enabled for the default keys bound to the
 .Ic resize-pane
 command.
-.It Xo Ic mouse-utf8
-.Op Ic on | off
-.Xc
-If enabled, request mouse input as UTF-8 on UTF-8 terminals.
 .It Xo Ic set-remain-on-exit
 .Op Ic on | off
 .Xc
@@ -2336,12 +2381,16 @@ contains
 .Ql vi .
 .Pp
 .It Xo Ic mode-mouse
-.Op Ic on | off
+.Op Ic on | off | copy-mode
 .Xc
 Mouse state in modes.
 If on, the mouse may be used to enter copy mode and copy a selection by
 dragging, to enter copy mode and scroll with the mouse wheel, or to select an
 option in choice mode.
+If set to
+.Em copy-mode ,
+the mouse behaves as set to on, but cannot be used to enter copy
+mode.
 .Pp
 .It Xo Ic monitor-activity
 .Op Ic on | off
@@ -2386,6 +2435,11 @@ but set the width of other panes in the
 .Ic main-vertical
 layout.
 .Pp
+.It Ic pane-base-index Ar index
+Like
+.Ic base-index ,
+but set the starting index for pane numbers.
+.Pp
 .It Xo Ic remain-on-exit
 .Op Ic on | off
 .Xc
@@ -2408,23 +2462,6 @@ Instructs
 .Nm
 to expect UTF-8 sequences to appear in this window.
 .Pp
-.It Ic window-status-attr Ar attributes
-Set status line attributes for a single window.
-.Pp
-.It Ic window-status-bg Ar colour
-Set status line background colour for a single window.
-.Pp
-.It Ic window-status-fg Ar colour
-Set status line foreground colour for a single window.
-.Pp
-.It Ic window-status-format Ar string
-Set the format in which the window is displayed in the status line window list.
-See the
-.Ar status-left
-option for details of special character sequences available.
-The default is
-.Ql #I:#W#F .
-.Pp
 .It Ic window-status-alert-attr Ar attributes
 Set status line attributes for windows which have an alert (bell, activity
 or content).
@@ -2434,6 +2471,12 @@ Set status line background colour for windows with an alert.
 .Pp
 .It Ic window-status-alert-fg Ar colour
 Set status line foreground colour for windows with an alert.
+.Pp
+.It Ic window-status-attr Ar attributes
+Set status line attributes for a single window.
+.Pp
+.It Ic window-status-bg Ar colour
+Set status line background colour for a single window.
 .Pp
 .It Ic window-status-current-attr Ar attributes
 Set status line attributes for the currently active window.
@@ -2448,6 +2491,17 @@ Set status line foreground colour for the currently active window.
 Like
 .Ar window-status-format ,
 but is the format used when the window is the current window.
+.Pp
+.It Ic window-status-fg Ar colour
+Set status line foreground colour for a single window.
+.Pp
+.It Ic window-status-format Ar string
+Set the format in which the window is displayed in the status line window list.
+See the
+.Ar status-left
+option for details of special character sequences available.
+The default is
+.Ql #I:#W#F .
 .Pp
 .It Ic word-separators Ar string
 Sets the window's conception of what characters are considered word
@@ -2493,6 +2547,70 @@ List the window options for
 or the global window options if
 .Fl g
 is used.
+.El
+.Sh FORMATS
+The
+.Ic list-sessions ,
+.Ic list-windows
+and
+.Ic list-panes
+commands accept the
+.Fl F
+flag with a
+.Ar format
+argument.
+This is a string which controls the output format of the command.
+Special character sequences are replaced as documented under the
+.Ic status-left
+option and an additional long form is accepted.
+Replacement variables are enclosed in
+.Ql #{
+and
+.Ql } ,
+for example
+.Ql #{session_name}
+is equivalent to
+.Ql #S .
+Conditionals are also accepted by prefixing with
+.Ql \&?
+and separating two alternatives with a comma;
+if the specified variable exists and is not zero, the first alternative
+is chosen, otherwise the second is used.
+For example
+.Ql #{?session_attached,attached,not attached}
+will include the string
+.Ql attached
+if the session is attached and the string
+.Ql not attached
+if it is unattached.
+.Pp
+The following variables are available, where appropriate:
+.Bl -column "session_created_string" "Replaced with" -offset indent
+.It Sy "Variable name" Ta Sy "Replaced with"
+.It Li "host" Ta "Hostname of local host"
+.It Li "line" Ta "Line number in the list"
+.It Li "pane_active" Ta "1 if active pane"
+.It Li "pane_dead" Ta "1 if pane is dead"
+.It Li "pane_height" Ta "Height of pane"
+.It Li "pane_id" Ta "Unique pane id"
+.It Li "pane_title" Ta "Title of pane"
+.It Li "pane_width" Ta "Width of pane"
+.It Li "session_attached" Ta "1 if session attached"
+.It Li "session_created" Ta "Integer time session created"
+.It Li "session_created_string" Ta "String time session created"
+.It Li "session_group" Ta "Number of session group"
+.It Li "session_grouped" Ta "1 if session in a group"
+.It Li "session_height" Ta "Height of session"
+.It Li "session_name" Ta "Name of session"
+.It Li "session_width" Ta "Width of session"
+.It Li "session_windows" Ta "Number of windows in session"
+.It Li "window_active" Ta "1 if window active"
+.It Li "window_flags" Ta "Window flags"
+.It Li "window_height" Ta "Height of window"
+.It Li "window_index" Ta "Index of window"
+.It Li "window_layout" Ta "Window layout description"
+.It Li "window_name" Ta "Name of window"
+.It Li "window_width" Ta "Width of window"
 .El
 .Sh ENVIRONMENT
 When the server is started,
@@ -2616,6 +2734,7 @@ session option.
 Commands related to the status line are as follows:
 .Bl -tag -width Ds
 .It Xo Ic command-prompt
+.Op Fl I Ar inputs
 .Op Fl p Ar prompts
 .Op Fl t Ar target-client
 .Op Ar template
@@ -2628,6 +2747,9 @@ to execute commands interactively.
 If
 .Ar template
 is specified, it is used as the command.
+If present,
+.Fl I
+is a comma-separated list of the initial text for each prompt.
 If
 .Fl p
 is given,
@@ -2638,7 +2760,10 @@ a single prompt is displayed, constructed from
 if it is present, or
 .Ql \&:
 if not.
-The
+.Pp
+Both
+.Ar inputs
+and
 .Ar prompts
 may contain the special character sequences supported by the
 .Ic status-left
@@ -2661,12 +2786,23 @@ to
 .Ql %9
 .Pc .
 .It Xo Ic confirm-before
+.Op Fl p Ar prompt
 .Op Fl t Ar target-client
 .Ar command
 .Xc
 .D1 (alias: Ic confirm )
 Ask for confirmation before executing
 .Ar command .
+If
+.Fl p
+is given,
+.Ar prompt
+is the prompt to display; otherwise a prompt is constructed from
+.Ar command .
+It may contain the special character sequences supported by the
+.Ic status-left
+option.
+.Pp
 This command works only from inside
 .Nm .
 .It Xo Ic display-message

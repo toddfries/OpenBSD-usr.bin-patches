@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-command-prompt.c,v 1.16 2011/05/20 19:29:13 nicm Exp $ */
+/* $OpenBSD: cmd-command-prompt.c,v 1.19 2011/07/08 06:37:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -20,6 +20,7 @@
 
 #include <ctype.h>
 #include <string.h>
+#include <time.h>
 
 #include "tmux.h"
 
@@ -36,8 +37,8 @@ void	cmd_command_prompt_free(void *);
 
 const struct cmd_entry cmd_command_prompt_entry = {
 	"command-prompt", NULL,
-	"p:t:", 0, 1,
-	CMD_TARGET_CLIENT_USAGE " [-p prompts] [template]",
+	"I:p:t:", 0, 1,
+	"[-I inputs] [-p prompts] " CMD_TARGET_CLIENT_USAGE " [template]",
 	0,
 	cmd_command_prompt_key_binding,
 	NULL,
@@ -46,6 +47,8 @@ const struct cmd_entry cmd_command_prompt_entry = {
 
 struct cmd_command_prompt_cdata {
 	struct client	*c;
+	char		*inputs;
+	char		*next_input;
 	char		*next_prompt;
 	char		*prompts;
 	char		*template;
@@ -56,8 +59,13 @@ void
 cmd_command_prompt_key_binding(struct cmd *self, int key)
 {
 	switch (key) {
+	case '$':
+		self->args = args_create(1, "rename-session '%%'");
+		args_set(self->args, 'I', "#S");
+		break;
 	case ',':
 		self->args = args_create(1, "rename-window '%%'");
+		args_set(self->args, 'I', "#W");
 		break;
 	case '.':
 		self->args = args_create(1, "move-window -t '%%'");
@@ -79,10 +87,10 @@ int
 cmd_command_prompt_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct args			*args = self->args;
-	const char			*prompts;
+	const char			*inputs, *prompts;
 	struct cmd_command_prompt_cdata	*cdata;
 	struct client			*c;
-	char				*prompt, *prompt_replaced, *ptr;
+	char				*prompt, *ptr, *input = NULL;
 	size_t				 n;
 
 	if ((c = cmd_find_client(ctx, args_get(args, 't'))) == NULL)
@@ -94,6 +102,8 @@ cmd_command_prompt_exec(struct cmd *self, struct cmd_ctx *ctx)
 	cdata = xmalloc(sizeof *cdata);
 	cdata->c = c;
 	cdata->idx = 1;
+	cdata->inputs = NULL;
+	cdata->next_input = NULL;
 	cdata->next_prompt = NULL;
 	cdata->prompts = NULL;
 	cdata->template = NULL;
@@ -103,8 +113,7 @@ cmd_command_prompt_exec(struct cmd *self, struct cmd_ctx *ctx)
 	else
 		cdata->template = xstrdup("%1");
 
-	prompts = args_get(args, 'p');
-	if (prompts != NULL)
+	if ((prompts = args_get(args, 'p')) != NULL)
 		cdata->prompts = xstrdup(prompts);
 	else if (args->argc != 0) {
 		n = strcspn(cdata->template, " ,");
@@ -112,17 +121,22 @@ cmd_command_prompt_exec(struct cmd *self, struct cmd_ctx *ctx)
 	} else
 		cdata->prompts = xstrdup(":");
 
+	/* Get first prompt. */
 	cdata->next_prompt = cdata->prompts;
 	ptr = strsep(&cdata->next_prompt, ",");
 	if (prompts == NULL)
 		prompt = xstrdup(ptr);
-	else {
-		prompt_replaced = status_replace(c, NULL, NULL, NULL, ptr,
-		    time(NULL), 0);
-		xasprintf(&prompt, "%s ", prompt_replaced);
-		xfree(prompt_replaced);
+	else
+		xasprintf(&prompt, "%s ", ptr);
+
+	/* Get initial prompt input. */
+	if ((inputs = args_get(args, 'I')) != NULL) {
+		cdata->inputs = xstrdup(inputs);
+		cdata->next_input = cdata->inputs;
+		input = strsep(&cdata->next_input, ",");
 	}
-	status_prompt_set(c, prompt, cmd_command_prompt_callback,
+
+	status_prompt_set(c, prompt, input, cmd_command_prompt_callback,
 	    cmd_command_prompt_free, cdata, 0);
 	xfree(prompt);
 
@@ -136,29 +150,31 @@ cmd_command_prompt_callback(void *data, const char *s)
 	struct client			*c = cdata->c;
 	struct cmd_list			*cmdlist;
 	struct cmd_ctx			 ctx;
-	char				*cause, *newtempl, *prompt, *ptr;
-	char				*prompt_replaced;
+	char				*cause, *new_template, *prompt, *ptr;
+	char				*input = NULL;
 
 	if (s == NULL)
 		return (0);
 
-	newtempl = cmd_template_replace(cdata->template, s, cdata->idx);
+	new_template = cmd_template_replace(cdata->template, s, cdata->idx);
 	xfree(cdata->template);
-	cdata->template = newtempl;
+	cdata->template = new_template;
 
+	/*
+	 * Check if there are more prompts; if so, get its respective input
+	 * and update the prompt data.
+	 */
 	if ((ptr = strsep(&cdata->next_prompt, ",")) != NULL) {
-		prompt_replaced = status_replace(c, NULL, NULL, NULL, ptr,
-		    time(NULL), 0);
-		xasprintf(&prompt, "%s ", prompt_replaced);
-		status_prompt_update(c, prompt);
+		xasprintf(&prompt, "%s ", ptr);
+		input = strsep(&cdata->next_input, ",");
+		status_prompt_update(c, prompt, input);
 
-		xfree(prompt_replaced);
 		xfree(prompt);
 		cdata->idx++;
 		return (1);
 	}
 
-	if (cmd_string_parse(newtempl, &cmdlist, &cause) != 0) {
+	if (cmd_string_parse(new_template, &cmdlist, &cause) != 0) {
 		if (cause != NULL) {
 			*cause = toupper((u_char) *cause);
 			status_message_set(c, "%s", cause);
@@ -189,6 +205,8 @@ cmd_command_prompt_free(void *data)
 {
 	struct cmd_command_prompt_cdata	*cdata = data;
 
+	if (cdata->inputs != NULL)
+		xfree(cdata->inputs);
 	if (cdata->prompts != NULL)
 		xfree(cdata->prompts);
 	if (cdata->template != NULL)

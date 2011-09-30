@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.51 2011/01/08 00:48:54 nicm Exp $
+# $OpenBSD: Makefile,v 1.55 2011/08/26 10:53:16 nicm Exp $
 
 PROG=	tmux
 SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
@@ -16,7 +16,7 @@ SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
 	cmd-lock-server.c \
 	cmd-move-window.c cmd-new-session.c cmd-new-window.c \
 	cmd-paste-buffer.c \
-	cmd-refresh-client.c \
+	cmd-refresh-client.c cmd-respawn-pane.c \
 	cmd-rename-session.c cmd-rename-window.c cmd-resize-pane.c \
 	cmd-respawn-window.c cmd-rotate-window.c cmd-save-buffer.c \
 	cmd-select-layout.c cmd-select-pane.c cmd-select-window.c \
@@ -30,8 +30,8 @@ SRCS=	arguments.c attributes.c cfg.c client.c clock.c \
 	cmd-display-message.c cmd-display-panes.c cmd-if-shell.c \
 	cmd-pipe-pane.c cmd-capture-pane.c cmd.c \
 	colour.c environ.c grid-view.c grid-utf8.c grid.c input-keys.c \
-	input.c key-bindings.c key-string.c \
-	layout-custom.c layout-set.c layout-string.c layout.c log.c job.c \
+	input.c key-bindings.c key-string.c format.c \
+	layout-custom.c layout-set.c layout.c log.c job.c \
 	mode-key.c names.c options.c options-table.c paste.c procname.c \
 	resize.c screen-redraw.c screen-write.c screen.c session.c status.c \
 	signal.c server-fn.c server.c server-client.c server-window.c \
@@ -44,7 +44,7 @@ CDIAGFLAGS+= -Wmissing-prototypes -Wstrict-prototypes -Wmissing-declarations
 CDIAGFLAGS+= -Wwrite-strings -Wshadow -Wpointer-arith -Wsign-compare
 CDIAGFLAGS+= -Wundef -Wbad-function-cast -Winline -Wcast-align
 
-LDADD=  -lutil -lcurses -levent -lm
-DPADD=  ${LIBUTIL} ${LIBCURSES} ${LIBEVENT} ${LIBM}
+LDADD=  -lutil -lcurses -levent
+DPADD=  ${LIBUTIL} ${LIBCURSES} ${LIBEVENT}
 
 .include <bsd.prog.mk>

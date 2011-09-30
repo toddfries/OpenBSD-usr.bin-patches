@@ -1,8 +1,8 @@
-/*	$OpenBSD: man.c,v 1.41 2011/05/25 14:36:04 deraadt Exp $	*/
+/*	$OpenBSD: man.c,v 1.43 2011/07/07 04:24:35 schwarze Exp $	*/
 /*	$NetBSD: man.c,v 1.7 1995/09/28 06:05:34 tls Exp $	*/
 
 /*
- * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2011 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -46,8 +46,10 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/types.h>
 #include <sys/param.h>
 #include <sys/queue.h>
+#include <sys/stat.h>
 
 #include <ctype.h>
 #include <err.h>
@@ -81,6 +83,7 @@ static int	 cleanup(int);
 static void	 how(char *);
 static void	 jump(char **, char *, char *);
 static int	 manual(char *, TAG *, glob_t *);
+static void	 check_companion(char **, TAG *);
 static void	 onsig(int);
 static void	 usage(void);
 
@@ -150,7 +153,7 @@ main(int argc, char *argv[])
 			jump(argv, "-k", "apropos");
 			/* NOTREACHED */
 		case 'w':
-			f_all = f_where = 1;
+			f_where = 1;
 			break;
 		case '?':
 		default:
@@ -431,20 +434,54 @@ manual(char *page, TAG *tag, glob_t *pg)
 {
 	ENTRY *ep, *e_sufp, *e_tag;
 	TAG *missp, *sufp;
-	int anyfound, cnt, found;
+	int anyfound, cnt, found, globres;
 	char *p, buf[MAXPATHLEN];
 
 	anyfound = 0;
 	buf[0] = '*';
 
+	/* Expand the search path. */
+	if (f_all != f_where) {
+		e_tag = tag == NULL ? NULL : TAILQ_FIRST(&tag->list);
+		for (; e_tag != NULL; e_tag = TAILQ_NEXT(e_tag, q)) {
+			if (glob(e_tag->s, GLOB_BRACE | GLOB_NOSORT,
+			    NULL, pg)) {
+				/* No GLOB_NOMATCH here due to {arch,}. */
+				warn("globbing directories");
+				(void)cleanup(0);
+				exit(1);
+			}
+			ep = e_tag;
+			for (cnt = 0; cnt < pg->gl_pathc; cnt++) {
+				if ((e_tag = malloc(sizeof(ENTRY))) == NULL ||
+				    (e_tag->s = strdup(pg->gl_pathv[cnt])) ==
+						NULL) {
+					warn(NULL);
+					(void)cleanup(0);
+					exit(1);
+				}
+				TAILQ_INSERT_BEFORE(ep, e_tag, q);
+			}
+			free(ep->s);
+			TAILQ_REMOVE(&tag->list, ep, q);
+			free(ep);
+			globfree(pg);
+			pg->gl_pathc = 0;
+		}
+	}
+
 	/* For each element in the list... */
 	e_tag = tag == NULL ? NULL : TAILQ_FIRST(&tag->list);
 	for (; e_tag != NULL; e_tag = TAILQ_NEXT(e_tag, q)) {
 		(void)snprintf(buf, sizeof(buf), "%s/%s.*", e_tag->s, page);
-		if (glob(buf,
-		    GLOB_APPEND | GLOB_BRACE | GLOB_NOSORT | GLOB_QUOTE,
+		switch (glob(buf, GLOB_APPEND | GLOB_BRACE | GLOB_NOSORT,
 		    NULL, pg)) {
-			warn("globbing");
+		case (0):
+			break;
+		case (GLOB_NOMATCH):
+			continue;
+		default:
+			warn("globbing files");
 			(void)cleanup(0);
 			exit(1);
 		}
@@ -454,6 +491,12 @@ manual(char *page, TAG *tag, glob_t *pg)
 		/* Find out if it's really a man page. */
 		for (cnt = pg->gl_pathc - pg->gl_matchc;
 		    cnt < pg->gl_pathc; ++cnt) {
+
+			if (!f_all || !f_where) {
+				check_companion(pg->gl_pathv + cnt, tag);
+				if (*pg->gl_pathv[cnt] == '\0')
+					continue;
+			}
 
 			/*
 			 * Try the _suffix key words first.
@@ -506,7 +549,7 @@ manual(char *page, TAG *tag, glob_t *pg)
 			}
 			if (found) {
 next:				anyfound = 1;
-				if (!f_all) {
+				if (!f_all && !f_where) {
 					/* Delete any other matches. */
 					while (++cnt< pg->gl_pathc)
 						pg->gl_pathv[cnt] = "";
@@ -519,7 +562,7 @@ next:				anyfound = 1;
 			pg->gl_pathv[cnt] = "";
 		}
 
-		if (anyfound && !f_all)
+		if (anyfound && !f_all && !f_where)
 			break;
 	}
 
@@ -541,6 +584,93 @@ next:				anyfound = 1;
 		sigprocmask(SIG_SETMASK, &osigs, NULL);
 	}
 	return (anyfound);
+}
+
+/*
+ * check_companion --
+ *	Check for a companion [un]formatted page.
+ *	If one is found, skip this page.
+ *	Use the companion instead, unless it will be found anyway.
+ */
+static void
+check_companion(char **orig, TAG *tag) {
+	struct stat sb_orig, sb_comp;
+	char *p, *pext, comp[MAXPATHLEN];
+	ENTRY *entry;
+	size_t len;
+	int found;
+
+	len = strlcpy(comp, *orig, sizeof(comp));
+	/* The minus 2 avoids a buffer overrun in case of a trailing dot. */
+	p = comp + len - 2;
+
+	/* Locate the file name extension. */
+	while (p > comp && *p != '.' && *p != '/')
+		p--;
+	if (*p != '.')
+		return;
+	pext = p + 1;
+
+	/* Search for slashes. */
+	for (found = 0; 1; p--) {
+		if (*p != '/')
+			continue;
+
+		/* Did not find /{cat,man}. */
+		if (p == comp)
+			return;
+
+		/* Pass over one slash, the one before "page". */
+		if (!found++) {
+			len = p - comp;
+			continue;
+		}
+
+		/* Rewrite manN/page.N <-> catN/page.0. */
+		if (!strncmp(p+1, "man", 3)) {
+			memcpy(++p, "cat", 3);
+			*pext++ = '0';
+			break;
+		} else if (!strncmp(p+1, "cat", 3)) {
+			memcpy(++p, "man", 3);
+			p += 3;
+			while (*p != '/' && pext < comp + sizeof(comp) - 1)
+				*pext++ = *p++;
+			break;
+
+		/* Accept one architecture subdir, but not more. */
+		} else if (found > 2)
+			return;
+	}
+	*pext = '\0';
+
+	/* Check whether both files exist. */
+	if (stat(*orig, &sb_orig) || stat(comp, &sb_comp))
+		return;
+
+	/* No action if the companion file is older. */
+	if (sb_orig.st_mtim.tv_sec  > sb_comp.st_mtim.tv_sec || (
+	    sb_orig.st_mtim.tv_sec == sb_comp.st_mtim.tv_sec &&
+	    sb_orig.st_mtim.tv_nsec > sb_comp.st_mtim.tv_nsec))
+		return;
+
+	/* Drop the companion if it is in the path, too. */
+	if (f_all || f_where)
+		for(entry = TAILQ_FIRST(&tag->list); entry != NULL;
+		    entry = TAILQ_NEXT(entry, q))
+			if (!strncmp(entry->s, comp, len)) {
+				**orig = '\0';
+				return;
+			}
+
+	/* The companion file is newer, use it. */
+	free(*orig);
+	if ((p = strdup(comp)) == NULL) {
+		warn(NULL);
+		(void)cleanup(0);
+		exit(1);
+	}
+	*orig = p;
 }
 
 /*

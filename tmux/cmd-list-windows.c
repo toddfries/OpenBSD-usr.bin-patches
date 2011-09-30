@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-windows.c,v 1.13 2011/04/05 19:37:01 nicm Exp $ */
+/* $OpenBSD: cmd-list-windows.c,v 1.16 2011/09/23 12:23:24 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,13 +28,14 @@
 
 int	cmd_list_windows_exec(struct cmd *, struct cmd_ctx *);
 
-void	cmd_list_windows_server(struct cmd_ctx *);
-void	cmd_list_windows_session(struct session *, struct cmd_ctx *);
+void	cmd_list_windows_server(struct cmd *, struct cmd_ctx *);
+void	cmd_list_windows_session(
+	    struct cmd *, struct session *, struct cmd_ctx *, int);
 
 const struct cmd_entry cmd_list_windows_entry = {
 	"list-windows", "lsw",
-	"at:", 0, 0,
-	"[-a] " CMD_TARGET_SESSION_USAGE,
+	"aF:t:", 0, 0,
+	"[-a] [-F format] " CMD_TARGET_SESSION_USAGE,
 	0,
 	NULL,
 	NULL,
@@ -48,37 +49,69 @@ cmd_list_windows_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct session	*s;
 
 	if (args_has(args, 'a'))
-		cmd_list_windows_server(ctx);
+		cmd_list_windows_server(self, ctx);
 	else {
 		s = cmd_find_session(ctx, args_get(args, 't'), 0);
 		if (s == NULL)
 			return (-1);
-		cmd_list_windows_session(s, ctx);
+		cmd_list_windows_session(self, s, ctx, 0);
 	}
 
 	return (0);
 }
 
 void
-cmd_list_windows_server(struct cmd_ctx *ctx)
+cmd_list_windows_server(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct session	*s;
 
 	RB_FOREACH(s, sessions, &sessions)
-		cmd_list_windows_session(s, ctx);
+		cmd_list_windows_session(self, s, ctx, 1);
 }
 
 void
-cmd_list_windows_session(struct session *s, struct cmd_ctx *ctx)
+cmd_list_windows_session(
+    struct cmd *self, struct session *s, struct cmd_ctx *ctx, int type)
 {
-	struct winlink	*wl;
-	char		*layout;
+	struct args		*args = self->args;
+	struct winlink		*wl;
+	u_int			n;
+	struct format_tree	*ft;
+	const char		*template;
+	char			*line;
 
+	template = args_get(args, 'F');
+	if (template == NULL) {
+		switch (type) {
+		case 0:
+			template = "#{window_index}: "
+			    "#{window_name} "
+			    "[#{window_width}x#{window_height}] "
+			    "[layout #{window_layout}]"
+			    "#{?window_active, (active),}";
+			break;
+		case 1:
+			template = "#{session_name}:#{window_index}: "
+			    "#{window_name} "
+			    "[#{window_width}x#{window_height}] "
+			    "[layout #{window_layout}]"
+			    "#{?window_active, (active),}";
+			break;
+		}
+	}
+
+	n = 0;
 	RB_FOREACH(wl, winlinks, &s->windows) {
-		layout = layout_dump(wl->window);
-		ctx->print(ctx, "%d: %s [%ux%u] [layout %s]%s",
-		    wl->idx, wl->window->name, wl->window->sx, wl->window->sy,
-		    layout, wl == s->curw ? " (active)" : "");
-		xfree(layout);
+		ft = format_create();
+		format_add(ft, "line", "%u", n);
+		format_session(ft, s);
+		format_winlink(ft, s, wl);
+
+		line = format_expand(ft, template);
+		ctx->print(ctx, "%s", line);
+		xfree(line);
+
+		format_free(ft);
+		n++;
 	}
 }

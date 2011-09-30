@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.382 2011/04/12 05:32:49 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.386 2011/09/09 22:38:21 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -102,6 +102,7 @@
 #endif
 #include "monitor_wrap.h"
 #include "roaming.h"
+#include "ssh-sandbox.h"
 #include "version.h"
 
 #ifdef LIBWRAP
@@ -221,6 +222,7 @@ int startup_pipe;		/* in child */
 /* variables used for privilege separation */
 int use_privsep = -1;
 struct monitor *pmonitor = NULL;
+int privsep_is_preauth = 1;
 
 /* global authentication context */
 Authctxt *the_authctxt = NULL;
@@ -611,42 +613,65 @@ privsep_preauth(Authctxt *authctxt)
 {
 	int status;
 	pid_t pid;
+	struct ssh_sandbox *box = NULL;
 
 	/* Set up unprivileged child process to deal with network data */
 	pmonitor = monitor_init();
 	/* Store a pointer to the kex for later rekeying */
 	pmonitor->m_pkex = &xxx_kex;
 
+	if (use_privsep == PRIVSEP_SANDBOX)
+		box = ssh_sandbox_init();
 	pid = fork();
 	if (pid == -1) {
 		fatal("fork of unprivileged child failed");
 	} else if (pid != 0) {
 		debug2("Network child is on pid %ld", (long)pid);
 
-		close(pmonitor->m_recvfd);
+		if (box != NULL)
+			ssh_sandbox_parent_preauth(box, pid);
 		pmonitor->m_pid = pid;
 		monitor_child_preauth(authctxt, pmonitor);
-		close(pmonitor->m_sendfd);
 
 		/* Sync memory */
 		monitor_sync(pmonitor);
 
 		/* Wait for the child's exit status */
-		while (waitpid(pid, &status, 0) < 0)
-			if (errno != EINTR)
-				break;
-		return (1);
+		while (waitpid(pid, &status, 0) < 0) {
+			if (errno == EINTR)
+				continue;
+			pmonitor->m_pid = -1;
+			fatal("%s: waitpid: %s", __func__, strerror(errno));
+		}
+		privsep_is_preauth = 0;
+		pmonitor->m_pid = -1;
+		if (WIFEXITED(status)) {
+			if (WEXITSTATUS(status) != 0)
+				fatal("%s: preauth child exited with status %d",
+				    __func__, WEXITSTATUS(status));
+		} else if (WIFSIGNALED(status))
+			fatal("%s: preauth child terminated by signal %d",
+			    __func__, WTERMSIG(status));
+		if (box != NULL)
+			ssh_sandbox_parent_finish(box);
+		return 1;
 	} else {
 		/* child */
-
 		close(pmonitor->m_sendfd);
+		close(pmonitor->m_log_recvfd);
+
+		/* Arrange for logging to be sent to the monitor */
+		set_log_handler(mm_log_handler, pmonitor);
 
 		/* Demote the child */
 		if (getuid() == 0 || geteuid() == 0)
 			privsep_preauth_child();
 		setproctitle("%s", "[net]");
+		if (box != NULL)
+			ssh_sandbox_child(box);
+
+		return 0;
 	}
-	return (0);
 }
 
 static void
@@ -668,7 +693,6 @@ privsep_postauth(Authctxt *authctxt)
 		fatal("fork of unprivileged child failed");
 	else if (pmonitor->m_pid != 0) {
 		verbose("User child is on pid %ld", (long)pmonitor->m_pid);
-		close(pmonitor->m_recvfd);
 		buffer_clear(&loginmsg);
 		monitor_child_postauth(pmonitor);
 
@@ -676,7 +700,10 @@ privsep_postauth(Authctxt *authctxt)
 		exit(0);
 	}
 
+	/* child */
+
 	close(pmonitor->m_sendfd);
+	pmonitor->m_sendfd = -1;
 
 	/* Demote the private keys to public keys. */
 	demote_sensitive_data();
@@ -2194,7 +2221,15 @@ do_ssh2_kex(void)
 void
 cleanup_exit(int i)
 {
-	if (the_authctxt)
+	if (the_authctxt) {
 		do_cleanup(the_authctxt);
+		if (privsep_is_preauth && pmonitor->m_pid > 1) {
+			debug("Killing privsep child %d", pmonitor->m_pid);
+			if (kill(pmonitor->m_pid, SIGKILL) != 0 &&
+			    errno == ESRCH)
+				error("%s: kill(%d): %s", __func__,
+				    pmonitor->m_pid, strerror(errno));
+		}
+	}
 	_exit(i);
 }

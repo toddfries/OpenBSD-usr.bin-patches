@@ -1,5 +1,5 @@
 %{
-/*	$OpenBSD: bc.y,v 1.37 2011/06/03 06:52:37 deraadt Exp $	*/
+/*	$OpenBSD: bc.y,v 1.39 2011/08/03 08:48:19 otto Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -43,6 +43,7 @@
 #include <stdarg.h>
 #include <stdbool.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include "extern.h"
@@ -1061,12 +1062,13 @@ sigchld(int signo)
 	int status, save_errno = errno;
 
 	for (;;) {
-		pid = waitpid(dc, &status, WCONTINUED);
+		pid = waitpid(dc, &status, WCONTINUED | WNOHANG);
 		if (pid == -1) {
 			if (errno == EINTR)
 				continue;
 			_exit(0);
-		}
+		} else if (pid == 0)
+			break;
 		if (WIFEXITED(status) || WIFSIGNALED(status))
 			_exit(0);
 		else
@@ -1139,6 +1141,7 @@ main(int argc, char *argv[])
 			close(p[0]);
 			close(p[1]);
 			if (interactive) {
+				gettty(&ttysaved);
 				el = el_init("bc", stdin, stderr, stderr);
 				hist = history_init();
 				history(hist, &he, H_SETSIZE, 100);
@@ -1147,7 +1150,7 @@ main(int argc, char *argv[])
 				el_set(el, EL_SIGNAL, 0);
 				el_set(el, EL_PROMPT, dummy_prompt);
 				el_set(el, EL_ADDFN, "bc_eof", "", bc_eof);
-				el_set(el, EL_BIND, "^D", "bc_eof");
+				el_set(el, EL_BIND, "^D", "bc_eof", NULL);
 				el_source(el, NULL);
 			}
 		} else {

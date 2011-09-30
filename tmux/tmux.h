@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.288 2011/05/20 19:17:39 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.294 2011/08/26 10:53:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -807,7 +807,6 @@ struct window_pane {
 
 	int		 flags;
 #define PANE_REDRAW 0x1
-#define PANE_FREEZE 0x2
 
 	char		*cmd;
 	char		*shell;
@@ -1304,6 +1303,15 @@ struct options_table_entry {
 	long long		default_num;
 };
 
+/* Tree of format entries. */
+struct format_entry {
+	char		       *key;
+	char		       *value;
+
+	RB_ENTRY(format_entry)	entry;
+};
+RB_HEAD(format_tree, format_entry);
+
 /* List of configuration causes. */
 ARRAY_DECL(causelist, char *);
 
@@ -1345,6 +1353,20 @@ extern int       cfg_finished;
 extern struct causelist cfg_causes;
 void printflike2 cfg_add_cause(struct causelist *, const char *, ...);
 int		 load_cfg(const char *, struct cmd_ctx *, struct causelist *);
+
+/* format.c */
+int		 format_cmp(struct format_entry *, struct format_entry *);
+RB_PROTOTYPE(format_tree, format_entry, entry, format_cmp);
+struct format_tree *format_create(void);
+void		 format_free(struct format_tree *);
+void		 format_add(
+		     struct format_tree *, const char *, const char *, ...);
+const char	*format_find(struct format_tree *, const char *);
+char		*format_expand(struct format_tree *, const char *);
+void		 format_session(struct format_tree *, struct session *);
+void		 format_winlink(
+		     struct format_tree *, struct session *, struct winlink *);
+void		 format_window_pane(struct format_tree *, struct window_pane *);
 
 /* mode-key.c */
 extern const struct mode_key_table mode_key_tables[];
@@ -1459,6 +1481,7 @@ void	tty_cmd_utf8character(struct tty *, const struct tty_ctx *);
 void	tty_cmd_reverseindex(struct tty *, const struct tty_ctx *);
 void	tty_cmd_setselection(struct tty *, const struct tty_ctx *);
 void	tty_cmd_rawstring(struct tty *, const struct tty_ctx *);
+void	tty_bell(struct tty *);
 
 /* tty-term.c */
 extern struct tty_terms tty_terms;
@@ -1584,6 +1607,7 @@ extern const struct cmd_entry cmd_refresh_client_entry;
 extern const struct cmd_entry cmd_rename_session_entry;
 extern const struct cmd_entry cmd_rename_window_entry;
 extern const struct cmd_entry cmd_resize_pane_entry;
+extern const struct cmd_entry cmd_respawn_pane_entry;
 extern const struct cmd_entry cmd_respawn_window_entry;
 extern const struct cmd_entry cmd_rotate_window_entry;
 extern const struct cmd_entry cmd_run_shell_entry;
@@ -1704,12 +1728,12 @@ char	*status_replace(struct client *, struct session *,
 void printflike2 status_message_set(struct client *, const char *, ...);
 void	 status_message_clear(struct client *);
 int	 status_message_redraw(struct client *);
-void	 status_prompt_set(struct client *, const char *,
+void	 status_prompt_set(struct client *, const char *, const char *,
 	     int (*)(void *, const char *), void (*)(void *), void *, int);
 void	 status_prompt_clear(struct client *);
 int	 status_prompt_redraw(struct client *);
 void	 status_prompt_key(struct client *, int);
-void	 status_prompt_update(struct client *, const char *);
+void	 status_prompt_update(struct client *, const char *, const char *);
 
 /* resize.c */
 void	 recalculate_sizes(void);
@@ -1891,7 +1915,9 @@ struct window	*window_create(const char *, const char *, const char *,
 		     const char *, struct environ *, struct termios *,
 		     u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
+struct window_pane *window_get_active_at(struct window *, u_int, u_int);
 void		 window_set_active_at(struct window *, u_int, u_int);
+struct window_pane *window_find_string(struct window *, const char *);
 void		 window_set_active_pane(struct window *, struct window_pane *);
 struct window_pane *window_add_pane(struct window *, u_int);
 void		 window_resize(struct window *, u_int, u_int);
@@ -1970,10 +1996,6 @@ u_int		 layout_set_select(struct window *, u_int);
 u_int		 layout_set_next(struct window *);
 u_int		 layout_set_previous(struct window *);
 void		 layout_set_active_changed(struct window *);
-
-/* layout-string.c */
-struct layout_cell *layout_find_string(struct window *, const char *);
-struct layout_cell *layout_find_bottomright(struct layout_cell *);
 
 /* window-clock.c */
 extern const struct window_mode window_clock_mode;

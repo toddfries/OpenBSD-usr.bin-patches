@@ -1,4 +1,4 @@
-/*	$OpenBSD: decl.c,v 1.28 2011/05/31 22:27:54 martynas Exp $	*/
+/*	$OpenBSD: decl.c,v 1.30 2011/09/21 18:08:07 jsg Exp $	*/
 /*	$NetBSD: decl.c,v 1.11 1995/10/02 17:34:16 jpo Exp $	*/
 
 /*
@@ -31,10 +31,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef lint
-static char rcsid[] = "$OpenBSD: decl.c,v 1.28 2011/05/31 22:27:54 martynas Exp $";
-#endif
 
 #include <sys/param.h>
 #include <limits.h>
@@ -1782,8 +1778,10 @@ compltag(type_t *tp, sym_t *fmem)
 		sp->size = dcs->d_offset;
 		sp->memb = fmem;
 		if (sp->size == 0) {
-			/* zero sized %s */
-			(void)gnuism(47, ttab[t].tt_name);
+			if (sflag) {
+				/* zero sized %s */
+				warning(47, ttab[t].tt_name);
+			}
 		} else {
 			n = 0;
 			for (mem = fmem; mem != NULL; mem = mem->s_nxt) {

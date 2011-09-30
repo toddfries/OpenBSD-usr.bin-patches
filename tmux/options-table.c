@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.10 2011/05/20 19:17:39 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.13 2011/08/24 10:29:57 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,6 +35,9 @@
 /* Choice option type lists. */
 const char *options_table_mode_keys_list[] = {
 	"emacs", "vi", NULL
+};
+const char *options_table_mode_mouse_list[] = {
+	"off", "on", "copy-mode", NULL
 };
 const char *options_table_clock_mode_style_list[] = {
 	"12", "24", NULL
@@ -96,6 +99,11 @@ const struct options_table_entry session_options_table[] = {
 	  .type = OPTIONS_TABLE_CHOICE,
 	  .choices = options_table_bell_action_list,
 	  .default_num = BELL_ANY
+	},
+
+	{ .name = "bell-on-alert",
+	  .type = OPTIONS_TABLE_FLAG,
+	  .default_num = 0
 	},
 
 	{ .name = "default-command",
@@ -479,7 +487,8 @@ const struct options_table_entry window_options_table[] = {
 	},
 
 	{ .name = "mode-mouse",
-	  .type = OPTIONS_TABLE_FLAG,
+	  .type = OPTIONS_TABLE_CHOICE,
+	  .choices = options_table_mode_mouse_list,
 	  .default_num = 0
 	},
 
@@ -511,6 +520,13 @@ const struct options_table_entry window_options_table[] = {
 	  .type = OPTIONS_TABLE_NUMBER,
 	  .minimum = 0,
 	  .maximum = INT_MAX,
+	  .default_num = 0
+	},
+
+	{ .name = "pane-base-index",
+	  .type = OPTIONS_TABLE_NUMBER,
+	  .minimum = 0,
+	  .maximum = USHRT_MAX,
 	  .default_num = 0
 	},
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.75 2011/04/29 07:07:31 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.78 2011/08/20 20:37:31 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -551,8 +551,10 @@ status_find_job(struct client *c, char **iptr)
 	/* First try in the new tree. */
 	so_find.cmd = cmd;
 	so = RB_FIND(status_out_tree, &c->status_new, &so_find);
-	if (so != NULL && so->out != NULL)
+	if (so != NULL && so->out != NULL) {
+		xfree(cmd);
 		return (so->out);
+	}
 
 	/* If not found at all, start the job and add to the tree. */
 	if (so == NULL) {
@@ -815,7 +817,7 @@ status_message_redraw(struct client *c)
 
 /* Enable status line prompt. */
 void
-status_prompt_set(struct client *c, const char *msg,
+status_prompt_set(struct client *c, const char *msg, const char *input,
     int (*callbackfn)(void *, const char *), void (*freefn)(void *),
     void *data, int flags)
 {
@@ -824,10 +826,14 @@ status_prompt_set(struct client *c, const char *msg,
 	status_message_clear(c);
 	status_prompt_clear(c);
 
-	c->prompt_string = xstrdup(msg);
+	c->prompt_string = status_replace(c, NULL, NULL, NULL, msg,
+	    time(NULL), 0);
 
-	c->prompt_buffer = xstrdup("");
-	c->prompt_index = 0;
+	if (input == NULL)
+		input = "";
+	c->prompt_buffer = status_replace(c, NULL, NULL, NULL, input,
+	    time(NULL), 0);
+	c->prompt_index = strlen(c->prompt_buffer);
 
 	c->prompt_callbackfn = callbackfn;
 	c->prompt_freefn = freefn;
@@ -871,13 +877,18 @@ status_prompt_clear(struct client *c)
 
 /* Update status line prompt with a new prompt string. */
 void
-status_prompt_update(struct client *c, const char *msg)
+status_prompt_update(struct client *c, const char *msg, const char *input)
 {
 	xfree(c->prompt_string);
-	c->prompt_string = xstrdup(msg);
+	c->prompt_string = status_replace(c, NULL, NULL, NULL, msg,
+	    time(NULL), 0);
 
-	*c->prompt_buffer = '\0';
-	c->prompt_index = 0;
+	xfree(c->prompt_buffer);
+	if (input == NULL)
+		input = "";
+	c->prompt_buffer = status_replace(c, NULL, NULL, NULL, input,
+	    time(NULL), 0);
+	c->prompt_index = strlen(c->prompt_buffer);
 
 	c->prompt_hindex = 0;
 

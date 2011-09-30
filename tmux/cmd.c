@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.54 2011/05/08 20:35:58 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.56 2011/06/05 11:19:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -80,6 +80,7 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_rename_session_entry,
 	&cmd_rename_window_entry,
 	&cmd_resize_pane_entry,
+	&cmd_respawn_pane_entry,
 	&cmd_respawn_window_entry,
 	&cmd_rotate_window_entry,
 	&cmd_run_shell_entry,
@@ -1058,12 +1059,11 @@ struct winlink *
 cmd_find_pane(struct cmd_ctx *ctx,
     const char *arg, struct session **sp, struct window_pane **wpp)
 {
-	struct session		*s;
-	struct winlink		*wl;
-	struct layout_cell	*lc;
-	const char		*period, *errstr;
-	char			*winptr, *paneptr;
-	u_int			 idx;
+	struct session	*s;
+	struct winlink	*wl;
+	const char	*period, *errstr;
+	char		*winptr, *paneptr;
+	u_int		 idx;
 
 	/* Get the current session. */
 	if ((s = cmd_current_session(ctx, 0)) == NULL) {
@@ -1119,11 +1119,10 @@ cmd_find_pane(struct cmd_ctx *ctx,
 
 lookup_string:
 	/* Try pane string description. */
-	if ((lc = layout_find_string(wl->window, paneptr)) == NULL) {
+	if ((*wpp = window_find_string(wl->window, paneptr)) == NULL) {
 		ctx->error(ctx, "can't find pane: %s", paneptr);
 		goto error;
 	}
-	*wpp = lc->wp;
 
 	xfree(winptr);
 	return (wl);
@@ -1142,10 +1141,8 @@ no_period:
 
 lookup_window:
 	/* Try pane string description. */
-	if ((lc = layout_find_string(s->curw->window, arg)) != NULL) {
-		*wpp = lc->wp;
+	if ((*wpp = window_find_string(s->curw->window, arg)) != NULL)
 		return (s->curw);
-	}
 
 	/* Try as a window and use the active pane. */
 	if ((wl = cmd_find_window(ctx, arg, sp)) != NULL)

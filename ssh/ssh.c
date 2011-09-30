@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.362 2011/06/03 00:54:38 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.366 2011/09/23 07:45:05 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -348,6 +348,8 @@ main(int ac, char **av)
 				muxclient_command = SSHMUX_COMMAND_TERMINATE;
 			else if (strcmp(optarg, "stop") == 0)
 				muxclient_command = SSHMUX_COMMAND_STOP;
+			else if (strcmp(optarg, "cancel") == 0)
+				muxclient_command = SSHMUX_COMMAND_CANCEL_FWD;
 			else
 				fatal("Invalid multiplex command.");
 			break;
@@ -677,7 +679,7 @@ main(int ac, char **av)
 		if (r > 0 && (size_t)r < sizeof(buf))
 			(void)read_config_file(buf, host, &options, 1);
 
-		/* Read systemwide configuration file after use config. */
+		/* Read systemwide configuration file after user config. */
 		(void)read_config_file(_PATH_HOST_CONFIG_FILE, host,
 		    &options, 0);
 	}
@@ -968,11 +970,17 @@ ssh_confirm_remote_forward(int type, u_int32_t seq, void *ctxt)
 	debug("remote forward %s for: listen %d, connect %s:%d",
 	    type == SSH2_MSG_REQUEST_SUCCESS ? "success" : "failure",
 	    rfwd->listen_port, rfwd->connect_host, rfwd->connect_port);
-	if (type == SSH2_MSG_REQUEST_SUCCESS && rfwd->listen_port == 0) {
-		rfwd->allocated_port = packet_get_int();
-		logit("Allocated port %u for remote forward to %s:%d",
-		    rfwd->allocated_port,
-		    rfwd->connect_host, rfwd->connect_port);
+	if (rfwd->listen_port == 0) {
+		if (type == SSH2_MSG_REQUEST_SUCCESS) {
+			rfwd->allocated_port = packet_get_int();
+			logit("Allocated port %u for remote forward to %s:%d",
+			    rfwd->allocated_port,
+			    rfwd->connect_host, rfwd->connect_port);
+			channel_update_permitted_opens(rfwd->handle,
+			    rfwd->allocated_port);
+		} else {
+			channel_update_permitted_opens(rfwd->handle, -1);
+		}
 	}
 	
 	if (type == SSH2_MSG_REQUEST_FAILURE) {
@@ -1064,19 +1072,22 @@ ssh_init_forwarding(void)
 		    options.remote_forwards[i].listen_port,
 		    options.remote_forwards[i].connect_host,
 		    options.remote_forwards[i].connect_port);
-		if (channel_request_remote_forwarding(
+		options.remote_forwards[i].handle =
+		    channel_request_remote_forwarding(
 		    options.remote_forwards[i].listen_host,
 		    options.remote_forwards[i].listen_port,
 		    options.remote_forwards[i].connect_host,
-		    options.remote_forwards[i].connect_port) < 0) {
+		    options.remote_forwards[i].connect_port);
+		if (options.remote_forwards[i].handle < 0) {
 			if (options.exit_on_forward_failure)
 				fatal("Could not request remote forwarding.");
 			else
 				logit("Warning: Could not request remote "
 				    "forwarding.");
+		} else {
+			client_register_global_confirm(ssh_confirm_remote_forward,
+			    &options.remote_forwards[i]);
 		}
-		client_register_global_confirm(ssh_confirm_remote_forward,
-		    &options.remote_forwards[i]);
 	}
 
 	/* Initiate tunnel forwarding. */
@@ -1188,8 +1199,8 @@ ssh_session(void)
 		/* Request forwarding with authentication spoofing. */
 		debug("Requesting X11 forwarding with authentication "
 		    "spoofing.");
-		x11_request_forwarding_with_spoofing(0, display, proto, data);
-
+		x11_request_forwarding_with_spoofing(0, display, proto,
+		    data, 0);
 		/* Read response from the server. */
 		type = packet_read();
 		if (type == SSH_SMSG_SUCCESS) {
@@ -1287,9 +1298,11 @@ ssh_session2_setup(int id, int success, void *arg)
 		/* Request forwarding with authentication spoofing. */
 		debug("Requesting X11 forwarding with authentication "
 		    "spoofing.");
-		x11_request_forwarding_with_spoofing(id, display, proto, data);
+		x11_request_forwarding_with_spoofing(id, display, proto,
+		    data, 1);
+		client_expect_confirm(id, "X11 forwarding", CONFIRM_WARN);
+		/* XXX exit_on_forward_failure */
 		interactive = 1;
-		/* XXX wait for reply */
 	}
 
 	check_agent_present();

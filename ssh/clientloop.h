@@ -1,4 +1,4 @@
-/* $OpenBSD: clientloop.h,v 1.27 2011/05/08 12:52:01 djm Exp $ */
+/* $OpenBSD: clientloop.h,v 1.29 2011/09/09 22:46:44 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -56,6 +56,10 @@ int	 client_simple_escape_filter(Channel *, char *, int);
 typedef void global_confirm_cb(int, u_int32_t seq, void *);
 void	 client_register_global_confirm(global_confirm_cb *, void *);
 
+/* Channel request confirmation callbacks */
+enum confirm_action { CONFIRM_WARN = 0, CONFIRM_CLOSE, CONFIRM_TTY };
+void client_expect_confirm(int, const char *, enum confirm_action);
+
 /* Multiplexing protocol version */
 #define SSHMUX_VER			4
 
@@ -66,6 +70,7 @@ void	 client_register_global_confirm(global_confirm_cb *, void *);
 #define SSHMUX_COMMAND_STDIO_FWD	4	/* Open stdio fwd (ssh -W) */
 #define SSHMUX_COMMAND_FORWARD		5	/* Forward only, no command */
 #define SSHMUX_COMMAND_STOP		6	/* Disable mux but not conn */
+#define SSHMUX_COMMAND_CANCEL_FWD	7	/* Cancel forwarding(s) */
 
 void	muxserver_listen(void);
 void	muxclient(const char *);

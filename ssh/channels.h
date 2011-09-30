@@ -1,4 +1,4 @@
-/* $OpenBSD: channels.h,v 1.104 2010/05/14 23:29:23 djm Exp $ */
+/* $OpenBSD: channels.h,v 1.109 2011/09/23 07:45:05 markus Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -56,6 +56,8 @@
 #define SSH_CHANNEL_MUX_LISTENER	15	/* Listener for mux conn. */
 #define SSH_CHANNEL_MUX_CLIENT		16	/* Conn. to mux slave */
 #define SSH_CHANNEL_MAX_TYPE		17
+
+#define CHANNEL_CANCEL_PORT_STATIC	-1
 
 struct Channel;
 typedef struct Channel Channel;
@@ -115,6 +117,7 @@ struct Channel {
 	char    *path;
 		/* path for unix domain sockets, or host name for forwards */
 	int     listening_port;	/* port being listened for forwards */
+	char   *listening_addr;	/* addr being listened for forwards */
 	int     host_port;	/* remote port to connect for forwards */
 	char   *remote_name;	/* remote hostname */
 
@@ -249,6 +252,7 @@ void	 channel_set_af(int af);
 void     channel_permit_all_opens(void);
 void	 channel_add_permitted_opens(char *, int);
 int	 channel_add_adm_permitted_opens(char *, int);
+void	 channel_update_permitted_opens(int, int);
 void	 channel_clear_permitted_opens(void);
 void	 channel_clear_adm_permitted_opens(void);
 void 	 channel_print_adm_permitted_opens(void);
@@ -260,9 +264,11 @@ int	 channel_request_remote_forwarding(const char *, u_short,
 	     const char *, u_short);
 int	 channel_setup_local_fwd_listener(const char *, u_short,
 	     const char *, u_short, int);
-void	 channel_request_rforward_cancel(const char *host, u_short port);
+int	 channel_request_rforward_cancel(const char *host, u_short port);
 int	 channel_setup_remote_fwd_listener(const char *, u_short, int *, int);
 int	 channel_cancel_rport_listener(const char *, u_short);
+int	 channel_cancel_lport_listener(const char *, u_short, int, int);
+int	 permitopen_port(const char *);
 
 /* x11 forwarding */
 
@@ -270,7 +276,7 @@ int	 x11_connect_display(void);
 int	 x11_create_display_inet(int, int, int, u_int *, int **);
 void     x11_input_open(int, u_int32_t, void *);
 void	 x11_request_forwarding_with_spoofing(int, const char *, const char *,
-	     const char *);
+	     const char *, int);
 void	 deny_input_open(int, u_int32_t, void *);
 
 /* agent forwarding */
