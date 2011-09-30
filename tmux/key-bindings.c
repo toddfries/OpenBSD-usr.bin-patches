@@ -1,4 +1,4 @@
-/* $OpenBSD: key-bindings.c,v 1.24 2010/09/08 22:02:28 nicm Exp $ */
+/* $OpenBSD: key-bindings.c,v 1.28 2011/07/03 18:18:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -106,6 +106,7 @@ key_bindings_init(void)
 		{ '!', 			  0, &cmd_break_pane_entry },
 		{ '"', 			  0, &cmd_split_window_entry },
 		{ '#', 			  0, &cmd_list_buffers_entry },
+		{ '$',			  0, &cmd_command_prompt_entry },
 		{ '%', 			  0, &cmd_split_window_entry },
 		{ '&', 			  0, &cmd_confirm_before_entry },
 		{ '(',                    0, &cmd_switch_client_entry },
@@ -124,9 +125,11 @@ key_bindings_init(void)
 		{ '8', 			  0, &cmd_select_window_entry },
 		{ '9', 			  0, &cmd_select_window_entry },
 		{ ':', 			  0, &cmd_command_prompt_entry },
+		{ ';', 			  0, &cmd_last_pane_entry },
 		{ '=', 			  0, &cmd_choose_buffer_entry },
 		{ '?', 			  0, &cmd_list_keys_entry },
 		{ 'D',			  0, &cmd_choose_client_entry },
+		{ 'L',			  0, &cmd_switch_client_entry },
 		{ '[', 			  0, &cmd_copy_mode_entry },
 		{ '\'',			  0, &cmd_command_prompt_entry },
 		{ '\002', /* C-b */	  0, &cmd_send_prefix_entry },
@@ -185,9 +188,10 @@ key_bindings_init(void)
 
 		cmd = xmalloc(sizeof *cmd);
 		cmd->entry = table[i].entry;
-		cmd->data = NULL;
-		if (cmd->entry->init != NULL)
-			cmd->entry->init(cmd, table[i].key);
+		if (cmd->entry->key_binding != NULL)
+			cmd->entry->key_binding(cmd, table[i].key);
+		else
+			cmd->args = args_create(0);
 		TAILQ_INSERT_HEAD(&cmdlist->list, cmd, qentry);
 
 		key_bindings_add(

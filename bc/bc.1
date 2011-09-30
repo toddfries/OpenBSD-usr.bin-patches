@@ -1,4 +1,4 @@
-.\"	$OpenBSD: bc.1,v 1.25 2010/01/02 19:48:56 schwarze Exp $
+.\"	$OpenBSD: bc.1,v 1.29 2011/08/30 12:25:09 jmc Exp $
 .\"
 .\" Copyright (C) Caldera International Inc.  2001-2002.
 .\" All rights reserved.
@@ -34,7 +34,7 @@
 .\"
 .\"	@(#)bc.1	6.8 (Berkeley) 8/8/91
 .\"
-.Dd $Mdocdate: January 2 2010 $
+.Dd $Mdocdate: August 30 2011 $
 .Dt BC 1
 .Os
 .Sh NAME
@@ -135,8 +135,7 @@ The following arithmetic and logical operators can be used.
 The semantics of the operators is the same as in the C language.
 They are listed in order of decreasing precedence.
 Operators in the same group have the same precedence.
-.Bl -column -offset indent "= += \-= *= /= %= ^=" "Associativity" \
-"multiply, divide, modulus"
+.Bl -column "= += \-= *= /= %= ^=" "Associativity" "multiply, divide, modulus" -offset indent
 .It Sy "Operator" Ta Sy "Associativity" Ta Sy "Description"
 .It "++ \-\-" Ta "none" Ta "increment, decrement"
 .It "\-" Ta "none" Ta "unary minus"
@@ -337,6 +336,22 @@ $ bc -l -e 'scale = 500; 2 * a(2^10000)' -e quit
 .Ed
 .Pp
 prints an approximation of pi.
+.Sh COMMAND LINE EDITING
+.Nm
+supports interactive command line editing, via the
+.Xr editline 3
+library.
+It is enabled by default if input is from a tty.
+Previous lines can be recalled and edited with the arrow keys,
+and other GNU Emacs-style editing keys may be used as well.
+.Pp
+The
+.Xr editline 3
+library is configured with a
+.Pa .editrc
+file \- refer to
+.Xr editrc 5
+for more information.
 .Sh FILES
 .Bl -tag -width /usr/share/misc/bc.library -compact
 .It Pa /usr/share/misc/bc.library
@@ -346,9 +361,6 @@ option is specified on the command line.
 .El
 .Sh SEE ALSO
 .Xr dc 1
-.Pp
-"BC \- An Arbitrary Precision Desk-Calculator Language",
-.Pa /usr/share/doc/usd/06.bc/ .
 .Sh STANDARDS
 The
 .Nm

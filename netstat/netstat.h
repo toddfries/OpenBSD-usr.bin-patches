@@ -1,4 +1,4 @@
-/*	$OpenBSD: netstat.h,v 1.56 2010/06/29 03:09:29 blambert Exp $	*/
+/*	$OpenBSD: netstat.h,v 1.60 2011/07/09 00:45:40 henning Exp $	*/
 /*	$NetBSD: netstat.h,v 1.6 1996/05/07 02:55:05 thorpej Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 
 int	Aflag;		/* show addresses of protocol control block */
 int	aflag;		/* show all sockets (including servers) */
+int	Bflag;		/* show TCP send and receive buffer sizes */
 int	bflag;		/* show bytes instead of packets */
 int	dflag;		/* show i/f dropped packets */
 int	Fflag;		/* show routes whose gateways are in specified AF */
@@ -69,7 +70,7 @@ int	kread(u_long addr, void *buf, int size);
 char	*plural(u_int64_t);
 char	*plurales(u_int64_t);
 
-void	protopr(u_long, char *, int);
+void	protopr(u_long, char *, int, u_long);
 void	tcp_stats(char *);
 void	udp_stats(char *);
 void	ip_stats(char *);
@@ -88,7 +89,8 @@ void	ipcomp_stats(char *);
 
 void	net80211_ifstats(char *);
 
-void	tcp_dump(u_long);
+void	socket_dump(u_long);
+void	unpcb_dump(u_long);
 
 void	mbpr(void);
 
@@ -114,7 +116,7 @@ void	mrt6_stats(void);
 char	*routename6(struct sockaddr_in6 *);
 char	*netname6(struct sockaddr_in6 *, struct sockaddr_in6 *);
 
-void	p_rttables(int, u_int);
+void	p_rttables(int, u_int, int);
 void	p_flags(int, char *);
 void	p_addr(struct sockaddr *, struct sockaddr *, int);
 void	p_gwaddr(struct sockaddr *, int);
@@ -130,11 +132,7 @@ void	nsprotopr(u_long, char *);
 
 void	intpr(int, int);
 
-void	unixpr(u_long);
+void	unixpr(u_long, u_long);
 
 void	mroutepr(u_long, u_long, u_long);
 void	mrt_stats(void);
-
-void	atalkprotopr(u_long, char *, int);
-void	ddp_stats(char *);
-char	*atalk_print(const struct sockaddr *, int);

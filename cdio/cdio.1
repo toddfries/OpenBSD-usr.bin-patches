@@ -1,4 +1,4 @@
-.\" $OpenBSD: cdio.1,v 1.56 2010/07/26 21:14:39 jmc Exp $
+.\" $OpenBSD: cdio.1,v 1.59 2011/07/09 18:10:24 stsp Exp $
 .\"
 .\" Copyright (c) 1995 Serge V. Vakulenko
 .\" All rights reserved.
@@ -29,7 +29,7 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: July 26 2010 $
+.Dd $Mdocdate: July 9 2011 $
 .Dt CDIO 1
 .Os
 .Sh NAME
@@ -61,9 +61,7 @@ Specifies a CDDB host
 .Bq default: freedb.freedb.org:cddb .
 .It Fl f Ar device
 Specifies the name of the CD device, such as
-.Pa /dev/rcd0c
-or
-.Pa mcd0 .
+.Pa /dev/rcd0c .
 Both absolute and relative paths to
 .Pa /dev
 filenames are possible;
@@ -154,8 +152,10 @@ If we're at the last track, stop.
 Stop playing.
 Do not stop the disc.
 .It Xo Ic play
-.Oo Ar track1 Ns Op Ar .index1
-.Op Ar track2 Ns Op Ar .index2 Oc
+.Oo
+.Ar track1 Ns Op Ar .index1
+.Op Ar track2 Ns Op Ar .index2
+.Oc
 .Xc
 Play from
 .Ar track1
@@ -165,12 +165,14 @@ an optional index point can be specified for each track.
 If only one track is specified, play from that track to the end of the disc.
 If no tracks are specified, play the whole disc.
 .It Xo Ic play
-.Oo Op Ar tr1
+.Oo
+.Op Ar tr1
 .Ar m1 : Ns Ar s1 Ns Oo
 .Ar .f1 Oc
 .Op Ar tr2
 .Oo Ar m2 : Ns Ar s2 Ns
-.Op Ar .f2 Oc Oc
+.Op Ar .f2
+.Oc Oc
 .Xc
 Play from the absolute address
 (MSF) defined by
@@ -257,6 +259,8 @@ or one of the literal strings
 or
 .Dq max ,
 meaning the optimal or maximum speed detected.
+The default speed is
+.Dq auto .
 .El
 .It Ic volume Ar left_channel Ar right_channel
 Set the volume of the left channel to
@@ -307,9 +311,8 @@ socket to connect to, or path to the
 device to use.
 .El
 .Sh FILES
-.Bl -tag -width /dev/rmcd0c -compact
+.Bl -tag -width /dev/rcd0c -compact
 .It Pa /dev/rcd0c
-.It Pa /dev/rmcd0c
 .El
 .Sh SEE ALSO
 .Xr aucat 1 ,

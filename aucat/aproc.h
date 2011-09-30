@@ -1,4 +1,4 @@
-/*	$OpenBSD: aproc.h,v 1.37 2010/06/04 06:15:28 ratchov Exp $	*/
+/*	$OpenBSD: aproc.h,v 1.39 2011/05/26 07:18:40 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -140,6 +140,7 @@ struct aproc {
 			unsigned abspos;	/* frames produced */
 			struct aproc *ctl;	/* MIDI control/sync */
 			struct aproc *mon;	/* snoop output */
+			unsigned autovol;	/* adjust volume dynamically */
 		} mix;
 		struct {
 			unsigned idle;		/* frames since idleing */
@@ -157,7 +158,7 @@ struct aproc {
 		struct {
 #define RESAMP_NCTX	2
 			unsigned ctx_start;
-			short ctx[NCHAN_MAX * RESAMP_NCTX];
+			adata_t ctx[NCHAN_MAX * RESAMP_NCTX];
 			unsigned iblksz, oblksz;
 			int diff;
 			int idelta, odelta;	/* remainder of resamp_xpos */
@@ -239,7 +240,7 @@ void aproc_opos(struct aproc *, struct abuf *, int);
 
 struct aproc *rfile_new(struct file *);
 struct aproc *wfile_new(struct file *);
-struct aproc *mix_new(char *, int, unsigned);
+struct aproc *mix_new(char *, int, unsigned, unsigned);
 struct aproc *sub_new(char *, int, unsigned);
 struct aproc *resamp_new(char *, unsigned, unsigned);
 struct aproc *enc_new(char *, struct aparams *);

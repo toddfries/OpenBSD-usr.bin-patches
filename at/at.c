@@ -1,4 +1,4 @@
-/*	$OpenBSD: at.c,v 1.57 2010/07/02 23:40:09 krw Exp $	*/
+/*	$OpenBSD: at.c,v 1.60 2011/08/30 19:56:08 guenther Exp $	*/
 
 /*
  *  at.c : Put file into atrun queue
@@ -82,7 +82,7 @@ panic(const char *a)
 		PRIV_END;
 	}
 
-	exit(ERROR_EXIT);
+	exit(EXIT_FAILURE);
 }
 
 /*
@@ -98,7 +98,7 @@ panic2(const char *a, const char *b)
 		PRIV_END;
 	}
 
-	exit(ERROR_EXIT);
+	exit(EXIT_FAILURE);
 }
 
 /*
@@ -115,7 +115,7 @@ perr(const char *a)
 		PRIV_END;
 	}
 
-	exit(ERROR_EXIT);
+	exit(EXIT_FAILURE);
 }
 
 /*
@@ -140,7 +140,7 @@ sigc(int signo)
 		PRIV_END;
 	}
 
-	_exit(ERROR_EXIT);
+	_exit(EXIT_FAILURE);
 }
 
 /* ARGSUSED */
@@ -505,7 +505,7 @@ list_jobs(int argc, char **argv, int count_only, int csort)
 
 	PRIV_END;
 
-	if (fstat(spool->dd_fd, &stbuf) != 0)
+	if (fstat(dirfd(spool), &stbuf) != 0)
 		perr2("Cannot stat ", AT_DIR);
 
 	/*
@@ -669,7 +669,7 @@ process_jobs(int argc, char **argv, int what)
 					    " may %s other users' jobs\n",
 					    ProgramName, what == ATRM
 					    ? "remove" : "view");
-					exit(ERROR_EXIT);
+					exit(EXIT_FAILURE);
 				}
 				uids[uids_len++] = pw->pw_uid;
 			} else
@@ -831,10 +831,11 @@ ttime(char *arg)
 			yearset = ATOI2(arg);
 			lt->tm_year += yearset;
 		} else {
-			/* current century + specified year */
 			yearset = ATOI2(arg);
-			lt->tm_year = ((lt->tm_year / 100) * 100);
-			lt->tm_year += yearset;
+			/* POSIX logic: [00,68]=>20xx, [69,99]=>19xx */
+			lt->tm_year = yearset;
+			if (yearset < 69)
+				lt->tm_year += 100;
 		}
 		/* FALLTHROUGH */
 	case 8:				/* MMDDhhmm */
@@ -876,7 +877,7 @@ check_permission(void)
 
 	if ((pw = getpwuid(uid)) == NULL) {
 		perror("Cannot access password database");
-		exit(ERROR_EXIT);
+		exit(EXIT_FAILURE);
 	}
 
 	PRIV_START;
@@ -913,7 +914,7 @@ usage(void)
 		    "usage: batch [-m] [-f file] [-q queue] [timespec]\n");
 		break;
 	}
-	exit(ERROR_EXIT);
+	exit(EXIT_FAILURE);
 }
 
 int
@@ -1076,7 +1077,7 @@ main(int argc, char **argv)
 			if (argc == 0)
 				usage();
 			else if ((timer = parsetime(argc, argv)) == -1)
-				exit(ERROR_EXIT);
+				exit(EXIT_FAILURE);
 		}
 		writefile(cwd, timer, queue);
 		break;
@@ -1090,7 +1091,7 @@ main(int argc, char **argv)
 		if (argc == 0)
 			timer = time(NULL);
 		else if ((timer = parsetime(argc, argv)) == -1)
-			exit(ERROR_EXIT);
+			exit(EXIT_FAILURE);
 
 		writefile(cwd, timer, queue);
 		break;
@@ -1099,5 +1100,5 @@ main(int argc, char **argv)
 		panic("Internal error");
 		break;
 	}
-	exit(OK_EXIT);
+	exit(EXIT_SUCCESS);
 }

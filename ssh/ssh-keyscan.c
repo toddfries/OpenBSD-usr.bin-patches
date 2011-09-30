@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keyscan.c,v 1.83 2010/08/31 11:54:45 djm Exp $ */
+/* $OpenBSD: ssh-keyscan.c,v 1.85 2011/03/15 10:36:02 okan Exp $ */
 /*
  * Copyright 1995, 1996 by David Mazieres <dm@lcs.mit.edu>.
  *
@@ -231,7 +231,8 @@ keygrab_ssh2(con *c)
 	packet_set_connection(c->c_fd, c->c_fd);
 	enable_compat20();
 	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = c->c_keytype == KT_DSA?
-	    "ssh-dss": "ssh-rsa";
+	    "ssh-dss" : (c->c_keytype == KT_RSA ? "ssh-rsa" :
+	    "ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521");
 	c->c_kex = kex_setup(myproposal);
 	c->c_kex->kex[KEX_DH_GRP1_SHA1] = kexdh_client;
 	c->c_kex->kex[KEX_DH_GRP14_SHA1] = kexdh_client;
@@ -519,7 +520,7 @@ conloop(void)
 			seltime.tv_sec--;
 		}
 	} else
-		seltime.tv_sec = seltime.tv_usec = 0;
+		timerclear(&seltime);
 
 	r = xcalloc(read_wait_nfdset, sizeof(fd_mask));
 	e = xcalloc(read_wait_nfdset, sizeof(fd_mask));
@@ -558,7 +559,7 @@ do_host(char *host)
 
 	if (name == NULL)
 		return;
-	for (j = KT_RSA1; j <= KT_RSA; j *= 2) {
+	for (j = KT_RSA1; j <= KT_ECDSA; j *= 2) {
 		if (get_keytypes & j) {
 			while (ncon >= MAXCON)
 				conloop();

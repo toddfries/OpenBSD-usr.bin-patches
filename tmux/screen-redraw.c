@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-redraw.c,v 1.16 2010/02/04 18:20:16 nicm Exp $ */
+/* $OpenBSD: screen-redraw.c,v 1.18 2011/07/08 21:51:40 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -40,6 +40,8 @@ void	screen_redraw_draw_number(struct client *, struct window_pane *);
 #define CELL_RIGHTJOIN 10
 #define CELL_JOIN 11
 #define CELL_OUTSIDE 12
+
+#define CELL_BORDERS " xqlkmjwvtun~"
 
 /* Check if cell is on the border of a particular pane. */
 int
@@ -173,8 +175,10 @@ screen_redraw_screen(struct client *c, int status_only, int borders_only)
 	struct grid_cell	 active_gc, other_gc;
 	u_int		 	 i, j, type;
 	int		 	 status, fg, bg;
-	const u_char		*base, *ptr;
-	u_char		       	 ch, border[20];
+
+	/* Suspended clients should not be updated. */
+	if (c->flags & CLIENT_SUSPENDED)
+		return;
 
 	/* Get status line, er, status. */
 	if (c->message_string != NULL || c->prompt_string != NULL)
@@ -193,6 +197,7 @@ screen_redraw_screen(struct client *c, int status_only, int borders_only)
 	memcpy(&other_gc, &grid_default_cell, sizeof other_gc);
 	memcpy(&active_gc, &grid_default_cell, sizeof active_gc);
 	active_gc.data = other_gc.data = 'x'; /* not space */
+	active_gc.attr = other_gc.attr = GRID_ATTR_CHARSET;
 	fg = options_get_number(&c->session->options, "pane-border-fg");
 	colour_set_fg(&other_gc, fg);
 	bg = options_get_number(&c->session->options, "pane-border-bg");
@@ -203,16 +208,6 @@ screen_redraw_screen(struct client *c, int status_only, int borders_only)
 	colour_set_bg(&active_gc, bg);
 
 	/* Draw background and borders. */
-	strlcpy(border, " |-....--||+.", sizeof border);
-	if (tty_term_has(tty->term, TTYC_ACSC)) {
-		base = " xqlkmjwvtun~";
-		for (ptr = base; *ptr != '\0'; ptr++) {
-			if ((ch = tty_get_acs(tty, *ptr)) != '\0')
-				border[ptr - base] = ch;
-		}
-		other_gc.attr |= GRID_ATTR_CHARSET;
-		active_gc.attr |= GRID_ATTR_CHARSET;
-	}
 	for (j = 0; j < tty->sy - status; j++) {
 		if (status_only && j != tty->sy - 1)
 			continue;
@@ -225,7 +220,7 @@ screen_redraw_screen(struct client *c, int status_only, int borders_only)
 			else
 				tty_attributes(tty, &other_gc);
 			tty_cursor(tty, i, j);
-			tty_putc(tty, border[type]);
+			tty_putc(tty, CELL_BORDERS[type]);
 		}
 	}
 

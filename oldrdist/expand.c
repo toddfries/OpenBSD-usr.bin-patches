@@ -1,4 +1,4 @@
-/*	$OpenBSD: expand.c,v 1.12 2009/10/27 23:59:41 deraadt Exp $	*/
+/*	$OpenBSD: expand.c,v 1.14 2011/07/22 18:26:18 matthew Exp $	*/
 
 /*
  * Copyright (c) 1983, 1993
@@ -169,7 +169,7 @@ expstr(s)
 			savec = *tail;
 			*tail = '\0';
 		}
-		tp = lookup(cp, NULL, 0);
+		tp = lookup(cp, LOOKUP, 0);
 		if (savec != '\0')
 			*tail = savec;
 		if (tp != NULL) {
@@ -300,7 +300,7 @@ matchdir(pattern)
 			return;
 		goto patherr2;
 	}
-	if (fstat(dirp->dd_fd, &stb) < 0)
+	if (fstat(dirfd(dirp), &stb) < 0)
 		goto patherr1;
 	if (!ISDIR(stb.st_mode)) {
 		errno = ENOTDIR;

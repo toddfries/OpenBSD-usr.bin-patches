@@ -1,4 +1,4 @@
-/*	$OpenBSD: buf.c,v 1.18 2010/09/08 20:49:11 nicm Exp $	*/
+/*	$OpenBSD: buf.c,v 1.22 2011/07/06 15:36:52 nicm Exp $	*/
 /*
  * Copyright (c) 2003 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -30,7 +30,6 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -189,6 +188,15 @@ buf_putc(BUF *b, int c)
 }
 
 /*
+ * Append a string <s> to the end of buffer <b>.
+ */
+void
+buf_puts(BUF *b, const char *str)
+{
+	buf_append(b, str, strlen(str));
+}
+
+/*
  * Return u_char at buffer position <pos>.
  */
 u_char
@@ -219,26 +227,6 @@ buf_append(BUF *b, const void *data, size_t len)
 	b->cb_len += rlen;
 
 	return (rlen);
-}
-
-size_t
-buf_fappend(BUF *b, const char *fmt, ...)
-{
-	size_t ret;
-	int n;
-	char *str;
-	va_list vap;
-
-	va_start(vap, fmt);
-	n = vasprintf(&str, fmt, vap);
-	va_end(vap);
-
-	if (n == -1)
-		errx(1, "buf_fappend: failed to format data");
-
-	ret = buf_append(b, str, n);
-	xfree(str);
-	return (ret);
 }
 
 /*

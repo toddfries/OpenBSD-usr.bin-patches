@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbufs.c,v 1.28 2010/08/01 05:30:13 blambert Exp $ */
+/*	$OpenBSD: mbufs.c,v 1.32 2011/03/02 06:48:17 jasper Exp $ */
 /*
  * Copyright (c) 2008 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -41,6 +41,7 @@ struct mclpool_info {
 int mclpool_count = 0;
 int mbpool_index = -1;
 struct pool mbpool;
+u_int mcllivelocks, mcllivelocks_cur, mcllivelocks_diff;
 
 /* interfaces */
 static int num_ifs;
@@ -69,17 +70,15 @@ field_def fields_mbuf[] = {
 };
 
 
-#define FIELD_ADDR(x) (&fields_mbuf[x])
-
-#define FLD_MB_IFACE	FIELD_ADDR(0)
-#define FLD_MB_RXDELAY	FIELD_ADDR(1)
-#define FLD_MB_TXDELAY	FIELD_ADDR(2)
-#define FLD_MB_LLOCKS	FIELD_ADDR(3)
-#define FLD_MB_MSIZE	FIELD_ADDR(4)
-#define FLD_MB_MALIVE	FIELD_ADDR(5)
-#define FLD_MB_MLWM	FIELD_ADDR(6)
-#define FLD_MB_MHWM	FIELD_ADDR(7)
-#define FLD_MB_MCWM	FIELD_ADDR(8)
+#define FLD_MB_IFACE	FIELD_ADDR(fields_mbuf,0)
+#define FLD_MB_RXDELAY	FIELD_ADDR(fields_mbuf,1)
+#define FLD_MB_TXDELAY	FIELD_ADDR(fields_mbuf,2)
+#define FLD_MB_LLOCKS	FIELD_ADDR(fields_mbuf,3)
+#define FLD_MB_MSIZE	FIELD_ADDR(fields_mbuf,4)
+#define FLD_MB_MALIVE	FIELD_ADDR(fields_mbuf,5)
+#define FLD_MB_MLWM	FIELD_ADDR(fields_mbuf,6)
+#define FLD_MB_MHWM	FIELD_ADDR(fields_mbuf,7)
+#define FLD_MB_MCWM	FIELD_ADDR(fields_mbuf,8)
 
 
 /* Define views */
@@ -197,6 +196,17 @@ read_mb(void)
 	int mib[4];
 	int i, p, nif, ret = 1;
 	size_t size;
+
+	mib[0] = CTL_KERN;
+	mib[1] = KERN_NETLIVELOCKS;
+	size = sizeof(mcllivelocks_cur);
+	if (sysctl(mib, 2, &mcllivelocks_cur, &size, NULL, 0) < 0 &&
+	    errno != EOPNOTSUPP) {
+		error("sysctl(KERN_NETLIVELOCKS)");
+		goto exit;
+	}
+	mcllivelocks_diff = mcllivelocks_cur - mcllivelocks;
+	mcllivelocks = mcllivelocks_cur;
 
 	num_disp = 0;
 	if (getifaddrs(&ifap)) {
@@ -341,6 +351,7 @@ showmbuf(struct if_info *ifi, int p, int showif)
 		print_fld_str(FLD_MB_IFACE, ifi->name);
 
 	if (p == -1 && ifi == interfaces) {
+		print_fld_uint(FLD_MB_LLOCKS, mcllivelocks_diff);
 		print_fld_size(FLD_MB_MSIZE, mbpool.pr_size);
 		print_fld_size(FLD_MB_MALIVE, mbpool.pr_nget - mbpool.pr_nput);
 		print_fld_size(FLD_MB_MHWM, mbpool.pr_hiwat);
@@ -350,8 +361,6 @@ showmbuf(struct if_info *ifi, int p, int showif)
 	print_fld_uint(FLD_MB_RXDELAY, ifi->data.ifi_rxdelay);
 	print_fld_uint(FLD_MB_TXDELAY, ifi->data.ifi_txdelay);
 #endif
-	if (ifi->data.ifi_livelocks)
-		print_fld_size(FLD_MB_LLOCKS, ifi->data.ifi_livelocks);
 
 	if (p >= 0 && p < mclpool_count) {
 		struct mclpool *mp = &ifi->data.ifi_mclpool[p];

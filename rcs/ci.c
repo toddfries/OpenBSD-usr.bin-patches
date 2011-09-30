@@ -1,4 +1,4 @@
-/*	$OpenBSD: ci.c,v 1.211 2010/09/08 15:15:50 tobias Exp $	*/
+/*	$OpenBSD: ci.c,v 1.213 2011/07/14 16:31:34 sobrado Exp $	*/
 /*
  * Copyright (c) 2005, 2006 Niall O'Higgins <niallo@openbsd.org>
  * All rights reserved.
@@ -53,12 +53,6 @@
 #define KW_TYPE_STATE		4
 #define KW_TYPE_REVISION	5
 
-#define KW_NUMTOKS_ID		10
-#define KW_NUMTOKS_AUTHOR	3
-#define KW_NUMTOKS_DATE		4
-#define KW_NUMTOKS_STATE	3
-#define KW_NUMTOKS_REVISION	3
-
 /* Maximum number of tokens in a keyword. */
 #define KW_NUMTOKS_MAX		10
 
@@ -100,7 +94,7 @@ checkin_usage(void)
 	fprintf(stderr,
 	    "usage: ci [-qV] [-d[date]] [-f[rev]] [-I[rev]] [-i[rev]]\n"
 	    "          [-j[rev]] [-k[rev]] [-l[rev]] [-M[rev]] [-mmsg]\n"
-	    "          [-Nsymbol] [-nsymbol] [-r[rev]] [-sstate] [-tstr]\n"
+	    "          [-Nsymbol] [-nsymbol] [-r[rev]] [-sstate] [-t[str]]\n"
 	    "          [-u[rev]] [-wusername] [-xsuffixes] [-ztz] file ...\n");
 }
 

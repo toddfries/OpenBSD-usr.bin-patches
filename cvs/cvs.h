@@ -1,4 +1,4 @@
-/*	$OpenBSD: cvs.h,v 1.178 2010/07/23 21:46:05 ray Exp $	*/
+/*	$OpenBSD: cvs.h,v 1.181 2011/09/20 12:43:45 nicm Exp $	*/
 /*
  * Copyright (c) 2004 Jean-Francois Brousseau <jfb@openbsd.org>
  * All rights reserved.
@@ -39,8 +39,6 @@
 #include "xmalloc.h"
 
 #define CVS_VERSION	"OpenCVS 4.5"
-
-#define CVS_CKSUM_LEN	MD5_DIGEST_STRING_LENGTH
 
 #define CVS_REV_BUFSZ	32
 #define CVS_TIME_BUFSZ	64
@@ -274,6 +272,7 @@ typedef struct cvs_entries {
 extern char *checkout_target_dir;
 extern char *cvs_join_rev1;
 extern char *cvs_join_rev2;
+extern int   backup_local_changes;
 
 extern struct module_checkout *current_module;
 extern char *module_repo_root;
@@ -286,7 +285,6 @@ extern struct cvsroot *current_cvsroot;
 extern char *cvs_tagname;
 extern char *cvs_editor;
 extern char *cvs_homedir;
-extern char *cvs_msg;
 extern char *cvs_rsh;
 extern char *cvs_tmpdir;
 extern char *import_repository;
@@ -388,6 +386,7 @@ void	cvs_checkout_file(struct cvs_file *, RCSNUM *, char *, int);
 void	cvs_remove_local(struct cvs_file *);
 void	cvs_add_local(struct cvs_file *);
 int	update_has_conflict_markers(struct cvs_file *);
+void	cvs_backup_file(struct cvs_file *);
 
 #define CO_MERGE	0x01
 #define CO_SETSTICKY	0x02

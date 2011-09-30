@@ -15,7 +15,8 @@ CDIAGFLAGS+=    -Wshadow
 
 PROG=tcpbench
 
-LDADD=-lkvm
+LDADD=-lkvm -levent
+DPADD=${LIBKVM} ${LIBEVENT}
 
 #BINGRP= kmem
 #BINMODE=2555

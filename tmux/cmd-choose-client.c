@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-choose-client.c,v 1.4 2009/11/13 19:53:28 nicm Exp $ */
+/* $OpenBSD: cmd-choose-client.c,v 1.6 2011/08/16 10:00:52 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,13 +33,12 @@ void	cmd_choose_client_free(void *);
 
 const struct cmd_entry cmd_choose_client_entry = {
 	"choose-client", NULL,
+	"t:", 0, 1,
 	CMD_TARGET_WINDOW_USAGE " [template]",
-	CMD_ARG01, "",
-	cmd_target_init,
-	cmd_target_parse,
-	cmd_choose_client_exec,
-	cmd_target_free,
-	cmd_target_print
+	0,
+	NULL,
+	NULL,
+	cmd_choose_client_exec
 };
 
 struct cmd_choose_client_data {
@@ -50,7 +49,7 @@ struct cmd_choose_client_data {
 int
 cmd_choose_client_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_target_data		*data = self->data;
+	struct args			*args = self->args;
 	struct cmd_choose_client_data	*cdata;
 	struct winlink			*wl;
 	struct client			*c;
@@ -61,7 +60,7 @@ cmd_choose_client_exec(struct cmd *self, struct cmd_ctx *ctx)
 		return (-1);
 	}
 
-	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
+	if ((wl = cmd_find_window(ctx, args_get(args, 't'), NULL)) == NULL)
 		return (-1);
 
 	if (window_pane_set_mode(wl->window->active, &window_choose_mode) != 0)
@@ -77,14 +76,16 @@ cmd_choose_client_exec(struct cmd *self, struct cmd_ctx *ctx)
 		idx++;
 
 		window_choose_add(wl->window->active, i,
-		    "%s: %s [%ux%u %s]%s", c->tty.path,
+		    "%s: %s [%ux%u %s]%s%s", c->tty.path,
 		    c->session->name, c->tty.sx, c->tty.sy,
-		    c->tty.termname, c->tty.flags & TTY_UTF8 ? " (utf8)" : "");
+		    c->tty.termname,
+		    c->tty.flags & TTY_UTF8 ? " (utf8)" : "",
+		    c->flags & CLIENT_READONLY ? " (ro)" : "");
 	}
 
 	cdata = xmalloc(sizeof *cdata);
-	if (data->arg != NULL)
-		cdata->template = xstrdup(data->arg);
+	if (args->argc != 0)
+		cdata->template = xstrdup(args->argv[0]);
 	else
 		cdata->template = xstrdup("detach-client -t '%%'");
 	cdata->client = ctx->curclient;

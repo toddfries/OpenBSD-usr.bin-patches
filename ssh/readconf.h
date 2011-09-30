@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.h,v 1.86 2010/07/19 09:15:12 djm Exp $ */
+/* $OpenBSD: readconf.h,v 1.91 2011/09/23 07:45:05 markus Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -24,10 +24,12 @@ typedef struct {
 	char	 *connect_host;		/* Host to connect. */
 	int	  connect_port;		/* Port to connect on connect_host. */
 	int	  allocated_port;	/* Dynamically allocated listen port */
+	int	  handle;		/* Handle for dynamic listen ports */
 }       Forward;
 /* Data structure for representing option data. */
 
-#define MAX_SEND_ENV	256
+#define MAX_SEND_ENV		256
+#define SSH_MAX_HOSTS_FILES	256
 
 typedef struct {
 	int     forward_agent;	/* Forward authentication agent. */
@@ -59,6 +61,8 @@ typedef struct {
 	int     compression_level;	/* Compression level 1 (fast) to 9
 					 * (best). */
 	int     tcp_keep_alive;	/* Set SO_KEEPALIVE. */
+	int	ip_qos_interactive;	/* IP ToS/DSCP/class for interactive */
+	int	ip_qos_bulk;		/* IP ToS/DSCP/class for bulk traffic */
 	LogLevel log_level;	/* Level for logging. */
 
 	int     port;		/* Port to connect. */
@@ -73,6 +77,7 @@ typedef struct {
 	char   *ciphers;	/* SSH2 ciphers in order of preference. */
 	char   *macs;		/* SSH2 macs in order of preference. */
 	char   *hostkeyalgorithms;	/* SSH2 server key types in order of preference. */
+	char   *kex_algorithms;	/* SSH2 kex methods in order of preference. */
 	int	protocol;	/* Protocol in order of preference. */
 	char   *hostname;	/* Real host to connect. */
 	char   *host_key_alias;	/* hostname alias for .ssh/known_hosts */
@@ -80,10 +85,10 @@ typedef struct {
 	char   *user;		/* User to log in as. */
 	int     escape_char;	/* Escape character; -2 = none */
 
-	char   *system_hostfile;/* Path for /etc/ssh/ssh_known_hosts. */
-	char   *user_hostfile;	/* Path for $HOME/.ssh/known_hosts. */
-	char   *system_hostfile2;
-	char   *user_hostfile2;
+	u_int	num_system_hostfiles;	/* Paths for /etc/ssh/ssh_known_hosts */
+	char   *system_hostfiles[SSH_MAX_HOSTS_FILES];
+	u_int	num_user_hostfiles;	/* Path for $HOME/.ssh/known_hosts */
+	char   *user_hostfiles[SSH_MAX_HOSTS_FILES];
 	char   *preferred_authentications;
 	char   *bind_address;	/* local socket address for connection to sshd */
 	char   *pkcs11_provider; /* PKCS#11 provider */
@@ -129,6 +134,7 @@ typedef struct {
 
 	int	use_roaming;
 
+	int	request_tty;
 }       Options;
 
 #define SSHCTL_MASTER_NO	0
@@ -136,6 +142,11 @@ typedef struct {
 #define SSHCTL_MASTER_AUTO	2
 #define SSHCTL_MASTER_ASK	3
 #define SSHCTL_MASTER_AUTO_ASK	4
+
+#define REQUEST_TTY_AUTO	0
+#define REQUEST_TTY_NO		1
+#define REQUEST_TTY_YES		2
+#define REQUEST_TTY_FORCE	3
 
 void     initialize_options(Options *);
 void     fill_default_options(Options *);

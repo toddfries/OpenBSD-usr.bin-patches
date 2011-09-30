@@ -1,4 +1,4 @@
-/*	$OpenBSD: dired.c,v 1.46 2010/06/26 16:18:43 kjell Exp $	*/
+/*	$OpenBSD: dired.c,v 1.50 2011/08/31 03:40:53 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -21,6 +21,7 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <libgen.h>
+#include <stdarg.h>
 
 void		 dired_init(void);
 static int	 dired(int, int);
@@ -33,9 +34,16 @@ static int	 d_expunge(int, int);
 static int	 d_copy(int, int);
 static int	 d_del(int, int);
 static int	 d_rename(int, int);
+static int	 d_exec(int, struct buffer *, const char *, const char *, ...);
 static int	 d_shell_command(int, int);
 static int	 d_create_directory(int, int);
 static int	 d_makename(struct line *, char *, size_t);
+static int	 d_warpdot(struct line *, int *);
+static int	 d_forwpage(int, int);
+static int	 d_backpage(int, int);
+static int	 d_forwline(int, int);
+static int	 d_backline(int, int);
+static void	 reaper(int);
 
 extern struct keymap_s helpmap, cXmap, metamap;
 
@@ -56,15 +64,15 @@ static PF dirednul[] = {
 static PF diredcl[] = {
 	reposition,		/* ^L */
 	d_findfile,		/* ^M */
-	forwline,		/* ^N */
+	d_forwline,		/* ^N */
 	rescan,			/* ^O */
-	backline,		/* ^P */
+	d_backline,		/* ^P */
 	rescan,			/* ^Q */
 	backisearch,		/* ^R */
 	forwisearch,		/* ^S */
 	rescan,			/* ^T */
 	universal_argument,	/* ^U */
-	forwpage,		/* ^V */
+	d_forwpage,		/* ^V */
 	rescan,			/* ^W */
 	NULL			/* ^X */
 };
@@ -76,7 +84,7 @@ static PF diredcz[] = {
 	rescan,			/* ^] */
 	rescan,			/* ^^ */
 	rescan,			/* ^_ */
-	forwline,		/* SP */
+	d_forwline,		/* SP */
 	d_shell_command,	/* ! */
 	rescan,			/* " */
 	rescan,			/* # */
@@ -98,9 +106,9 @@ static PF diredc[] = {
 };
 
 static PF diredn[] = {
-	forwline,		/* n */
+	d_forwline,		/* n */
 	d_ffotherwindow,	/* o */
-	backline,		/* p */
+	d_backline,		/* p */
 	rescan,			/* q */
 	d_rename,		/* r */
 	rescan,			/* s */
@@ -115,13 +123,32 @@ static PF direddl[] = {
 	d_undelbak		/* del */
 };
 
+static PF diredbp[] = {
+	d_backpage		/* v */	
+};
+
+static PF dirednull[] = {
+	NULL
+};
+
 #ifndef	DIRED_XMAPS
 #define	NDIRED_XMAPS	0	/* number of extra map sections */
 #endif /* DIRED_XMAPS */
 
-static struct KEYMAPE (6 + NDIRED_XMAPS + IMAPEXT) diredmap = {
-	6 + NDIRED_XMAPS,
-	6 + NDIRED_XMAPS + IMAPEXT,
+static struct KEYMAPE (1 + IMAPEXT) d_backpagemap = {
+	1,
+	1 + IMAPEXT,
+	rescan,                 
+	{
+		{
+		'v', 'v', diredbp, NULL
+		}
+	}
+};
+
+static struct KEYMAPE (7 + NDIRED_XMAPS + IMAPEXT) diredmap = {
+	7 + NDIRED_XMAPS,
+	7 + NDIRED_XMAPS + IMAPEXT,
 	rescan,
 	{
 #ifndef NO_HELP
@@ -135,6 +162,10 @@ static struct KEYMAPE (6 + NDIRED_XMAPS + IMAPEXT) diredmap = {
 #endif /* !NO_HELP */
 		{
 			CCHR('L'), CCHR('X'), diredcl, (KEYMAP *) & cXmap
+		},
+		{
+			CCHR('['), CCHR('['), dirednull, (KEYMAP *) & 
+			d_backpagemap
 		},
 		{
 			CCHR('Z'), '+', diredcz, (KEYMAP *) & metamap
@@ -164,8 +195,12 @@ dired_init(void)
 	funmap_add(d_findfile, "dired-find-file");
 	funmap_add(d_ffotherwindow, "dired-find-file-other-window");
 	funmap_add(d_del, "dired-flag-file-deleted");
+	funmap_add(d_forwline, "dired-next-line");
 	funmap_add(d_otherwindow, "dired-other-window");
+	funmap_add(d_backline, "dired-previous-line");
 	funmap_add(d_rename, "dired-rename-file");
+	funmap_add(d_backpage, "dired-scroll-down");
+	funmap_add(d_forwpage, "dired-scroll-up");
 	funmap_add(d_undel, "dired-unflag");
 	maps_add((KEYMAP *)&diredmap, "dired");
 	dobindkey(fundamental_map, "dired", "^Xd");
@@ -334,7 +369,7 @@ int
 d_expunge(int f, int n)
 {
 	struct line	*lp, *nlp;
-	char		 fname[NFILEN];
+	char		 fname[NFILEN], sname[NFILEN];
 
 	for (lp = bfirstlp(curbp); lp != curbp->b_headp; lp = nlp) {
 		nlp = lforw(lp);
@@ -345,15 +380,16 @@ d_expunge(int f, int n)
 				return (FALSE);
 			case FALSE:
 				if (unlink(fname) < 0) {
-					ewprintf("Could not delete '%s'",
-					    basename(fname));
+					(void)xbasename(sname, fname, NFILEN);
+					ewprintf("Could not delete '%s'", sname);
 					return (FALSE);
 				}
 				break;
 			case TRUE:
 				if (rmdir(fname) < 0) {
-					ewprintf("Could not delete directory '%s'",
-					    basename(fname));
+					(void)xbasename(sname, fname, NFILEN);
+					ewprintf("Could not delete directory "
+					    "'%s'", sname);
 					return (FALSE);
 				}
 				break;
@@ -370,7 +406,7 @@ d_expunge(int f, int n)
 int
 d_copy(int f, int n)
 {
-	char	frname[NFILEN], toname[NFILEN], *bufp;
+	char	frname[NFILEN], toname[NFILEN], sname[NFILEN], *bufp;
 	int	ret;
 	size_t	off;
 	struct buffer *bp;
@@ -384,8 +420,10 @@ d_copy(int f, int n)
 		ewprintf("Directory name too long");
 		return (FALSE);
 	}
-	if ((bufp = eread("Copy %s to: ", toname, sizeof(toname),
-	    EFDEF | EFNEW | EFCR, basename(frname))) == NULL)
+	(void)xbasename(sname, frname, NFILEN);
+	bufp = eread("Copy %s to: ", toname, sizeof(toname),
+	    EFDEF | EFNEW | EFCR, sname);
+	if (bufp == NULL) 
 		return (ABORT);
 	else if (bufp[0] == '\0')
 		return (FALSE);
@@ -404,6 +442,7 @@ d_rename(int f, int n)
 	int		 ret;
 	size_t		 off;
 	struct buffer	*bp;
+	char		 sname[NFILEN];
 
 	if (d_makename(curwp->w_dotp, frname, sizeof(frname)) != FALSE) {
 		ewprintf("Not a file");
@@ -414,8 +453,10 @@ d_rename(int f, int n)
 		ewprintf("Directory name too long");
 		return (FALSE);
 	}
-	if ((bufp = eread("Rename %s to: ", toname,
-	    sizeof(toname), EFDEF | EFNEW | EFCR, basename(frname))) == NULL)
+	(void)xbasename(sname, frname, NFILEN);
+	bufp = eread("Rename %s to: ", toname,
+	    sizeof(toname), EFDEF | EFNEW | EFCR, sname);
+	if (bufp == NULL)
 		return (ABORT);
 	else if (bufp[0] == '\0')
 		return (FALSE);
@@ -444,13 +485,10 @@ reaper(int signo __attribute__((unused)))
 int
 d_shell_command(int f, int n)
 {
-	char	 command[512], fname[MAXPATHLEN], buf[BUFSIZ], *bufp, *cp;
-	int	 infd, fds[2];
-	pid_t	 pid;
-	struct	 sigaction olda, newa;
+	char		 command[512], fname[MAXPATHLEN], *bufp;
 	struct buffer	*bp;
 	struct mgwin	*wp;
-	FILE	*fin;
+	char		 sname[NFILEN];
 
 	bp = bfind("*Shell Command Output*", TRUE);
 	if (bclear(bp) != TRUE)
@@ -462,71 +500,129 @@ d_shell_command(int f, int n)
 	}
 
 	command[0] = '\0';
-	if ((bufp = eread("! on %s: ", command, sizeof(command), EFNEW,
-	    basename(fname))) == NULL)
+	(void)xbasename(sname, fname, NFILEN);
+	bufp = eread("! on %s: ", command, sizeof(command), EFNEW, sname);
+	if (bufp == NULL)
 		return (ABORT);
-	infd = open(fname, O_RDONLY);
-	if (infd == -1) {
-		ewprintf("Can't open input file : %s", strerror(errno));
-		return (FALSE);
+
+	if (d_exec(0, bp, fname, "sh", "-c", command, NULL) != TRUE)
+		return (ABORT);
+
+	if ((wp = popbuf(bp, WNONE)) == NULL)
+		return (ABORT);	/* XXX - free the buffer?? */
+	curwp = wp;
+	curbp = wp->w_bufp;
+	return (TRUE);
+}
+
+/*
+ * Pipe input file to cmd and insert the command's output in the
+ * given buffer.  Each line will be prefixed with the given
+ * number of spaces.
+ */
+static int
+d_exec(int space, struct buffer *bp, const char *input, const char *cmd, ...)
+{
+	char	 buf[BUFSIZ];
+	va_list	 ap;
+	struct	 sigaction olda, newa;
+	char	**argv = NULL, *cp;
+	FILE	*fin;
+	int	 fds[2] = { -1, -1 };
+	int	 infd = -1;
+	int	 ret = (ABORT), n;
+	pid_t	 pid;
+
+	if (sigaction(SIGCHLD, NULL, &olda) == -1)
+		return (ABORT);
+
+	/* Find the number of arguments. */
+	va_start(ap, cmd);
+	for (n = 2; va_arg(ap, char *) != NULL; n++)
+		;
+	va_end(ap);
+
+	/* Allocate and build the argv. */
+	if ((argv = calloc(n, sizeof(*argv))) == NULL) {
+		ewprintf("Can't allocate argv : %s", strerror(errno));
+		goto out;
 	}
+
+	n = 1;
+	argv[0] = (char *)cmd;
+	va_start(ap, cmd);
+	while ((argv[n] = va_arg(ap, char *)) != NULL)
+		n++;
+	va_end(ap);
+
+	if (input == NULL)
+		input = "/dev/null";
+
+	if ((infd = open(input, O_RDONLY)) == -1) {
+		ewprintf("Can't open input file : %s", strerror(errno));
+		goto out;
+	}
+
 	if (pipe(fds) == -1) {
 		ewprintf("Can't create pipe : %s", strerror(errno));
-		close(infd);
-		return (FALSE);
+		goto out;
 	}
 
 	newa.sa_handler = reaper;
 	newa.sa_flags = 0;
-	if (sigaction(SIGCHLD, &newa, &olda) == -1) {
-		close(infd);
-		close(fds[0]);
-		close(fds[1]);
-		return (ABORT);
-	}
-	pid = fork();
-	switch (pid) {
-	case -1:
+	if (sigaction(SIGCHLD, &newa, NULL) == -1)
+		goto out;
+
+	if ((pid = fork()) == -1) {
 		ewprintf("Can't fork");
-		return (ABORT);
-	case 0:
+		goto out;
+	}
+
+	switch (pid) {
+	case 0: /* Child */
 		close(fds[0]);
 		dup2(infd, STDIN_FILENO);
 		dup2(fds[1], STDOUT_FILENO);
 		dup2(fds[1], STDERR_FILENO);
-		execl("/bin/sh", "sh", "-c", bufp, (char *)NULL);
+		if (execvp(argv[0], argv) == -1)
+			ewprintf("Can't exec %s: %s", argv[0], strerror(errno));
 		exit(1);
 		break;
-	default:
+	default: /* Parent */
 		close(infd);
 		close(fds[1]);
-		fin = fdopen(fds[0], "r");
-		if (fin == NULL)	/* "r" is surely a valid mode! */
-			panic("can't happen");
+		infd = fds[1] = -1;
+		if ((fin = fdopen(fds[0], "r")) == NULL)
+			goto out;
 		while (fgets(buf, sizeof(buf), fin) != NULL) {
 			cp = strrchr(buf, '\n');
 			if (cp == NULL && !feof(fin)) {	/* too long a line */
 				int c;
-				addlinef(bp, "%s...", buf);
+				addlinef(bp, "%*s%s...", space, "", buf);
 				while ((c = getc(fin)) != EOF && c != '\n')
 					;
 				continue;
 			} else if (cp)
 				*cp = '\0';
-			addline(bp, buf);
+			addlinef(bp, "%*s%s", space, "", buf);
 		}
 		fclose(fin);
-		close(fds[0]);
 		break;
 	}
-	wp = popbuf(bp, WNONE);
-	if (wp == NULL)
-		return (ABORT);	/* XXX - free the buffer?? */
-	curwp = wp;
-	curbp = wp->w_bufp;
+	ret = (TRUE);
+
+out:
 	if (sigaction(SIGCHLD, &olda, NULL) == -1)
 		ewprintf("Warning, couldn't reset previous signal handler");
-	return (TRUE);
+	if (fds[0] != -1)
+		close(fds[0]);
+	if (fds[1] != -1)
+		close(fds[1]);
+	if (infd != -1)
+		close(infd);
+	if (argv != NULL)
+		free(argv);
+	return ret;
 }
 
 /* ARGSUSED */
@@ -554,33 +650,79 @@ d_create_directory(int f, int n)
 	return (showbuffer(bp, curwp, WFFULL | WFMODE));
 }
 
-#define NAME_FIELD	8
-
 static int
 d_makename(struct line *lp, char *fn, size_t len)
 {
-	int	 i;
-	char	*p, *ep;
+	int	 start, nlen;
+	char	*namep;
 
-	if (strlcpy(fn, curbp->b_fname, len) >= len)
-		return (FALSE);
-	if ((p = lp->l_text) == NULL)
+	if (d_warpdot(lp, &start) == FALSE)
 		return (ABORT);
-	ep = lp->l_text + llength(lp);
-	p++; /* skip action letter, if any */
-	for (i = 0; i < NAME_FIELD; i++) {
-		while (p < ep && isspace(*p))
-			p++;
-		while (p < ep && !isspace(*p))
-			p++;
-		while (p < ep && isspace(*p))
-			p++;
-		if (p == ep)
-			return (ABORT);
-	}
-	if (strlcat(fn, p, len) >= len)
-		return (FALSE);
+	namep = &lp->l_text[start];
+	nlen = llength(lp) - start;
+
+	if (snprintf(fn, len, "%s%.*s", curbp->b_fname, nlen, namep) >= len)
+		return (ABORT); /* Name is too long. */
+
+	/* Return TRUE if the entry is a directory. */
 	return ((lgetc(lp, 2) == 'd') ? TRUE : FALSE);
+}
+
+#define NAME_FIELD	9
+
+static int
+d_warpdot(struct line *dotp, int *doto)
+{
+	char *tp = dotp->l_text;
+	int off = 0, field = 0, len;
+
+	/*
+	 * Find the byte offset to the (space-delimited) filename
+	 * field in formatted ls output.
+	 */
+	len = llength(dotp);
+	while (off < len) {
+		if (tp[off++] == ' ') {
+			if (++field == NAME_FIELD) {
+				*doto = off;
+				return (TRUE);
+			}
+			/* Skip the space. */
+			while (off < len && tp[off] == ' ')
+				off++;
+		}
+	}
+	/* We didn't find the field. */
+	*doto = 0;
+	return (FALSE);
+}
+
+static int
+d_forwpage(int f, int n) 
+{
+	forwpage(f | FFRAND, n);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
+}
+
+static int 
+d_backpage (int f, int n)
+{
+	backpage(f | FFRAND, n);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
+}
+
+static int
+d_forwline (int f, int n)
+{
+	forwline(f | FFRAND, n);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
+}
+
+static int
+d_backline (int f, int n)
+{
+	backline(f | FFRAND, n);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
 }
 
 /*
@@ -590,11 +732,7 @@ struct buffer *
 dired_(char *dname)
 {
 	struct buffer	*bp;
-	FILE	*dirpipe;
-	char	 line[256];
-	int	 len, ret, counter, warp;
-	counter = 0;
-	warp = 0;
+	int		 len, i;
 
 	if ((fopen(dname,"r")) == NULL) {
 		if (errno == EACCES)
@@ -618,39 +756,25 @@ dired_(char *dname)
 	if (bclear(bp) != TRUE)
 		return (NULL);
 	bp->b_flag |= BFREADONLY;
-	ret = snprintf(line, sizeof(line), "ls -al %s", dname);
-	if (ret < 0 || ret  >= sizeof(line)) {
-		ewprintf("Path too long");
+
+	if ((d_exec(2, bp, NULL, "ls", "-al", dname, NULL)) != TRUE)
 		return (NULL);
-	}
-	if ((dirpipe = popen(line, "r")) == NULL) {
-		ewprintf("Problem opening pipe to ls");
-		return (NULL);
-	}
-	line[0] = line[1] = ' ';
-	while (fgets(&line[2], sizeof(line) - 2, dirpipe) != NULL) {
-		line[strcspn(line, "\n")] = '\0'; /* remove ^J	 */
-		(void) addline(bp, line);
-		if ((strrchr(line,' ')) != NULL) {
-			counter++;
-			if ((strcmp((strrchr(line,' '))," ..")) == 0)  
-				warp = counter;
-		}
-	}
-	if ((strrchr(line,' ')) != NULL) {
-		if (strcmp((strrchr(line,' '))," ..") == 0) 
-			warp = counter - 1;
-	}		
-	if ((strrchr(line,' ')) != NULL)
-		bp->b_doto = strrchr(line,' ') - line + 1;
-	if (pclose(dirpipe) == -1) {
-		ewprintf("Problem closing pipe to ls : %s",
-		    strerror(errno));
-		return (NULL);
-	}
+
+	/* Find the line with ".." on it. */
 	bp->b_dotp = bfirstlp(bp);
-	while (warp--)
-		bp->b_dotp  = lforw(bp->b_dotp);
+	for (i = 0; i < bp->b_lines; i++) {
+		bp->b_dotp = lforw(bp->b_dotp);
+		if (d_warpdot(bp->b_dotp, &bp->b_doto) == FALSE)
+			continue;
+		if (strcmp(ltext(bp->b_dotp) + bp->b_doto, "..") == 0)
+			break;
+	}
+
+	/* We want dot on the entry right after "..", if possible. */
+	if (++i < bp->b_lines - 2)
+		bp->b_dotp = lforw(bp->b_dotp);
+	d_warpdot(bp->b_dotp, &bp->b_doto);
+
 	(void)strlcpy(bp->b_fname, dname, sizeof(bp->b_fname));
 	(void)strlcpy(bp->b_cwd, dname, sizeof(bp->b_cwd));
 	if ((bp->b_modes[1] = name_mode("dired")) == NULL) {

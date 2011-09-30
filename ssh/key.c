@@ -1,4 +1,4 @@
-/* $OpenBSD: key.c,v 1.93 2010/09/09 10:45:45 djm Exp $ */
+/* $OpenBSD: key.c,v 1.97 2011/05/17 07:13:31 djm Exp $ */
 /*
  * read_bignum():
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -982,25 +982,33 @@ key_size(const Key *k)
 static RSA *
 rsa_generate_private_key(u_int bits)
 {
-	RSA *private;
+	RSA *private = RSA_new();
+	BIGNUM *f4 = BN_new();
 
-	private = RSA_generate_key(bits, RSA_F4, NULL, NULL);
 	if (private == NULL)
-		fatal("rsa_generate_private_key: key generation failed.");
+		fatal("%s: RSA_new failed", __func__);
+	if (f4 == NULL)
+		fatal("%s: BN_new failed", __func__);
+	if (!BN_set_word(f4, RSA_F4))
+		fatal("%s: BN_new failed", __func__);
+	if (!RSA_generate_key_ex(private, bits, f4, NULL))
+		fatal("%s: key generation failed.", __func__);
+	BN_free(f4);
 	return private;
 }
 
 static DSA*
 dsa_generate_private_key(u_int bits)
 {
-	DSA *private = DSA_generate_parameters(bits, NULL, 0, NULL, NULL, NULL, NULL);
+	DSA *private = DSA_new();
 
 	if (private == NULL)
-		fatal("dsa_generate_private_key: DSA_generate_parameters failed");
+		fatal("%s: DSA_new failed", __func__);
+	if (!DSA_generate_parameters_ex(private, bits, NULL, 0, NULL,
+	    NULL, NULL))
+		fatal("%s: DSA_generate_parameters failed", __func__);
 	if (!DSA_generate_key(private))
-		fatal("dsa_generate_private_key: DSA_generate_key failed.");
-	if (private == NULL)
-		fatal("dsa_generate_private_key: NULL.");
+		fatal("%s: DSA_generate_key failed.", __func__);
 	return private;
 }
 
@@ -1019,12 +1027,8 @@ key_ecdsa_bits_to_nid(int bits)
 	}
 }
 
-/*
- * This is horrid, but OpenSSL's PEM_read_PrivateKey seems not to restore
- * the EC_GROUP nid when loading a key...
- */
 int
-key_ecdsa_group_to_nid(const EC_GROUP *g)
+key_ecdsa_key_to_nid(EC_KEY *k)
 {
 	EC_GROUP *eg;
 	int nids[] = {
@@ -1033,23 +1037,39 @@ key_ecdsa_group_to_nid(const EC_GROUP *g)
 		NID_secp521r1,
 		-1
 	};
+	int nid;
 	u_int i;
 	BN_CTX *bnctx;
+	const EC_GROUP *g = EC_KEY_get0_group(k);
 
+	/*
+	 * The group may be stored in a ASN.1 encoded private key in one of two
+	 * ways: as a "named group", which is reconstituted by ASN.1 object ID
+	 * or explicit group parameters encoded into the key blob. Only the
+	 * "named group" case sets the group NID for us, but we can figure
+	 * it out for the other case by comparing against all the groups that
+	 * are supported.
+	 */
+	if ((nid = EC_GROUP_get_curve_name(g)) > 0)
+		return nid;
 	if ((bnctx = BN_CTX_new()) == NULL)
 		fatal("%s: BN_CTX_new() failed", __func__);
 	for (i = 0; nids[i] != -1; i++) {
 		if ((eg = EC_GROUP_new_by_curve_name(nids[i])) == NULL)
 			fatal("%s: EC_GROUP_new_by_curve_name failed",
 			    __func__);
-		if (EC_GROUP_cmp(g, eg, bnctx) == 0) {
-			EC_GROUP_free(eg);
+		if (EC_GROUP_cmp(g, eg, bnctx) == 0)
 			break;
-		}
 		EC_GROUP_free(eg);
 	}
 	BN_CTX_free(bnctx);
 	debug3("%s: nid = %d", __func__, nids[i]);
+	if (nids[i] != -1) {
+		/* Use the group with the NID attached */
+		EC_GROUP_set_asn1_flag(eg, OPENSSL_EC_NAMED_CURVE);
+		if (EC_KEY_set_group(k, eg) != 1)
+			fatal("%s: EC_KEY_set_group", __func__);
+	}
 	return nids[i];
 }
 
@@ -1064,6 +1084,7 @@ ecdsa_generate_private_key(u_int bits, int *nid)
 		fatal("%s: EC_KEY_new_by_curve_name failed", __func__);
 	if (EC_KEY_generate_key(private) != 1)
 		fatal("%s: EC_KEY_generate_key failed", __func__);
+	EC_KEY_set_asn1_flag(private, OPENSSL_EC_NAMED_CURVE);
 	return private;
 }
 
@@ -1733,6 +1754,9 @@ key_to_certified(Key *k, int legacy)
 		k->type = legacy ? KEY_DSA_CERT_V00 : KEY_DSA_CERT;
 		return 0;
 	case KEY_ECDSA:
+		if (legacy)
+			fatal("%s: legacy ECDSA certificates are not supported",
+			    __func__);
 		k->cert = cert_new();
 		k->type = KEY_ECDSA_CERT;
 		return 0;
@@ -1802,10 +1826,9 @@ key_certify(Key *k, Key *ca)
 	buffer_put_cstring(&k->cert->certblob, key_ssh_name(k));
 
 	/* -v01 certs put nonce first */
-	if (!key_cert_is_legacy(k)) {
-		arc4random_buf(&nonce, sizeof(nonce));
+	arc4random_buf(&nonce, sizeof(nonce));
+	if (!key_cert_is_legacy(k))
 		buffer_put_string(&k->cert->certblob, nonce, sizeof(nonce));
-	}
 
 	switch (k->type) {
 	case KEY_DSA_CERT_V00:

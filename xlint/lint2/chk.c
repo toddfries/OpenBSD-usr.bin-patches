@@ -1,4 +1,4 @@
-/*	$OpenBSD: chk.c,v 1.18 2010/07/27 20:07:56 guenther Exp $	*/
+/*	$OpenBSD: chk.c,v 1.26 2011/09/21 18:08:07 jsg Exp $	*/
 /*	$NetBSD: chk.c,v 1.2 1995/07/03 21:24:42 cgd Exp $	*/
 
 /*
@@ -31,10 +31,6 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#ifndef lint
-static char rcsid[] = "$OpenBSD: chk.c,v 1.18 2010/07/27 20:07:56 guenther Exp $";
-#endif
 
 #include <stdlib.h>
 #include <ctype.h>
@@ -127,21 +123,21 @@ inittyp(void)
 		{ DOUBLE,   { sizeof (double) * CHAR_BIT, 8 * CHAR_BIT, -1,
 				      DOUBLE, DOUBLE,
 				      0, 0, 1, 1, 1, "double" } },
-		{ LDOUBLE,  { sizeof (ldbl_t) * CHAR_BIT, 10 * CHAR_BIT, -1,
+		{ LDOUBLE,  { sizeof (ldbl_t) * CHAR_BIT, 16 * CHAR_BIT, -1,
 				      LDOUBLE, LDOUBLE,
 				      0, 0, 1, 1, 1, "long double" } },
-		{ COMPLEX,  { sizeof (_Complex float) * CHAR_BIT,
+		{ COMPLEX,  { sizeof (float _Complex) * CHAR_BIT,
 				      8 * CHAR_BIT, -1,
 				      COMPLEX, COMPLEX,
-				      0, 0, 1, 1, 1, "float _Complex" } },
+				      0, 0, 1, 1, 3, "float _Complex" } },
 		{ DCOMPLEX, { sizeof (double _Complex) * CHAR_BIT,
 				      16 * CHAR_BIT, -1,
 				      DCOMPLEX, DCOMPLEX,
-				      0, 0, 1, 1, 1, "double _Complex" } },
+				      0, 0, 1, 1, 3, "double _Complex" } },
 		{ LDCOMPLEX,{ sizeof (long double _Complex) * CHAR_BIT,
-				      20 * CHAR_BIT, -1,
+				      32 * CHAR_BIT, -1,
 				      LDCOMPLEX, LDCOMPLEX,
-				      0, 0, 1, 1, 1, "long double _Complex" } },
+				      0, 0, 1, 1, 3, "long double _Complex" } },
 		{ VOID,     { -1, -1, -1,
 				      VOID, VOID,
 				      0, 0, 0, 0, 0, "void" } },
@@ -798,7 +794,7 @@ printflike(hte_t *hte, fcall_t *call, int n, const char *fmt, type_t **ap)
 		if (sz != NOTSPEC)
 			fc = *fp++;
 
-		if (fc == '%') {
+		if (fc == '%' || fc == 'm') {
 			if (sz != NOTSPEC || left || sign || space ||
 			    alt || zero || prec || fwidth) {
 				badfmt(hte, call);
@@ -867,8 +863,10 @@ printflike(hte_t *hte, fcall_t *call, int n, const char *fmt, type_t **ap)
 			} else {
 				goto uint_conv;
 			}
-		} else if (fc == 'f' || fc == 'e' || fc == 'E' ||
-			   fc == 'g' || fc == 'G') {
+		} else if (fc == 'e' || fc == 'E' ||
+			   fc == 'f' || fc == 'F' ||
+			   fc == 'g' || fc == 'G' ||
+			   fc == 'a' || fc == 'A') {
 			if (sz == NOTSPEC)
 				sz = DOUBLE;
 			if (sz != DOUBLE && sz != LDOUBLE)
@@ -1032,29 +1030,10 @@ scanflike(hte_t *hte, fcall_t *call, int n, const char *fmt, type_t **ap)
 			badfmt(hte, call);
 			sz = ULONG;
 			goto conv;
-		} else if (fc == 'E') {
-			/*
-			 * XXX valid in ANSI C, but in NetBSD's libc imple-
-			 * mented as "lf". Thats why it should be avoided.
-			 */
-			badfmt(hte, call);
-			sz = DOUBLE;
-			goto conv;
-		} else if (fc == 'F') {
-			/* XXX only for backward compatibility */
-			badfmt(hte, call);
-			sz = DOUBLE;
-			goto conv;
-		} else if (fc == 'G') {
-			/*
-			 * XXX valid in ANSI C, but in NetBSD's libc not
-			 * implemented
-			 */
-			if (sz != NOTSPEC && sz != LONG && sz != LDOUBLE)
-				badfmt(hte, call);
-			goto fconv;
-		} else if (fc == 'e' || fc == 'f' || fc == 'g') {
-		fconv:
+		} else if (fc == 'e' || fc == 'E' ||
+			   fc == 'f' || fc == 'F' ||
+			   fc == 'g' || fc == 'G' ||
+			   fc == 'a' || fc == 'A') {
 			if (sz == NOTSPEC) {
 				sz = FLOAT;
 			} else if (sz == LONG) {

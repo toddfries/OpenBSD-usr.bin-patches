@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.h,v 1.17 2010/06/05 12:45:48 ratchov Exp $	*/
+/*	$OpenBSD: sock.h,v 1.19 2011/04/28 06:19:57 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -42,15 +42,16 @@ struct sock {
 #define SOCK_WMSG	1		/* amsg being written */
 #define SOCK_WDATA	2		/* data chunk being written */
 	unsigned wstate;		/* state of the write-end FSM */
-#define SOCK_HELLO	0		/* waiting for HELLO message */
-#define SOCK_INIT	1		/* parameter negotiation */
-#define SOCK_START	2		/* filling play buffers */
-#define SOCK_READY	3		/* play buffers full */
-#define SOCK_RUN	4		/* attached to the mix / sub */
-#define SOCK_STOP	5		/* draining rec buffers */
-#define SOCK_MIDI	6		/* raw byte stream (midi) */
+#define SOCK_AUTH	0		/* waiting for AUTH message */
+#define SOCK_HELLO	1		/* waiting for HELLO message */
+#define SOCK_INIT	2		/* parameter negotiation */
+#define SOCK_START	3		/* filling play buffers */
+#define SOCK_READY	4		/* play buffers full */
+#define SOCK_RUN	5		/* attached to the mix / sub */
+#define SOCK_STOP	6		/* draining rec buffers */
+#define SOCK_MIDI	7		/* raw byte stream (midi) */
 	unsigned pstate;		/* one of the above */
-	unsigned mode;			/* a set of AMSG_PLAY, AMSG_REC */
+	unsigned mode;			/* bitmask of MODE_XXX */
 	struct aparams rpar;		/* read (ie play) parameters */
 	struct aparams wpar;		/* write (ie rec) parameters */
 	int delta;			/* pos. change to send */

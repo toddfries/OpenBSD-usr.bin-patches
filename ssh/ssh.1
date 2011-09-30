@@ -1,4 +1,3 @@
-.\"  -*- nroff -*-
 .\"
 .\" Author: Tatu Ylonen <ylo@cs.hut.fi>
 .\" Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -34,8 +33,8 @@
 .\" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
 .\" THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.\" $OpenBSD: ssh.1,v 1.312 2010/09/04 09:38:34 jmc Exp $
-.Dd $Mdocdate: September 4 2010 $
+.\" $OpenBSD: ssh.1,v 1.323 2011/09/11 06:59:05 okan Exp $
+.Dd $Mdocdate: September 11 2011 $
 .Dt SSH 1
 .Os
 .Sh NAME
@@ -393,9 +392,13 @@ Valid commands are:
 .Dq check
 (check that the master process is running),
 .Dq forward
-(request forwardings without command execution) and
+(request forwardings without command execution),
+.Dq cancel
+(cancel forwardings),
 .Dq exit
-(request the master to exit).
+(request the master to exit), and
+.Dq stop
+(request the master to stop accepting further multiplexing requests).
 .It Fl o Ar option
 Can be used to give options in the format used in the configuration file.
 This is useful for specifying options for which there is no separate
@@ -418,11 +421,13 @@ For full details of the options listed below, and their possible values, see
 .It ConnectTimeout
 .It ControlMaster
 .It ControlPath
+.It ControlPersist
 .It DynamicForward
 .It EscapeChar
 .It ExitOnForwardFailure
 .It ForwardAgent
 .It ForwardX11
+.It ForwardX11Timeout
 .It ForwardX11Trusted
 .It GatewayPorts
 .It GlobalKnownHostsFile
@@ -436,7 +441,10 @@ For full details of the options listed below, and their possible values, see
 .It HostName
 .It IdentityFile
 .It IdentitiesOnly
+.It IPQoS
+.It KbdInteractiveAuthentication
 .It KbdInteractiveDevices
+.It KexAlgorithms
 .It LocalCommand
 .It LocalForward
 .It LogLevel
@@ -453,6 +461,7 @@ For full details of the options listed below, and their possible values, see
 .It PubkeyAuthentication
 .It RekeyLimit
 .It RemoteForward
+.It RequestTTY
 .It RhostsRSAAuthentication
 .It RSAAuthentication
 .It SendEnv
@@ -663,7 +672,9 @@ Both protocols support similar authentication methods,
 but protocol 2 is the default since
 it provides additional mechanisms for confidentiality
 (the traffic is encrypted using AES, 3DES, Blowfish, CAST128, or Arcfour)
-and integrity (hmac-md5, hmac-sha1, umac-64, hmac-ripemd160).
+and integrity (hmac-md5, hmac-sha1,
+hmac-sha2-256, hmac-sha2-512,
+umac-64, hmac-ripemd160).
 Protocol 1 lacks a strong mechanism for ensuring the
 integrity of the connection.
 .Pp
@@ -890,11 +901,20 @@ Currently this allows the addition of port forwardings using the
 and
 .Fl D
 options (see above).
-It also allows the cancellation of existing remote port-forwardings
-using
+It also allows the cancellation of existing port-forwardings
+with
 .Sm off
-.Fl KR Oo Ar bind_address : Oc Ar port .
+.Fl KL Oo Ar bind_address : Oc Ar port
 .Sm on
+for local,
+.Sm off
+.Fl KR Oo Ar bind_address : Oc Ar port
+.Sm on
+for remote and
+.Sm off
+.Fl KD Oo Ar bind_address : Oc Ar port
+.Sm on
+for dynamic port-forwardings.
 .Ic !\& Ns Ar command
 allows the user to execute a local command if the
 .Ic PermitLocalCommand
@@ -1465,6 +1485,11 @@ if an error occurred.
 .%R RFC 4716
 .%T "The Secure Shell (SSH) Public Key File Format"
 .%D 2006
+.Re
+.Rs
+.%R RFC 5656
+.%T "Elliptic Curve Algorithm Integration in the Secure Shell Transport Layer"
+.%D 2009
 .Re
 .Rs
 .%T "Hash Visualization: a New Technique to improve Real-World Security"

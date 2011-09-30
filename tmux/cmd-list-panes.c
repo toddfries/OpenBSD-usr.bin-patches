@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-panes.c,v 1.5 2010/08/11 07:27:50 nicm Exp $ */
+/* $OpenBSD: cmd-list-panes.c,v 1.12 2011/08/26 10:53:16 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -28,48 +28,116 @@
 
 int	cmd_list_panes_exec(struct cmd *, struct cmd_ctx *);
 
+void	cmd_list_panes_server(struct cmd *, struct cmd_ctx *);
+void	cmd_list_panes_session(
+	    struct cmd *, struct session *, struct cmd_ctx *, int);
+void	cmd_list_panes_window(struct cmd *,
+	    struct session *, struct winlink *, struct cmd_ctx *, int);
+
 const struct cmd_entry cmd_list_panes_entry = {
 	"list-panes", "lsp",
-	CMD_TARGET_WINDOW_USAGE,
-	0, "",
-	cmd_target_init,
-	cmd_target_parse,
-	cmd_list_panes_exec,
-	cmd_target_free,
-	cmd_target_print
+	"asF:t:", 0, 0,
+	"[-as] [-F format] [-t target]",
+	0,
+	NULL,
+	NULL,
+	cmd_list_panes_exec
 };
 
 int
 cmd_list_panes_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
-	struct cmd_target_data	*data = self->data;
-	struct winlink		*wl;
-	struct window_pane	*wp;
-	struct grid		*gd;
-	struct grid_line	*gl;
-	u_int			 i, n;
-	unsigned long long	 size;
+	struct args	*args = self->args;
+	struct session	*s;
+	struct winlink	*wl;
 
-	if ((wl = cmd_find_window(ctx, data->target, NULL)) == NULL)
-		return (-1);
-
-	n = 0;
-	TAILQ_FOREACH(wp, &wl->window->panes, entry) {
-		gd = wp->base.grid;
-
-		size = 0;
-		for (i = 0; i < gd->hsize; i++) {
-			gl = &gd->linedata[i];
-			size += gl->cellsize * sizeof *gl->celldata;
-			size += gl->utf8size * sizeof *gl->utf8data;
-		}
-		size += gd->hsize * sizeof *gd->linedata;
-
-		ctx->print(ctx, "%u: [%ux%u] [history %u/%u, %llu bytes]%s",
-		    n, wp->sx, wp->sy, gd->hsize, gd->hlimit, size,
-		    wp == wp->window->active ? " (active)" : "");
-		n++;
+	if (args_has(args, 'a'))
+		cmd_list_panes_server(self, ctx);
+	else if (args_has(args, 's')) {
+		s = cmd_find_session(ctx, args_get(args, 't'), 0);
+		if (s == NULL)
+			return (-1);
+		cmd_list_panes_session(self, s, ctx, 1);
+	} else {
+		wl = cmd_find_window(ctx, args_get(args, 't'), &s);
+		if (wl == NULL)
+			return (-1);
+		cmd_list_panes_window(self, s, wl, ctx, 0);
 	}
 
 	return (0);
+}
+
+void
+cmd_list_panes_server(struct cmd *self, struct cmd_ctx *ctx)
+{
+	struct session	*s;
+
+	RB_FOREACH(s, sessions, &sessions)
+		cmd_list_panes_session(self, s, ctx, 2);
+}
+
+void
+cmd_list_panes_session(
+    struct cmd *self, struct session *s, struct cmd_ctx *ctx, int type)
+{
+	struct winlink	*wl;
+
+	RB_FOREACH(wl, winlinks, &s->windows)
+		cmd_list_panes_window(self, s, wl, ctx, type);
+}
+
+void
+cmd_list_panes_window(struct cmd *self,
+    struct session *s, struct winlink *wl, struct cmd_ctx *ctx, int type)
+{
+	struct args		*args = self->args;
+	struct window_pane	*wp;
+	u_int			 n;
+	struct format_tree	*ft;
+	const char		*template;
+	char			*line;
+
+	template = args_get(args, 'F');
+	if (template == NULL) {
+		switch (type) {
+		case 0:
+			template = "#{line}: "
+			    "[#{pane_width}x#{pane_height}] [history "
+			    "#{history_size}/#{history_limit}, "
+			    "#{history_bytes} bytes] #{pane_id}"
+			    "#{?pane_active, (active),}#{?pane_dead, (dead),}";
+			break;
+		case 1:
+			template = "#{window_index}.#{line}: "
+			    "[#{pane_width}x#{pane_height}] [history "
+			    "#{history_size}/#{history_limit}, "
+			    "#{history_bytes} bytes] #{pane_id}"
+			    "#{?pane_active, (active),}#{?pane_dead, (dead),}";
+			break;
+		case 2:
+			template = "#{session_name}:#{window_index}.#{line}: "
+			    "[#{pane_width}x#{pane_height}] [history "
+			    "#{history_size}/#{history_limit}, "
+			    "#{history_bytes} bytes] #{pane_id}"
+			    "#{?pane_active, (active),}#{?pane_dead, (dead),}";
+			break;
+		}
+	}
+
+	n = 0;
+	TAILQ_FOREACH(wp, &wl->window->panes, entry) {
+		ft = format_create();
+		format_add(ft, "line", "%u", n);
+		format_session(ft, s);
+		format_winlink(ft, s, wl);
+		format_window_pane(ft, wp);
+
+		line = format_expand(ft, template);
+		ctx->print(ctx, "%s", line);
+		xfree(line);
+
+		format_free(ft);
+		n++;
+	}
 }

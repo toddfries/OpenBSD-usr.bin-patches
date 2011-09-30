@@ -1,4 +1,4 @@
-/*	$OpenBSD: w.c,v 1.47 2009/10/27 23:59:49 deraadt Exp $	*/
+/*	$OpenBSD: w.c,v 1.50 2011/07/28 10:14:00 kettenis Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1991, 1993, 1994
@@ -77,7 +77,7 @@ int		ttywidth;	/* width of tty */
 int		argwidth;	/* width of tty */
 int		header = 1;	/* true if -h flag: don't print heading */
 int		nflag = 1;	/* true if -n flag: don't convert addrs */
-int		sortidle;	/* sort bu idle time */
+int		sortidle;	/* sort by idle time */
 char	       *sel_user;	/* login of particular user selected */
 char		domain[MAXHOSTNAMELEN];
 
@@ -92,10 +92,10 @@ struct	entry {
 	struct	utmp utmp;
 	dev_t	tdev;			/* dev_t of terminal */
 	time_t	idle;			/* idle time of terminal in seconds */
-	struct	kinfo_proc2 *kp;	/* `most interesting' proc */
+	struct	kinfo_proc *kp;		/* `most interesting' proc */
 } *ep, *ehead = NULL, **nextp = &ehead;
 
-static void	 pr_args(struct kinfo_proc2 *);
+static void	 pr_args(struct kinfo_proc *);
 static void	 pr_header(time_t *, int);
 static struct stat
 		*ttystat(char *);
@@ -105,7 +105,7 @@ int
 main(int argc, char *argv[])
 {
 	extern char *__progname;
-	struct kinfo_proc2 *kp;
+	struct kinfo_proc *kp;
 	struct hostent *hp;
 	struct stat *stp;
 	FILE *ut;
@@ -188,7 +188,7 @@ main(int argc, char *argv[])
 		if (!(stp = ttystat(ep->utmp.ut_line)))
 			continue;
 		ep->tdev = stp->st_rdev;
-#ifdef CPU_CONSDEV
+
 		/*
 		 * If this is the console device, attempt to ascertain
 		 * the true console device dev_t.
@@ -197,12 +197,12 @@ main(int argc, char *argv[])
 			int mib[2];
 			size_t size;
 
-			mib[0] = CTL_MACHDEP;
-			mib[1] = CPU_CONSDEV;
+			mib[0] = CTL_KERN;
+			mib[1] = KERN_CONSDEV;
 			size = sizeof(dev_t);
 			(void) sysctl(mib, 2, &ep->tdev, &size, NULL, 0);
 		}
-#endif
+
 		if ((ep->idle = now - stp->st_atime) < 0)
 			ep->idle = 0;
 	}
@@ -218,7 +218,7 @@ main(int argc, char *argv[])
 #define WUSED	(sizeof(HEADER) - sizeof("WHAT"))
 	(void)puts(HEADER);
 
-	kp = kvm_getproc2(kd, KERN_PROC_ALL, 0, sizeof(*kp), &nentries);
+	kp = kvm_getprocs(kd, KERN_PROC_ALL, 0, sizeof(*kp), &nentries);
 	if (kp == NULL)
 		errx(1, "%s", kvm_geterr(kd));
 	for (i = 0; i < nentries; i++, kp++) {
@@ -324,7 +324,7 @@ main(int argc, char *argv[])
 }
 
 static void
-pr_args(struct kinfo_proc2 *kp)
+pr_args(struct kinfo_proc *kp)
 {
 	char **argv, *str;
 	int left;
@@ -332,7 +332,7 @@ pr_args(struct kinfo_proc2 *kp)
 	if (kp == NULL)
 		goto nothing;		/* XXX - can this happen? */
 	left = argwidth;
-	argv = kvm_getargv2(kd, kp, argwidth+60);  /* +60 for ftpd snip */
+	argv = kvm_getargv(kd, kp, argwidth+60);  /* +60 for ftpd snip */
 	if (argv == NULL)
 		goto nothing;
 

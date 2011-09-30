@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.h,v 1.54 2010/08/31 11:54:45 djm Exp $ */
+/* $OpenBSD: packet.h,v 1.56 2011/05/06 21:14:05 djm Exp $ */
 
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
@@ -32,7 +32,7 @@ u_int	 packet_get_encryption_key(u_char *);
 void     packet_set_protocol_flags(u_int);
 u_int	 packet_get_protocol_flags(void);
 void     packet_start_compression(int);
-void     packet_set_interactive(int);
+void     packet_set_interactive(int, int, int);
 int      packet_is_interactive(void);
 void     packet_set_server(void);
 void     packet_set_authenticated(void);
@@ -86,7 +86,6 @@ int      packet_have_data_to_write(void);
 int      packet_not_very_much_data_to_write(void);
 
 int	 packet_connection_is_on_socket(void);
-int	 packet_connection_is_ipv4(void);
 int	 packet_remaining(void);
 void	 packet_send_ignore(int);
 void	 packet_add_padding(u_char);

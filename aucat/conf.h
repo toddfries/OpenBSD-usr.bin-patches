@@ -1,4 +1,4 @@
-/*	$OpenBSD: conf.h,v 1.15 2010/04/06 20:07:01 ratchov Exp $	*/
+/*	$OpenBSD: conf.h,v 1.22 2011/04/27 21:32:40 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -18,6 +18,8 @@
 #define CONF_H
 
 #ifdef DEBUG
+#include <signal.h>
+
 /*
  * Debug trace levels:
  *
@@ -27,15 +29,8 @@
  * 3 - structural changes (new aproc structures and files stream params changes)
  * 4 - data blocks and messages
  */
-extern int debug_level;
+extern volatile sig_atomic_t debug_level;
 #endif
-
-/*
- * socket and option names
- */
-#define DEFAULT_MIDITHRU	"midithru"
-#define DEFAULT_SOFTAUDIO	"softaudio"
-#define DEFAULT_OPT		"default"
 
 /*
  * MIDI buffer size
@@ -46,5 +41,26 @@ extern int debug_level;
  * units used for MTC clock.
  */
 #define MTC_SEC			2400	/* 1 second is 2400 ticks */
+
+/*
+ * device or sub-device mode, must be a superset of corresponding SIO_XXX
+ * and MIO_XXX constants
+ */
+#define MODE_PLAY	0x01	/* allowed to play */
+#define MODE_REC	0x02	/* allowed to rec */
+#define MODE_MIDIOUT	0x04	/* allowed to read midi */
+#define MODE_MIDIIN	0x08	/* allowed to write midi */
+#define MODE_MON	0x10	/* allowed to monitor */
+#define MODE_LOOP	0x20	/* deviceless mode */
+#define MODE_RECMASK	(MODE_REC | MODE_MON)
+#define MODE_AUDIOMASK	(MODE_REC | MODE_MON | MODE_PLAY)
+#define MODE_MIDIMASK	(MODE_MIDIIN | MODE_MIDIOUT)
+
+/*
+ * underrun/overrun policies, must be the same as SIO_XXX
+ */
+#define XRUN_IGNORE	0	/* on xrun silently insert/discard samples */
+#define XRUN_SYNC	1	/* catchup to sync to the mix/sub */
+#define XRUN_ERROR	2	/* xruns are errors, eof/hup buffer */
 
 #endif /* !defined(CONF_H) */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.22 2010/08/20 06:56:54 ratchov Exp $	*/
+/*	$OpenBSD: file.c,v 1.27 2011/06/27 07:22:00 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -24,10 +24,10 @@
  * the module also provides trivial timeout implementation,
  * derived from:
  *
- * 	anoncvs@moule.caoua.org:/cvs
+ * 	anoncvs@moule.caoua.org:/midish
  *
- *		midish/timo.c rev 1.16
- * 		midish/mdep.c rev 1.69
+ *		midish/timo.c rev 1.18
+ * 		midish/mdep.c rev 1.71
  *
  * A timeout is used to schedule the call of a routine (the callback)
  * there is a global list of timeouts that is processed inside the
@@ -73,6 +73,9 @@ struct timespec file_ts;
 struct filelist file_list;
 struct timo *timo_queue;
 unsigned timo_abstime;
+#ifdef DEBUG
+long long file_wtime, file_utime;
+#endif
 
 /*
  * initialise a timeout structure, arguments are callback and argument
@@ -249,7 +252,9 @@ file_new(struct fileops *ops, char *name, unsigned nfds)
 	f->ops = ops;
 	f->name = name;
 	f->state = 0;
+#ifdef DEBUG
 	f->cycles = 0;
+#endif
 	f->rproc = NULL;
 	f->wproc = NULL;
 	LIST_INSERT_HEAD(&file_list, f, entry);
@@ -295,9 +300,13 @@ file_poll(void)
 	struct file *f, *fnext;
 	struct aproc *p;
 	struct timespec ts;
-	long delta_nsec;
+#ifdef DEBUG
+	struct timespec sleepts;
+#endif
+	long long delta_nsec;
+	int res;
 
-	if (LIST_EMPTY(&file_list)) {
+	if (LIST_EMPTY(&file_list) && timo_queue == NULL) {
 #ifdef DEBUG
 		if (debug_level >= 3)
 			dbg_puts("nothing to do...\n");
@@ -344,20 +353,38 @@ file_poll(void)
 		dbg_puts("\n");
 	}
 #endif
-	if (nfds > 0) {
-		if (poll(pfds, nfds, -1) < 0) {
-			if (errno == EINTR)
-				return 1;
-			err(1, "file_poll: poll failed");
-		}
-		clock_gettime(CLOCK_MONOTONIC, &ts);
-		delta_nsec = 1000000000L * (ts.tv_sec - file_ts.tv_sec);
-		delta_nsec += ts.tv_nsec - file_ts.tv_nsec;
-		if (delta_nsec > 0) {
-			file_ts = ts;
-			timo_update(delta_nsec / 1000);
-		}
+#ifdef DEBUG
+	clock_gettime(CLOCK_MONOTONIC, &sleepts);
+	file_utime += 1000000000LL * (sleepts.tv_sec - file_ts.tv_sec);
+	file_utime += sleepts.tv_nsec - file_ts.tv_nsec;
+#endif
+	res = poll(pfds, nfds, -1);
+	if (res < 0 && errno != EINTR)
+		err(1, "poll");
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+#ifdef DEBUG
+	file_wtime += 1000000000LL * (ts.tv_sec - sleepts.tv_sec);
+	file_wtime += ts.tv_nsec - sleepts.tv_nsec;
+#endif
+	delta_nsec = 1000000000LL * (ts.tv_sec - file_ts.tv_sec);
+	delta_nsec += ts.tv_nsec - file_ts.tv_nsec;
+#ifdef DEBUG
+	if (delta_nsec < 0) {
+		dbg_puts("file_poll: negative time interval\n");
+		dbg_panic();
 	}
+#endif
+	file_ts = ts;
+	if (delta_nsec < 1000000000LL)
+		timo_update(delta_nsec / 1000);
+	else {
+#ifdef DEBUG
+		dbg_puts("ignored huge clock delta\n");
+#endif
+	}
+	if (res <= 0)
+		return 1;
+
 	f = LIST_FIRST(&file_list);
 	while (f != NULL) {
 		if (f->pfd == NULL) {
@@ -481,7 +508,7 @@ file_poll(void)
 			file_del(f);
 		f = fnext;
 	}
-	if (LIST_EMPTY(&file_list)) {
+	if (LIST_EMPTY(&file_list) && timo_queue == NULL) {
 #ifdef DEBUG
 		if (debug_level >= 3)
 			dbg_puts("no files anymore...\n");
@@ -555,10 +582,8 @@ filelist_done(void)
 	dbg_sync = 1;
 	dbg_flush();
 #endif
-	it.it_value.tv_sec = 0;
-	it.it_value.tv_usec = 0;
-	it.it_interval.tv_sec = 0;
-	it.it_interval.tv_usec = 0;
+	timerclear(&it.it_value);
+	timerclear(&it.it_interval);
 	if (setitimer(ITIMER_REAL, &it, NULL) < 0) {
 		perror("setitimer");
 		exit(1);

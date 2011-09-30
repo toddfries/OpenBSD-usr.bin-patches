@@ -1,4 +1,4 @@
-/* $OpenBSD: server-window.c,v 1.17 2010/08/11 07:34:43 nicm Exp $ */
+/* $OpenBSD: server-window.c,v 1.22 2011/08/24 09:58:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -23,11 +23,12 @@
 
 #include "tmux.h"
 
-int	server_window_backoff(struct window_pane *);
 int	server_window_check_bell(struct session *, struct winlink *);
 int	server_window_check_activity(struct session *, struct winlink *);
+int	server_window_check_silence(struct session *, struct winlink *);
 int	server_window_check_content(
 	    struct session *, struct winlink *, struct window_pane *);
+void	ring_bell(struct session *);
 
 /* Window functions that need to happen every loop. */
 void
@@ -37,23 +38,21 @@ server_window_loop(void)
 	struct winlink		*wl;
 	struct window_pane	*wp;
 	struct session		*s;
-	u_int		 	 i, j;
+	u_int		 	 i;
 
 	for (i = 0; i < ARRAY_LENGTH(&windows); i++) {
 		w = ARRAY_ITEM(&windows, i);
 		if (w == NULL)
 			continue;
 
-		for (j = 0; j < ARRAY_LENGTH(&sessions); j++) {
-			s = ARRAY_ITEM(&sessions, j);
-			if (s == NULL)
-				continue;
+		RB_FOREACH(s, sessions, &sessions) {
 			wl = session_has(s, w);
 			if (wl == NULL)
 				continue;
 
 			if (server_window_check_bell(s, wl) ||
-			    server_window_check_activity(s, wl))
+			    server_window_check_activity(s, wl) ||
+			    server_window_check_silence(s, wl))
 				server_status_session(s);
 			TAILQ_FOREACH(wp, &w->panes, entry)
 				server_window_check_content(s, wl, wp);
@@ -87,7 +86,7 @@ server_window_check_bell(struct session *s, struct winlink *wl)
 			if (c == NULL || c->session != s)
 				continue;
 			if (!visual) {
-				tty_putcode(&c->tty, TTYC_BEL);
+				tty_bell(&c->tty);
 				continue;
 			}
 			if (c->session->curw->window == w) {
@@ -109,7 +108,7 @@ server_window_check_bell(struct session *s, struct winlink *wl)
 			if (c->session->curw->window != w)
 				continue;
 			if (!visual) {
-				tty_putcode(&c->tty, TTYC_BEL);
+				tty_bell(&c->tty);
 				continue;
 			}
 			status_message_set(c, "Bell in current window");
@@ -136,6 +135,8 @@ server_window_check_activity(struct session *s, struct winlink *wl)
 	if (!options_get_number(&w->options, "monitor-activity"))
 		return (0);
 
+	if (options_get_number(&s->options, "bell-on-alert"))
+		ring_bell(s);
 	wl->flags |= WINLINK_ACTIVITY;
 
 	if (options_get_number(&s->options, "visual-activity")) {
@@ -144,6 +145,58 @@ server_window_check_activity(struct session *s, struct winlink *wl)
 			if (c == NULL || c->session != s)
 				continue;
 			status_message_set(c, "Activity in window %u",
+			    winlink_find_by_window(&s->windows, w)->idx);
+		}
+	}
+
+	return (1);
+}
+
+/* Check for silence in window. */
+int
+server_window_check_silence(struct session *s, struct winlink *wl)
+{
+	struct client	*c;
+	struct window	*w = wl->window;
+	struct timeval	 timer;
+	u_int		 i;
+	int		 silence_interval, timer_difference;
+
+	if (!(w->flags & WINDOW_SILENCE) || wl->flags & WINLINK_SILENCE)
+		return (0);
+
+	if (s->curw == wl) {
+		/*
+		 * Reset the timer for this window if we've focused it.  We
+		 * don't want the timer tripping as soon as we've switched away
+		 * from this window.
+		 */
+		if (gettimeofday(&w->silence_timer, NULL) != 0)
+			fatal("gettimeofday failed.");
+
+		return (0);
+	}
+
+	silence_interval = options_get_number(&w->options, "monitor-silence");
+	if (silence_interval == 0)
+		return (0);
+
+	if (gettimeofday(&timer, NULL) != 0)
+		fatal("gettimeofday");
+	timer_difference = timer.tv_sec - w->silence_timer.tv_sec;
+	if (timer_difference <= silence_interval)
+		return (0);
+
+	if (options_get_number(&s->options, "bell-on-alert"))
+		ring_bell(s);
+	wl->flags |= WINLINK_SILENCE;
+
+	if (options_get_number(&s->options, "visual-silence")) {
+		for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+			c = ARRAY_ITEM(&clients, i);
+			if (c == NULL || c->session != s)
+				continue;
+			status_message_set(c, "Silence in window %u",
 			    winlink_find_by_window(&s->windows, w)->idx);
 		}
 	}
@@ -174,6 +227,8 @@ server_window_check_content(
 		return (0);
 	xfree(found);
 
+	if (options_get_number(&s->options, "bell-on-alert"))
+		ring_bell(s);
 	wl->flags |= WINLINK_CONTENT;
 
 	if (options_get_number(&s->options, "visual-content")) {
@@ -187,4 +242,18 @@ server_window_check_content(
 	}
 
 	return (1);
+}
+
+/* Ring terminal bell. */
+void
+ring_bell(struct session *s)
+{
+	struct client	*c;
+	u_int		 i;
+
+	for (i = 0; i < ARRAY_LENGTH(&clients); i++) {
+		c = ARRAY_ITEM(&clients, i);
+		if (c != NULL && c->session == s)
+			tty_bell(&c->tty);
+	}
 }
