@@ -24,6 +24,11 @@
  * techniques, and more efficient in most cases.
  */
 
+#if defined(__linux__)
+#include <stdint.h>
+#define u_int32_t uint32_t
+#endif
+
 struct ohash_info {
 	ptrdiff_t key_offset;
 	void *data;	/* user data */
