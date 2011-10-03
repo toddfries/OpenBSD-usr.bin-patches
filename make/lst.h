@@ -77,7 +77,9 @@ typedef void *(*DuplicateProc)(void *);
  * Creation/destruction functions
  */
 /* Create a new list */
+#if defined(__linux__)
 #define Lst_Init(l)	(l)->firstPtr = (l)->lastPtr = NULL
+#endif
 /* Static lists are already okay */
 #define Static_Lst_Init(l)
 
