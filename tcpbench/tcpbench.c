@@ -134,36 +134,36 @@ static struct {
 static const char *allowed_kvars[] = {
 	"inpcb.inp_flags",
 	"sockb.so_rcv.sb_cc",
-	"sockb.so_rcv.sb_wat",
 	"sockb.so_rcv.sb_hiwat",
+	"sockb.so_rcv.sb_wat",
 	"sockb.so_snd.sb_cc",
-	"sockb.so_snd.sb_wat",
 	"sockb.so_snd.sb_hiwat",
-	"tcpcb.snd_una",
+	"sockb.so_snd.sb_wat",
+	"tcpcb.last_ack_sent",
+	"tcpcb.max_sndwnd",
+	"tcpcb.rcv_adv",
+	"tcpcb.rcv_nxt",
+	"tcpcb.rcv_scale",
+	"tcpcb.rcv_wnd",
+	"tcpcb.rfbuf_cnt",
+	"tcpcb.rfbuf_ts",
+	"tcpcb.snd_cwnd",
+	"tcpcb.snd_max",
 	"tcpcb.snd_nxt",
+	"tcpcb.snd_scale",
+	"tcpcb.snd_ssthresh",
+	"tcpcb.snd_una",
 	"tcpcb.snd_wl1",
 	"tcpcb.snd_wl2",
 	"tcpcb.snd_wnd",
-	"tcpcb.rcv_wnd",
-	"tcpcb.rcv_nxt",
-	"tcpcb.rcv_adv",
-	"tcpcb.snd_max",
-	"tcpcb.snd_cwnd",
-	"tcpcb.snd_ssthresh",
 	"tcpcb.t_rcvtime",
-	"tcpcb.t_rtttime",
 	"tcpcb.t_rtseq",
-	"tcpcb.t_srtt",
-	"tcpcb.t_rttvar",
 	"tcpcb.t_rttmin",
-	"tcpcb.max_sndwnd",
-	"tcpcb.snd_scale",
-	"tcpcb.rcv_scale",
-	"tcpcb.last_ack_sent",
-	"tcpcb.rfbuf_cnt",
-	"tcpcb.rfbuf_ts",
-	"tcpcb.ts_recent_age",
+	"tcpcb.t_rtttime",
+	"tcpcb.t_rttvar",
+	"tcpcb.t_srtt",
 	"tcpcb.ts_recent",
+	"tcpcb.ts_recent_age",
 	NULL
 };
 
@@ -427,9 +427,9 @@ list_kvars(void)
 {
 	u_int i;
 
-	fprintf(stderr, "Supported kernel variables:\n");
+	printf("Supported kernel variables:\n");
 	for (i = 0; allowed_kvars[i] != NULL; i++)
-		fprintf(stderr, "\t%s\n", allowed_kvars[i]);
+		printf("\t%s\n", allowed_kvars[i]);
 }
 
 static char **
@@ -486,36 +486,36 @@ tcp_stats_display(unsigned long long total_elapsed, long double mbps,
 			}
 			P(inpcb, inp_flags, "0x%08x")
 			P(sockb, so_rcv.sb_cc, "%lu")
-			P(sockb, so_rcv.sb_wat, "%lu")
 			P(sockb, so_rcv.sb_hiwat, "%lu")
+			P(sockb, so_rcv.sb_wat, "%lu")
 			P(sockb, so_snd.sb_cc, "%lu")
-			P(sockb, so_snd.sb_wat, "%lu")
 			P(sockb, so_snd.sb_hiwat, "%lu")
-			P(tcpcb, snd_una, "%u")
+			P(sockb, so_snd.sb_wat, "%lu")
+			P(tcpcb, last_ack_sent, "%u")
+			P(tcpcb, max_sndwnd, "%lu")
+			P(tcpcb, rcv_adv, "%u")
+			P(tcpcb, rcv_nxt, "%u")
+			P(tcpcb, rcv_scale, "%u")
+			P(tcpcb, rcv_wnd, "%lu")
+			P(tcpcb, rfbuf_cnt, "%u")
+			P(tcpcb, rfbuf_ts, "%u")
+			P(tcpcb, snd_cwnd, "%lu")
+			P(tcpcb, snd_max, "%u")
 			P(tcpcb, snd_nxt, "%u")
+			P(tcpcb, snd_scale, "%u")
+			P(tcpcb, snd_ssthresh, "%lu")
+			P(tcpcb, snd_una, "%u")
 			P(tcpcb, snd_wl1, "%u")
 			P(tcpcb, snd_wl2, "%u")
 			P(tcpcb, snd_wnd, "%lu")
-			P(tcpcb, rcv_wnd, "%lu")
-			P(tcpcb, rcv_nxt, "%u")
-			P(tcpcb, rcv_adv, "%u")
-			P(tcpcb, snd_max, "%u")
-			P(tcpcb, snd_cwnd, "%lu")
-			P(tcpcb, snd_ssthresh, "%lu")
 			P(tcpcb, t_rcvtime, "%u")
-			P(tcpcb, t_rtttime, "%u")
 			P(tcpcb, t_rtseq, "%u")
-			P(tcpcb, t_srtt, "%hu")
-			P(tcpcb, t_rttvar, "%hu")
 			P(tcpcb, t_rttmin, "%hu")
-			P(tcpcb, max_sndwnd, "%lu")
-			P(tcpcb, snd_scale, "%u")
-			P(tcpcb, rcv_scale, "%u")
-			P(tcpcb, last_ack_sent, "%u")
-			P(tcpcb, rfbuf_cnt, "%u")
-			P(tcpcb, rfbuf_ts, "%u")
-			P(tcpcb, ts_recent_age, "%u")
+			P(tcpcb, t_rtttime, "%u")
+			P(tcpcb, t_rttvar, "%hu")
+			P(tcpcb, t_srtt, "%hu")
 			P(tcpcb, ts_recent, "%u")
+			P(tcpcb, ts_recent_age, "%u")
 #undef S			    
 #undef P
 		}
@@ -911,8 +911,6 @@ client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc,
 		TAILQ_INSERT_TAIL(&sc_queue, sc, entry);
 		mainstats.nconns++;
 		set_slice_timer(mainstats.nconns > 0);
-		if (UDP_MODE)
-			break;
 	}
 	freeaddrinfo(aitop);
 
@@ -985,6 +983,7 @@ main(int argc, char **argv)
 	struct statctx *udp_sc = NULL;
 
 	/* Init world */
+	setlinebuf(stdout);
 	ptb = &tcpbench;
 	ptb->dummybuf_len = 0;
 	ptb->Sflag = ptb->sflag = ptb->vflag = ptb->Vflag = 0;
@@ -1099,8 +1098,7 @@ main(int argc, char **argv)
 	if (UDP_MODE) {
 		hints.ai_socktype = SOCK_DGRAM;
 		hints.ai_protocol = IPPROTO_UDP;
-	}
-	else {
+	} else {
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_protocol = IPPROTO_TCP;
 	}
@@ -1149,13 +1147,6 @@ main(int argc, char **argv)
 		err(1, "malloc");
 	arc4random_buf(ptb->dummybuf, ptb->dummybuf_len);
 
-	if (UDP_MODE) {
-		if ((udp_sc = calloc(1, sizeof(*udp_sc))) == NULL)
-			err(1, "calloc");
-		udp_sc->fd = -1;
-		stats_prepare(udp_sc);
-	}
-
 	/* Setup libevent and signals */
 	event_init();
 	signal_set(&ev_sigterm, SIGTERM, signal_handler, NULL);
@@ -1166,17 +1157,20 @@ main(int argc, char **argv)
 	signal_add(&ev_sighup, NULL);
 	signal(SIGPIPE, SIG_IGN);
 	
-	if (TCP_MODE)
-		print_tcp_header();
-	
-	if (UDP_MODE)
+	if (UDP_MODE) {
+		if ((udp_sc = calloc(1, sizeof(*udp_sc))) == NULL)
+			err(1, "calloc");
+		udp_sc->fd = -1;
+		stats_prepare(udp_sc);
 		evtimer_set(&mainstats.timer, udp_process_slice, udp_sc);
-	else
+	} else {
+		print_tcp_header();
 		evtimer_set(&mainstats.timer, tcp_process_slice, NULL);
+	}
 
-	if (ptb->sflag) {
+	if (ptb->sflag)
 		server_init(aitop, udp_sc);
-	} else
+	else
 		client_init(aitop, nconn, udp_sc, aib);
 	
 	/* libevent main loop*/
