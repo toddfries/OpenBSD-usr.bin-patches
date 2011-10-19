@@ -1,4 +1,4 @@
-/*	$Id: mdoc_html.c,v 1.61 2011/09/18 15:54:48 schwarze Exp $ */
+/*	$Id: mdoc_html.c,v 1.64 2011/10/16 12:18:32 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -258,17 +258,9 @@ static	const char * const lists[LIST_MAX] = {
 void
 html_mdoc(void *arg, const struct mdoc *m)
 {
-	struct html 	*h;
-	struct tag	*t;
 
-	h = (struct html *)arg;
-
-	print_gen_decls(h);
-	t = print_otag(h, TAG_HTML, 0, NULL);
-	print_mdoc(mdoc_meta(m), mdoc_node(m), h);
-	print_tagq(h, t);
-
-	printf("\n");
+	print_mdoc(mdoc_meta(m), mdoc_node(m), (struct html *)arg);
+	putchar('\n');
 }
 
 
@@ -356,13 +348,22 @@ a2offs(const char *p, struct roffsu *su)
 static void
 print_mdoc(MDOC_ARGS)
 {
-	struct tag	*t;
+	struct tag	*t, *tt;
+	struct htmlpair	 tag;
 
-	t = print_otag(h, TAG_HEAD, 0, NULL);
-	print_mdoc_head(m, n, h);
-	print_tagq(h, t);
+	PAIR_CLASS_INIT(&tag, "mandoc");
 
-	t = print_otag(h, TAG_BODY, 0, NULL);
+	if ( ! (HTML_FRAGMENT & h->oflags)) {
+		print_gen_decls(h);
+		t = print_otag(h, TAG_HTML, 0, NULL);
+		tt = print_otag(h, TAG_HEAD, 0, NULL);
+		print_mdoc_head(m, n, h);
+		print_tagq(h, tt);
+		print_otag(h, TAG_BODY, 0, NULL);
+		print_otag(h, TAG_DIV, 1, &tag);
+	} else 
+		t = print_otag(h, TAG_DIV, 1, &tag);
+
 	print_mdoc_nodelist(m, n, h);
 	print_tagq(h, t);
 }
@@ -492,32 +493,24 @@ mdoc_root_post(MDOC_ARGS)
 
 	PAIR_SUMMARY_INIT(&tag[0], "Document Footer");
 	PAIR_CLASS_INIT(&tag[1], "foot");
-	if (NULL == h->style) {
-		PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
-		t = print_otag(h, TAG_TABLE, 3, tag);
-		PAIR_INIT(&tag[0], ATTR_WIDTH, "50%");
-		print_otag(h, TAG_COL, 1, tag);
-		print_otag(h, TAG_COL, 1, tag);
-	} else
-		t = print_otag(h, TAG_TABLE, 2, tag);
+	PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
+	t = print_otag(h, TAG_TABLE, 3, tag);
+	PAIR_INIT(&tag[0], ATTR_WIDTH, "50%");
+	print_otag(h, TAG_COL, 1, tag);
+	print_otag(h, TAG_COL, 1, tag);
 
-	t = print_otag(h, TAG_TBODY, 0, NULL);
+	print_otag(h, TAG_TBODY, 0, NULL);
 
 	tt = print_otag(h, TAG_TR, 0, NULL);
 
 	PAIR_CLASS_INIT(&tag[0], "foot-date");
 	print_otag(h, TAG_TD, 1, tag);
-
 	print_text(h, m->date);
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "foot-os");
-	if (NULL == h->style) {
-		PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
-		print_otag(h, TAG_TD, 2, tag);
-	} else 
-		print_otag(h, TAG_TD, 1, tag);
-
+	PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
+	print_otag(h, TAG_TD, 2, tag);
 	print_text(h, m->os);
 	print_tagq(h, t);
 }
@@ -543,15 +536,12 @@ mdoc_root_pre(MDOC_ARGS)
 
 	PAIR_SUMMARY_INIT(&tag[0], "Document Header");
 	PAIR_CLASS_INIT(&tag[1], "head");
-	if (NULL == h->style) {
-		PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
-		t = print_otag(h, TAG_TABLE, 3, tag);
-		PAIR_INIT(&tag[0], ATTR_WIDTH, "30%");
-		print_otag(h, TAG_COL, 1, tag);
-		print_otag(h, TAG_COL, 1, tag);
-		print_otag(h, TAG_COL, 1, tag);
-	} else
-		t = print_otag(h, TAG_TABLE, 2, tag);
+	PAIR_INIT(&tag[2], ATTR_WIDTH, "100%");
+	t = print_otag(h, TAG_TABLE, 3, tag);
+	PAIR_INIT(&tag[0], ATTR_WIDTH, "30%");
+	print_otag(h, TAG_COL, 1, tag);
+	print_otag(h, TAG_COL, 1, tag);
+	print_otag(h, TAG_COL, 1, tag);
 
 	print_otag(h, TAG_TBODY, 0, NULL);
 
@@ -559,27 +549,18 @@ mdoc_root_pre(MDOC_ARGS)
 
 	PAIR_CLASS_INIT(&tag[0], "head-ltitle");
 	print_otag(h, TAG_TD, 1, tag);
-
 	print_text(h, title);
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "head-vol");
-	if (NULL == h->style) {
-		PAIR_INIT(&tag[1], ATTR_ALIGN, "center");
-		print_otag(h, TAG_TD, 2, tag);
-	} else 
-		print_otag(h, TAG_TD, 1, tag);
-
+	PAIR_INIT(&tag[1], ATTR_ALIGN, "center");
+	print_otag(h, TAG_TD, 2, tag);
 	print_text(h, b);
 	print_stagq(h, tt);
 
 	PAIR_CLASS_INIT(&tag[0], "head-rtitle");
-	if (NULL == h->style) {
-		PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
-		print_otag(h, TAG_TD, 2, tag);
-	} else 
-		print_otag(h, TAG_TD, 1, tag);
-
+	PAIR_INIT(&tag[1], ATTR_ALIGN, "right");
+	print_otag(h, TAG_TD, 2, tag);
 	print_text(h, title);
 	print_tagq(h, t);
 	return(1);
