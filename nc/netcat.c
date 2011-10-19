@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.102 2011/09/17 14:10:05 haesbaert Exp $ */
+/* $OpenBSD: netcat.c,v 1.103 2011/10/04 08:34:34 fgsch Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  *
@@ -98,6 +98,7 @@ void	help(void);
 int	local_listen(char *, char *, struct addrinfo);
 void	readwrite(int);
 int	remote_connect(const char *, const char *, struct addrinfo);
+int	timeout_connect(int, const struct sockaddr *, socklen_t);
 int	socks_connect(const char *, const char *, struct addrinfo,
 	    const char *, const char *, struct addrinfo, int, const char *);
 int	udptest(int);
@@ -543,61 +544,6 @@ unix_listen(char *path)
 }
 
 /*
- * connect_timeout()
- * uses O_NONBLOCK + select to achive a connect timeout as opposed to default
- * system timeout of connect()
- */
-int
-connect_timeout(int s, const struct sockaddr *name, socklen_t namelen, int t)
-{
-	int flags, n, error;
-	socklen_t len;
-	fd_set rset, wset;
-	struct timeval sv;
-	struct timeval tv;
-
-	flags = fcntl(s, F_GETFL, 0);
-	fcntl(s, F_SETFL, flags | O_NONBLOCK);
-
-	error = 0;
-	if ( (n = connect(s, name, namelen)) < 0)
-		if (errno != EINPROGRESS)
-			return (-1);
-
-	if (n == 0)
-		goto done;	/* connect completed immediately */
-
-	FD_ZERO(&rset);
-	FD_SET(s, &rset);
-	wset = rset;
-	tv.tv_sec = t / 1000;
-	tv.tv_usec = t % 1000;
-
-	if ( (n = select(s+1, &rset, &wset, NULL, &tv)) == 0) {
-		close(s);
-		errno = ETIMEDOUT;
-		return (-1);
-	}
-
-	if (FD_ISSET(s, &rset) || FD_ISSET(s, &wset)) {
-		len = sizeof(error);
-		if (getsockopt(s, SOL_SOCKET, SO_ERROR, &error, &len) < 0)
-			return (-1);
-	} else
-		errx(1, "select error: s not set");
-
-done:
-	fcntl(s, F_SETFL, flags);  /* restore file status flags */
-
-	if (error) {
-		close(s);
-		errno = error;
-		return (-1);
-	}
-	return (0);
-}
-
-/*
  * remote_connect()
  * Returns a socket connected to a remote host. Properly binds to a local
  * port or source address if needed. Returns -1 on failure.
@@ -645,13 +591,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 		set_common_sockopts(s);
 
-		if (timeout > 0) {
-			error = connect_timeout(s, res0->ai_addr,
-			    res0->ai_addrlen, timeout);
-		} else {
-			error = connect(s, res0->ai_addr, res0->ai_addrlen);
-		}
-		if (error == 0)
+		if (timeout_connect(s, res0->ai_addr, res0->ai_addrlen) == 0)
 			break;
 		else if (vflag)
 			warn("connect to %s port %s (%s) failed", host, port,
@@ -664,6 +604,43 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 	freeaddrinfo(res);
 
 	return (s);
+}
+
+int
+timeout_connect(int s, const struct sockaddr *name, socklen_t namelen)
+{
+	struct pollfd pfd;
+	socklen_t optlen;
+	int flags, optval;
+	int ret;
+
+	if (timeout != -1) {
+		flags = fcntl(s, F_GETFL, 0);
+		if (fcntl(s, F_SETFL, flags | O_NONBLOCK) == -1)
+			err(1, "set non-blocking mode");
+	}
+
+	if ((ret = connect(s, name, namelen)) != 0 && errno == EINPROGRESS) {
+		pfd.fd = s;
+		pfd.events = POLLOUT;
+		if ((ret = poll(&pfd, 1, timeout)) == 1) {
+			optlen = sizeof(optval);
+			if ((ret = getsockopt(s, SOL_SOCKET, SO_ERROR,
+			    &optval, &optlen)) == 0) {
+				errno = optval;
+				ret = optval == 0 ? 0 : -1;
+			}
+		} else if (ret == 0) {
+			errno = ETIMEDOUT;
+			ret = -1;
+		} else
+			err(1, "poll failed");
+	}
+
+	if (timeout != -1 && fcntl(s, F_SETFL, flags) == -1)
+		err(1, "restoring flags");
+
+	return (ret);
 }
 
 /*

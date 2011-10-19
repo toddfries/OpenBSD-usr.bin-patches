@@ -1,8 +1,8 @@
-#	$OpenBSD: Makefile,v 1.60 2011/09/18 15:54:48 schwarze Exp $
+#	$OpenBSD: Makefile,v 1.62 2011/10/09 17:59:56 schwarze Exp $
 
 .include <bsd.own.mk>
 
-CFLAGS+=-DVERSION=\"1.11.7\"
+CFLAGS+=-DVERSION=\"1.12.0\"
 CFLAGS+=-W -Wall -Wstrict-prototypes
 
 .if ${COMPILER_VERSION:L} == "gcc3" || ${COMPILER_VERSION:L} == "gcc4" 
@@ -18,7 +18,12 @@ SRCS+=	main.c mdoc_term.c chars.c term.c tree.c man_term.c eqn_term.c
 SRCS+=	mdoc_man.c
 SRCS+=	html.c mdoc_html.c man_html.c out.c eqn_html.c
 SRCS+=	term_ps.c term_ascii.c tbl_term.c tbl_html.c
+SRCS+=	mandocdb.c apropos.c
 
 PROG=	mandoc
+
+LINKS=	${BINDIR}/mandoc ${BINDIR}/mandocdb
+
+MAN=	mandoc.1 mandocdb.8
 
 .include <bsd.prog.mk>
