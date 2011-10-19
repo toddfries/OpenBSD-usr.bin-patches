@@ -1,4 +1,4 @@
-/* $OpenBSD: pftop.c,v 1.19 2011/04/05 15:07:46 sthen Exp $	 */
+/* $OpenBSD: pftop.c,v 1.20 2011/10/13 18:32:30 claudio Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
