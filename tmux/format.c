@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.1 2011/08/26 10:53:16 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.3 2011/10/23 01:12:46 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -295,6 +295,42 @@ format_session(struct format_tree *ft, struct session *s)
 		format_add(ft, "session_attached", "%d", 1);
 }
 
+/* Set default format keys for a client. */
+void
+format_client(struct format_tree *ft, struct client *c)
+{
+	char	*tim;
+	time_t	 t;
+
+	format_add(ft, "client_cwd", "%s", c->cwd);
+	format_add(ft, "client_height", "%u", c->tty.sx);
+	format_add(ft, "client_width", "%u", c->tty.sy);
+	format_add(ft, "client_tty", "%s", c->tty.path);
+	format_add(ft, "client_termname", "%s", c->tty.termname);
+
+	t = c->creation_time.tv_sec;
+	format_add(ft, "client_created", "%ld", (long) t);
+	tim = ctime(&t);
+	*strchr(tim, '\n') = '\0';
+	format_add(ft, "client_created_string", "%s", tim);
+
+	t = c->activity_time.tv_sec;
+	format_add(ft, "client_activity", "%ld", (long) t);
+	tim = ctime(&t);
+	*strchr(tim, '\n') = '\0';
+	format_add(ft, "client_activity_string", "%s", tim);
+
+	if (c->tty.flags & TTY_UTF8)
+		format_add(ft, "client_utf8", "%d", 1);
+	else
+		format_add(ft, "client_utf8", "%d", 0);
+
+	if (c->flags & CLIENT_READONLY)
+		format_add(ft, "client_readonly", "%d", 1);
+	else
+		format_add(ft, "client_readonly", "%d", 0);
+}
+
 /* Set default format keys for a winlink. */
 void
 format_winlink(struct format_tree *ft, struct session *s, struct winlink *wl)
@@ -343,4 +379,10 @@ format_window_pane(struct format_tree *ft, struct window_pane *wp)
 	format_add(ft, "pane_id", "%%%u", wp->id);
 	format_add(ft, "pane_active", "%d", wp == wp->window->active);
 	format_add(ft, "pane_dead", "%d", wp->fd == -1);
+	if (wp->cmd != NULL)
+		format_add(ft, "pane_start_command", "%s", wp->cmd);
+	if (wp->cwd != NULL)
+		format_add(ft, "pane_start_path", "%s", wp->cwd);
+	format_add(ft, "pane_pid", "%ld", (long) wp->pid);
+	format_add(ft, "pane_tty", "%s", wp->tty);
 }
