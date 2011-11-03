@@ -22,6 +22,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if defined(__linux__)
+#include <bsd/string.h>
+#endif
 
 #include "mandoc.h"
 #include "out.h"

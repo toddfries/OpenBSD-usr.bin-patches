@@ -28,6 +28,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#if defined(__linux__)
+#include <bsd/string.h>
+#endif
 
 #include "mdoc.h"
 #include "mandoc.h"

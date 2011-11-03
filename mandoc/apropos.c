@@ -28,7 +28,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if !defined(__linux__)
 #include <db.h>
+#else
+#include <db_185.h>
+char *strcasestr (__const char *, __const char *);
+#endif
 
 #include "mandoc.h"
 

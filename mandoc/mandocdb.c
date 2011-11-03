@@ -24,7 +24,12 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#if !defined(__linux__)
 #include <db.h>
+#else
+#include <db_185.h>
+#include <bsd/string.h>
+#endif
 
 #include "man.h"
 #include "mdoc.h"
