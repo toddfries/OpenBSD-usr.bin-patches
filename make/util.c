@@ -368,7 +368,7 @@ signal(s, a))()
 
 #endif
 
-#ifndef BSD4_4
+#if !defined(BSD4_4) && !defined(__linux__)
 #include <stdarg.h>
 
 #ifdef _IOSTRG

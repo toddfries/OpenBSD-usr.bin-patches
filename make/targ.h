@@ -30,6 +30,7 @@
 #ifndef TIMESTAMP_TYPE
 #include "timestamp_t.h"
 #endif
+#include <stdint.h>
 /*
  * The TARG_ constants are used when calling the Targ_FindNode functions.
  * They simply tell the function what to do if the desired node is not found.

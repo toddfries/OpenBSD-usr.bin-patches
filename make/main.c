@@ -199,7 +199,9 @@ MainParseArgs(int argc, char **argv)
 #define OPTLETTERS "BPSiknqrst"
 
 	optind = 1;	/* since we're called more than once */
+#if !defined(__linux__)
 	optreset = 1;
+#endif
 	optend = 0;
 	while (optind < argc) {
 		if (!optend && argv[optind][0] == '-') {

@@ -1,4 +1,4 @@
-/* $Id: cache.h,v 1.2 2008/07/16 10:23:39 canacar Exp $ */
+/* $Id: cache.h,v 1.4 2011/11/29 10:19:15 dlg Exp $ */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar <canacar@openbsd.org>
  *
@@ -23,9 +23,10 @@
 #include <net/pfvar.h>
 
 struct sc_ent {
-        RB_ENTRY(sc_ent)    tlink;
+	RB_ENTRY(sc_ent)    tlink;
 	TAILQ_ENTRY(sc_ent) qlink;
-	u_int32_t	    id[2];
+	u_int64_t	    id;
+	u_int32_t	    creatorid;
 	double		    peak;
 	double		    rate;
 	time_t		    t;
@@ -38,6 +39,5 @@ struct sc_ent *cache_state(struct pfsync_state *);
 extern int cache_max, cache_size;
 
 #define COUNTER(c) ((((u_int64_t) ntohl(c[0]))<<32) + ntohl(c[1]))
-
 
 #endif

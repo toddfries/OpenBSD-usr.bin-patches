@@ -69,6 +69,7 @@
  *	Job_Wait		Wait for all running jobs to finish.
  */
 
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <ctype.h>
