@@ -1,6 +1,7 @@
-/* $Id: cache.h,v 1.4 2011/11/29 10:19:15 dlg Exp $ */
+/*	$Id: manpath.h,v 1.1 2011/11/26 16:41:35 schwarze Exp $ */
 /*
- * Copyright (c) 2001, 2007 Can Erkin Acar <canacar@openbsd.org>
+ * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,30 +15,26 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
+#ifndef MANPATH_H
+#define MANPATH_H
 
-#ifndef _CACHE_H_
-#define _CACHE_H_
-
-#include <sys/queue.h>
-#include <sys/tree.h>
-#include <net/pfvar.h>
-
-struct sc_ent {
-	RB_ENTRY(sc_ent)    tlink;
-	TAILQ_ENTRY(sc_ent) qlink;
-	u_int64_t	    id;
-	u_int32_t	    creatorid;
-	double		    peak;
-	double		    rate;
-	time_t		    t;
-	u_int32_t	    bytes;
+/*
+ * Unsorted list of unique, absolute paths to be searched for manual
+ * databases.
+ */
+struct	manpaths {
+	int	  sz;
+	char	**paths;
 };
 
-int cache_init(int);
-void cache_endupdate(void);
-struct sc_ent *cache_state(struct pfsync_state *);
-extern int cache_max, cache_size;
+__BEGIN_DECLS
 
-#define COUNTER(c) ((((u_int64_t) ntohl(c[0]))<<32) + ntohl(c[1]))
+void	 manpath_manconf(const char *, struct manpaths *);
+void	 manpath_parse(struct manpaths *, char *, char *);
+void	 manpath_parseconf(struct manpaths *);
+void	 manpath_parseline(struct manpaths *, char *);
+void	 manpath_free(struct manpaths *);
 
-#endif
+__END_DECLS
+
+#endif /*!MANPATH_H*/

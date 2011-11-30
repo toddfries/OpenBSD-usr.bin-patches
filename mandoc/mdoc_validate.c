@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.96 2011/10/16 12:18:32 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.98 2011/11/19 13:17:44 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2011 Ingo Schwarze <schwarze@openbsd.org>
@@ -1690,6 +1690,14 @@ post_rs(POST_ARGS)
 	}
 
 	/*
+	 * Nothing to sort if only invalid nodes were found
+	 * inside the `Rs' body.
+	 */
+
+	if (NULL == mdoc->last->child)
+		return(1);
+
+	/*
 	 * The full `Rs' block needs special handling to order the
 	 * sub-elements according to `rsord'.  Pick through each element
 	 * and correctly order it.  This is a insertion sort.
@@ -1814,6 +1822,7 @@ static int
 post_sh_head(POST_ARGS)
 {
 	char		 buf[BUFSIZ];
+	struct mdoc_node *n;
 	enum mdoc_sec	 sec;
 	int		 c;
 
@@ -1847,6 +1856,10 @@ post_sh_head(POST_ARGS)
 	/* Mark our last section. */
 
 	mdoc->lastsec = sec;
+	mdoc->last->parent->sec = sec;
+	mdoc->last->sec = sec;
+	for (n = mdoc->last->child; n; n = n->next)
+		n->sec = sec;
 
 	/* We don't care about custom sections after this. */
 
