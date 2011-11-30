@@ -3,6 +3,4 @@
 PROG=	nc
 SRCS=	netcat.c atomicio.c socks.c
 
-LDADD=	-lbsd
-
 .include <bsd.prog.mk>

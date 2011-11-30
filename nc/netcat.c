@@ -193,14 +193,12 @@ main(int argc, char *argv[])
 		case 'u':
 			uflag = 1;
 			break;
-#if !defined(__linux__)
 		case 'V':
 			rtableid = (unsigned int)strtonum(optarg, 0,
 			    RT_TABLEID_MAX, &errstr);
 			if (errstr)
 				errx(1, "rtable %s: %s", errstr, optarg);
 			break;
-#endif
 		case 'v':
 			vflag = 1;
 			break;
@@ -565,22 +563,18 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 		    res0->ai_protocol)) < 0)
 			continue;
 
-#if !defined(__linux__)
 		if (rtableid) {
 			if (setsockopt(s, SOL_SOCKET, SO_RTABLE, &rtableid,
 			    sizeof(rtableid)) == -1)
 				err(1, "setsockopt SO_RTABLE");
 		}
-#endif
 
 		/* Bind to a local port or source address if specified. */
 		if (sflag || pflag) {
 			struct addrinfo ahints, *ares;
 
-#if defined(SO_BINDANY)
 			/* try SO_BINDANY, but don't insist */
 			setsockopt(s, SOL_SOCKET, SO_BINDANY, &on, sizeof(on));
-#endif
 			memset(&ahints, 0, sizeof(struct addrinfo));
 			ahints.ai_family = res0->ai_family;
 			ahints.ai_socktype = uflag ? SOCK_DGRAM : SOCK_STREAM;
@@ -680,19 +674,15 @@ local_listen(char *host, char *port, struct addrinfo hints)
 		    res0->ai_protocol)) < 0)
 			continue;
 
-#if defined(SO_RTABLE)
 		if (rtableid) {
 			if (setsockopt(s, IPPROTO_IP, SO_RTABLE, &rtableid,
 			    sizeof(rtableid)) == -1)
 				err(1, "setsockopt SO_RTABLE");
 		}
-#endif
 
-#if defined(SO_REUSEPORTT)
 		ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
 		if (ret == -1)
 			err(1, NULL);
-#endif
 
 		set_common_sockopts(s);
 
@@ -910,13 +900,11 @@ set_common_sockopts(int s)
 			&x, sizeof(x)) == -1)
 			err(1, NULL);
 	}
-#if defined(SO_JUMBO)
 	if (jflag) {
 		if (setsockopt(s, SOL_SOCKET, SO_JUMBO,
 			&x, sizeof(x)) == -1)
 			err(1, NULL);
 	}
-#endif
 	if (Tflag != -1) {
 		if (setsockopt(s, IPPROTO_IP, IP_TOS,
 		    &Tflag, sizeof(Tflag)) == -1)
@@ -955,7 +943,6 @@ map_tos(char *s, int *val)
 		{ "af42",		IPTOS_DSCP_AF42 },
 		{ "af43",		IPTOS_DSCP_AF43 },
 		{ "critical",		IPTOS_PREC_CRITIC_ECP },
-#if defined(IPTOS_DSCP_CS0)
 		{ "cs0",		IPTOS_DSCP_CS0 },
 		{ "cs1",		IPTOS_DSCP_CS1 },
 		{ "cs2",		IPTOS_DSCP_CS2 },
@@ -964,7 +951,6 @@ map_tos(char *s, int *val)
 		{ "cs5",		IPTOS_DSCP_CS5 },
 		{ "cs6",		IPTOS_DSCP_CS6 },
 		{ "cs7",		IPTOS_DSCP_CS7 },
-#endif
 		{ "ef",			IPTOS_DSCP_EF },
 		{ "inetcontrol",	IPTOS_PREC_INTERNETCONTROL },
 		{ "lowdelay",		IPTOS_LOWDELAY },
