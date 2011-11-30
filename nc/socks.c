@@ -38,7 +38,9 @@
 #include <string.h>
 #include <unistd.h>
 #include <resolv.h>
+#if !defined(__linux__)
 #include <readpassphrase.h>
+#endif
 #include "atomicio.h"
 
 #define SOCKS_PORT	"1080"
@@ -117,7 +119,9 @@ getproxypass(const char *proxyuser, const char *proxyhost)
 
 	snprintf(prompt, sizeof(prompt), "Proxy password for %s@%s: ",
 	   proxyuser, proxyhost);
+#if !defined(__linux__)
 	if (readpassphrase(prompt, pw, sizeof(pw), RPP_REQUIRE_TTY) == NULL)
+#endif
 		errx(1, "Unable to read proxy passphrase");
 	return (pw);
 }
