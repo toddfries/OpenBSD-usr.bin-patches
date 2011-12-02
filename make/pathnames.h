@@ -36,7 +36,7 @@
 # include <paths.h>
 #endif
 #ifndef _PATH_BSHELL
-# define _PATH_BSHELL	"/bin/sh"
+# define _PATH_BSHELL	"/bin/ksh"
 #endif
 #ifndef _PATH_OBJDIR
 #define _PATH_OBJDIR		"obj"
