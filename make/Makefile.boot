@@ -14,7 +14,7 @@
 MACHINE=n900
 MACHINE_ARCH=arm
 MACHINE_CPU=arm
-CFLAGS= -Iohash -I. -DTARGET_MACHINE=\"${MACHINE}\" -DTARGET_MACHINE_ARCH=\"${MACHINE_ARCH}\" -DTARGET_MACHINE_CPU=\"${MACHINE_CPU}\" -DMACHINE=\"${MACHINE}\" \
+CFLAGS= -Iohash -I. -I/usr/include/openbsd -DTARGET_MACHINE=\"${MACHINE}\" -DTARGET_MACHINE_ARCH=\"${MACHINE_ARCH}\" -DTARGET_MACHINE_CPU=\"${MACHINE_CPU}\" -DMACHINE=\"${MACHINE}\" \
 	-DMAKE_BOOTSTRAP -DNEED_FGETLN
 LIBS= ohash/libohash.a
 
@@ -32,7 +32,7 @@ LIBOBJ=	lst.lib/lstAddNew.o lst.lib/lstAppend.o \
 
 bmake: varhashconsts.h condhashconsts.h nodehashconsts.h ${OBJ} ${LIBOBJ}
 #	@echo 'make of make and make.0 started.'
-	${CC} ${CFLAGS} ${OBJ} ${LIBOBJ} -lbsd -o bmake ${LIBS}
+	${CC} ${CFLAGS} ${OBJ} ${LIBOBJ} -lopenbsd -o bmake ${LIBS}
 	@ls -l $@
 #	nroff -h -man make.1 > make.0
 #	@echo 'make of make and make.0 completed.'
