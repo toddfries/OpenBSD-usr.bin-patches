@@ -3,6 +3,7 @@
 PROG=	xinstall
 SRCS=	xinstall.c
 MAN=	install.1
+LDADD+= -lopenbsd -lcrypto
 
 realinstall:
 	${INSTALL} ${INSTALL_COPY} -S ${INSTALL_STRIP} \

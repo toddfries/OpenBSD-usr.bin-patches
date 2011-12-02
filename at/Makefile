@@ -4,6 +4,7 @@ PROG=	at
 SRCS=	at.c misc.c parsetime.c
 CRONDIR=${.CURDIR}/../../usr.sbin/cron
 CFLAGS+=-I${CRONDIR} -DDEBUGGING=0
+CFLAGS+=-I/usr/include/openbsd
 MAN=	at.1 atrm.1 atq.1
 LINKS=	${BINDIR}/at ${BINDIR}/atq \
 	${BINDIR}/at ${BINDIR}/atrm \

@@ -53,8 +53,14 @@
 
 #define	DIRECTORY	0x01		/* Tell install it's a directory. */
 #define	SETFLAGS	0x02		/* Tell install to set flags. */
+#if !defined(__linux__)
 #define NOCHANGEBITS	(UF_IMMUTABLE | UF_APPEND | SF_IMMUTABLE | SF_APPEND)
+#endif
 #define BACKUP_SUFFIX	".old"
+
+#if !defined(MAXBSIZE)
+#define MAXBSIZE	(64 * 1024)
+#endif
 
 struct passwd *pp;
 struct group *gp;
@@ -176,7 +182,9 @@ main(int argc, char *argv[])
 	/* can't do file1 file2 directory/file */
 	if (argc != 2)
 		errx(EX_OSERR, "Target: %s", argv[argc-1]);
-
+#if !defined(EFTYPE)
+#define EFTYPE 0
+#endif
 	if (!no_target) {
 		if (stat(*argv, &from_sb))
 			err(EX_OSERR, "%s", *argv);
@@ -353,12 +361,14 @@ install(char *from_name, char *to_name, u_long fset, u_int flags)
 	 * If provided a set of flags, set them, otherwise, preserve the
 	 * flags, except for the dump flag.
 	 */
+#if defined(UF_NODUMP)
 	if (fchflags(to_fd,
 	    flags & SETFLAGS ? fset : from_sb.st_flags & ~UF_NODUMP)) {
 		if (errno != EOPNOTSUPP || (from_sb.st_flags & ~UF_NODUMP) != 0)
 			warnx("%s: chflags: %s", 
 			    safecopy ? tempfile :to_name, strerror(errno));
 	}
+#endif
 
 	(void)close(to_fd);
 	if (!devnull)
@@ -370,8 +380,10 @@ install(char *from_name, char *to_name, u_long fset, u_int flags)
 	 */
 	if (safecopy && !files_match) {
 		/* Try to turn off the immutable bits. */
+#if !defined(__linux__)
 		if (to_sb.st_flags & (NOCHANGEBITS))
 			(void)chflags(to_name, to_sb.st_flags & ~(NOCHANGEBITS));
+#endif
 		if (dobackup) {
 			char backup[MAXPATHLEN];
 			(void)snprintf(backup, MAXPATHLEN, "%s%s", to_name,
@@ -531,7 +543,11 @@ strip(char *to_name)
 	int serrno, status;
 	char * volatile path_strip;
 
-	if (issetugid() || (path_strip = getenv("STRIP")) == NULL)
+	if (
+#if !defined(__linux__)
+		issetugid() || 
+#endif
+		(path_strip = getenv("STRIP")) == NULL)
 		path_strip = _PATH_STRIP;
 
 	switch (vfork()) {
@@ -627,8 +643,10 @@ create_newfile(char *path, struct stat *sbp)
 	 * off the append/immutable bits -- if we fail, go ahead,
 	 * it might work.
 	 */
+#if !defined(__linux__)
 	if (sbp->st_flags & (NOCHANGEBITS))
 		(void)chflags(path, sbp->st_flags & ~(NOCHANGEBITS));
+#endif
 
 	if (dobackup) {
 		(void)snprintf(backup, MAXPATHLEN, "%s%s", path, suffix);
