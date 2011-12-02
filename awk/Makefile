@@ -2,7 +2,7 @@
 
 PROG=	awk
 SRCS=	ytab.c lex.c b.c main.c parse.c proctab.c tran.c lib.c run.c
-LDADD=	-lm
+LDADD=	-lm -lopenbsd -lcrypto
 DPADD=	${LIBM}
 CLEANFILES+=proctab.c maketab ytab.c ytab.h stamp_tabs
 CFLAGS+=-I. -I${.CURDIR} -DHAS_ISBLANK -DNDEBUG
