@@ -41,6 +41,9 @@
 #ifndef MAKE_BOOTSTRAP
 #include <sys/utsname.h>
 #endif
+#if defined(__linux__)
+#include <openbsd-compat.h>
+#endif
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -213,7 +216,7 @@ MainParseArgs(int argc, char **argv)
 				optend++;	/* "--" denotes end of flags */
 			}
 		}
-		c = optend ? -1 : getopt(argc, argv, OPTFLAGS);
+		c = optend ? -1 : BSDgetopt(argc, argv, OPTFLAGS);
 		switch (c) {
 		case 'D':
 			Var_Set(optarg, "1");
