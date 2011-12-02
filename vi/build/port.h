@@ -3,3 +3,9 @@
 /*
  * Nothing needed here for OpenBSD.
  */
+#if defined(__linux__)
+typedef u_int32_t recno_t;
+#if !defined(TCSASOFT)
+#define TCSASOFT	0
+#endif
+#endif
