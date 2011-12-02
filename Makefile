@@ -2,13 +2,20 @@
 
 .include <bsd.own.mk>
 
-SUBDIR= apply apropos ar arch asa asn1_compile at aucat audioctl awk banner \
-	basename bc bdes bgplg \
-	biff cal calendar cap_mkdb cdio chpass cmp col colrm \
-	column comm compile_et compress cpp crontab csplit ctags cut \
-	dc deroff diff diff3 dirname du encrypt env expand false file \
-	file2c find fgen finger fmt fold from fsplit fstat ftp gencat getcap \
-	getconf getent getopt gprof grep gzsig head hexdump id indent \
+#SUBDIR= apply apropos ar arch asa asn1_compile aucat audioctl banner
+#	bdes bgplg \
+#	biff cal calendar cap_mkdb cdio chpass \
+#	col colrm \
+#	column comm compile_et compress 
+#	dc deroff expand fgen finger from fsplit fstat 
+#	gencat getcap \
+#	getconf getent getopt gprof gzsig at bc
+SUBDIR= awk \
+	basename \
+	cmp \
+	cpp crontab csplit ctags cut \
+	diff diff3 dirname du encrypt env false file \
+	file2c find fmt fold ftp grep head hexdump id indent \
 	infocmp ipcrm ipcs \
 	join jot kdump keynote ktrace lam last lastcomm leave less lex lndir \
 	locate lock logger login logname look lorder \
