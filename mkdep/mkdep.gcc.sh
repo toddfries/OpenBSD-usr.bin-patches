@@ -84,7 +84,8 @@ fi
 
 scanfordasho "$@"
 
-TMP=`mktemp /tmp/mkdep.XXXXXXXXXX` || exit 1
+TMPDIR=${TMPDIR:-/tmp}
+TMP=`mktemp $TMPDIR/mkdep.XXXXXXXXXX` || exit 1
 
 trap 'rm -f $TMP ; trap 2 ; kill -2 $$' 1 2 3 13 15
 
