@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.70 2011/10/16 12:18:32 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.72 2011/12/03 23:01:21 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010 Ingo Schwarze <schwarze@openbsd.org>
@@ -596,6 +596,17 @@ dword(struct mdoc *m, int line,
 
 	if (DELIM_OPEN == d)
 		m->last->flags |= MDOC_DELIMO;
+
+	/*
+	 * Closing delimiters only suppress the preceding space
+	 * when they follow something, not when they start a new
+	 * block or element, and not when they follow `No'.
+	 *
+	 * XXX	Explicitly special-casing MDOC_No here feels
+	 *	like a layering violation.  Find a better way
+	 *	and solve this in the code related to `No'!
+	 */
+
 	else if (DELIM_CLOSE == d && m->last->prev &&
 			m->last->prev->tok != MDOC_No)
 		m->last->flags |= MDOC_DELIMC;
@@ -1552,19 +1563,6 @@ in_line_argn(MACRO_PROT_ARGS)
 			if ( ! rew_elem(m, tok))
 				return(0);
 			flushed = 1;
-		}
-
-		/* 
-		 * XXX: this is a hack to work around groff's ugliness
-		 * as regards `Xr' and extraneous arguments.  It should
-		 * ideally be deprecated behaviour, but because this is
-		 * code is no here, it's unlikely to be removed.
-		 */
-		if (MDOC_Xr == tok && j == maxargs) {
-			if ( ! mdoc_elem_alloc(m, line, la, MDOC_Ns, NULL))
-				return(0);
-			if ( ! rew_elem(m, MDOC_Ns))
-				return(0);
 		}
 
 		if ( ! dword(m, line, la, p, DELIM_MAX))
