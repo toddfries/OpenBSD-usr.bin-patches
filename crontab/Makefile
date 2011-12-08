@@ -3,6 +3,7 @@
 PROG=	crontab
 SRCS=	crontab.c misc.c entry.c env.c
 CFLAGS+=-I${.CURDIR} -I${.CURDIR}/../../usr.sbin/cron -DDEBUGGING=0
+CFLAGS+=-I/usr/include/openbsd
 BINGRP =crontab
 BINMODE=2555
 MAN=	crontab.1 crontab.5
