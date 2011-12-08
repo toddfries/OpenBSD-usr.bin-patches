@@ -23,6 +23,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys-queue.h>
+
 #include "common.h"
 
 static void	cb_rotate(SCR *);

@@ -25,6 +25,8 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include <sys-queue.h>
+
 #include "../common/common.h"
 #include "cl.h"
 

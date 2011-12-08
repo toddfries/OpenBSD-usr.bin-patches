@@ -210,7 +210,7 @@ retry:		FREE_SPACE(sp, bp, blen);
 		str[soff].arg = atoi(u);
 		str[soff].skip = (p - u) + 1;
 		if (str[soff].arg >= __NL_ARGMAX)
-			goto ret;
+			goto retry;
 
 		/* Up to, and including the conversion character. */
 		for (u = p; (ch = *++p) != '\0';)
@@ -229,7 +229,7 @@ retry:		FREE_SPACE(sp, bp, blen);
 
 	 /* Get space for the reordered strings. */
 	if ((rbp = malloc(nlen)) == NULL)
-		goto ret;
+		goto retry;
 	s_rbp = rbp;
 
 	/*

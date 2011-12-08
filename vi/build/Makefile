@@ -7,8 +7,8 @@ PROG=	vi
 #PERLINTERP=	yes
 
 # Modern curses (ncurses)
-CFLAGS+=-I${.CURDIR} -I${.CURDIR}/../include
-LDADD+=-lcurses
+CFLAGS+=-I${.CURDIR} -I${.CURDIR}/../include -I/usr/include/openbsd
+LDADD+=-lcurses -lopenbsd -lbsddb -lcrypto
 DPADD+= ${LIBCURSES}
 
 # Old BSD curses

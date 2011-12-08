@@ -20,6 +20,8 @@
 #include <limits.h>
 #include <stdio.h>
 
+#include <sys-queue.h>
+
 #include "../common/common.h"
 #include "vi.h"
 

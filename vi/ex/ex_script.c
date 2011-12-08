@@ -41,6 +41,10 @@
 #include "script.h"
 #include "pathnames.h"
 
+#if !defined(INFTIM)
+#define INFTIM (-1)
+#endif
+
 static void	sscr_check(SCR *);
 static int	sscr_getprompt(SCR *);
 static int	sscr_init(SCR *);

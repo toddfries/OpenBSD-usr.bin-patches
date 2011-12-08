@@ -22,7 +22,7 @@
  * on most machines to which we're porting vi, and we want to include
  * them in a very specific order, regardless.
  */
-#if defined(__linux__)
+#if defined(__linux__) && 0
 #include <db_185.h>
 #else
 #include <db.h>

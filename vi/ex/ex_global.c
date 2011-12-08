@@ -23,6 +23,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys-queue.h>
+
 #include "../common/common.h"
 
 enum which {GLOBAL, V};

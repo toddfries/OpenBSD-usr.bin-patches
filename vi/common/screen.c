@@ -23,6 +23,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys-queue.h>
+
 #include "common.h"
 #include "../vi/vi.h"
 

@@ -21,6 +21,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys-queue.h>
+
 #include "../common/common.h"
 #include "../vi/vi.h"
 
