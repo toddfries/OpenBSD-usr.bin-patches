@@ -32,6 +32,9 @@
 #include <sys/types.h>
 #include <utime.h>
 #endif
+#ifndef NULL
+#define NULL (void *)0
+#endif
 
 TIMESTAMP now;		/* The time at the start of this whole process */
 

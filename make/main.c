@@ -42,7 +42,7 @@
 #include <sys/utsname.h>
 #endif
 #if defined(__linux__)
-#include <openbsd-compat.h>
+#include <openbsd/openbsd-compat.h>
 #endif
 #include <errno.h>
 #include <stdio.h>

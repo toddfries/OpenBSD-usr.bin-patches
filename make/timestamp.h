@@ -57,10 +57,16 @@
 #define ts_set_from_stat(s, t) \
 do { \
 	(t).tv_sec = (s).st_mtime; \
-	(t).tv_nsec = (s).st_mtimensec; \
+	(t).tv_nsec = (s).st_mtim.tv_nsec; \
 	if (is_out_of_date(t)) \
 		(t).tv_nsec++; \
 } while (0)
+#if !defined(timespeccmp)
+#define	timespeccmp(tsp, usp, cmp)					\
+	(((tsp)->tv_sec == (usp)->tv_sec) ?				\
+	    ((tsp)->tv_nsec cmp (usp)->tv_nsec) :			\
+	    ((tsp)->tv_sec cmp (usp)->tv_sec))
+#endif
 #define is_strictly_before(t1, t2)	timespeccmp(&(t1), &(t2), <)
 #define ts_set_from_time_t(d, t) \
 do { \
@@ -104,3 +110,5 @@ extern char *time_to_string(TIMESTAMP t);
 
 
 #endif
+
+
