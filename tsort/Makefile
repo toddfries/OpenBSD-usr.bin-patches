@@ -4,4 +4,6 @@ PROG=	tsort
 
 CDIAGFLAGS=-Wall -Wno-char-subscripts -Wstrict-prototypes -pedantic -W
 
+LDADD+= -lopenbsd -lbsdohash
+
 .include <bsd.prog.mk>
