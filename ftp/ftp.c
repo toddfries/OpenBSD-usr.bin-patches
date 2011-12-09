@@ -82,6 +82,14 @@
 #include <unistd.h>
 #include <utime.h>
 
+#if defined(__linux__)
+#include <signal.h>
+#endif
+
+#if !defined(SIGINFO)
+#define SIGINFO SIGUSR1
+#endif
+
 #include "ftp_var.h"
 
 union sockunion {
@@ -1510,16 +1518,20 @@ noport:
 		}
 	switch (data_addr.su_family) {
 	case AF_INET:
+#if defined(IP_PORTRANGE_HIGH)
 		on = IP_PORTRANGE_HIGH;
 		if (setsockopt(data, IPPROTO_IP, IP_PORTRANGE,
 		    (char *)&on, sizeof(on)) < 0)
 			warn("setsockopt IP_PORTRANGE (ignored)");
+#endif
 		break;
 	case AF_INET6:
+#if defined(IPV6_PORTRANGE_HIGH)
 		on = IPV6_PORTRANGE_HIGH;
 		if (setsockopt(data, IPPROTO_IPV6, IPV6_PORTRANGE,
 		    (char *)&on, sizeof(on)) < 0)
 			warn("setsockopt IPV6_PORTRANGE (ignored)");
+#endif
 		break;
 	}
 	if (bind(data, (struct sockaddr *)&data_addr, data_addr.su_len) < 0) {

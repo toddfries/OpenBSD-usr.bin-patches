@@ -180,8 +180,10 @@ complete_local(char *word, int list)
 	for (dp = readdir(dd); dp != NULL; dp = readdir(dd)) {
 		if (!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, ".."))
 			continue;
+#if !defined(__linux__)
 		if (strlen(file) > dp->d_namlen)
 			continue;
+#endif
 		if (strncmp(file, dp->d_name, strlen(file)) == 0) {
 			char *tcp;
 

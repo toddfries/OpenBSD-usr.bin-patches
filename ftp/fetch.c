@@ -57,7 +57,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#if !defined(__linux__)
 #include <util.h>
+#else
+/* #include <bsd/libutil.h> */
+#endif
 #include <resolv.h>
 
 #ifndef SMALL
@@ -316,7 +320,9 @@ noslash:
 			cookie  = malloc(COOKIE_MAX_LEN);
 			if (cookie == NULL)
 				errx(1, "out of memory");
+#if !defined(__linux__)
 			if (b64_ntop(host, strlen(host), cookie, COOKIE_MAX_LEN) == -1)
+#endif
 				errx(1, "error in base64 encoding");
 			*path = '@'; /* restore @ in proxyurl */
 			/*
@@ -378,6 +384,9 @@ noslash:
 		}
 #endif /* !SMALL */
 
+#if !defined(SIGINFO)
+#define SIGINFO SIGUSR1
+#endif
 		/* Trap signals */
 		oldintr = NULL;
 		oldinti = NULL;

@@ -347,7 +347,9 @@ usage:
 			}
 			continue;
 		}
-
+#if !defined(GLOB_QUOTE)
+#define GLOB_QUOTE 0
+#endif
 		memset(&gl, 0, sizeof(gl));
 		flags = GLOB_BRACE|GLOB_NOCHECK|GLOB_QUOTE|GLOB_TILDE;
 		if (glob(argv[i], flags, NULL, &gl) || gl.gl_pathc == 0) {
@@ -1435,6 +1437,10 @@ restart(int argc, char *argv[])
 {
 	quad_t nrestart_point;
 	char *ep;
+
+#if !defined(QUAD_MAX)
+#define QUAD_MAX        0x7fffffffffffffffLL            /* max signed quad */
+#endif
 
 	if (argc != 2)
 		fputs("restart: offset not specified.\n", ttyout);

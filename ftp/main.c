@@ -75,6 +75,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#if defined(__linux__)
+#include <signal.h>
+#endif
+
 #include "ftp_var.h"
 #include "cmds.h"
 

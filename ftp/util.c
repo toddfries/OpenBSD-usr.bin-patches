@@ -86,6 +86,12 @@
 #include <tzfile.h>
 #include <unistd.h>
 
+#if defined(__linux__)
+# if !defined(MAXLOGNAME)
+#  define MAXLOGNAME LOGIN_NAME_MAX
+# endif
+#endif
+
 #include "ftp_var.h"
 #include "pathnames.h"
 
@@ -551,7 +557,9 @@ globulize(char **cpp)
 
 	if (!doglob)
 		return (1);
-
+#if !defined(GLOB_QUOTE)
+#define GLOB_QUOTE 0
+#endif
 	flags = GLOB_BRACE|GLOB_NOCHECK|GLOB_QUOTE|GLOB_TILDE;
 	memset(&gl, 0, sizeof(gl));
 	if (glob(*cpp, flags, NULL, &gl) ||
