@@ -28,7 +28,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#if !defined(__linux__)
+#if !defined(__linux__) || 1
 #include <db.h>
 #else
 #include <db_185.h>

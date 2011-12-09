@@ -20,7 +20,7 @@ SRCS+=	html.c mdoc_html.c man_html.c out.c eqn_html.c
 SRCS+=	term_ps.c term_ascii.c tbl_term.c tbl_html.c
 SRCS+=	manpath.c mandocdb.c apropos_db.c apropos.c
 
-LDADD+= -lbsd -ldb-4.8
+LDADD+= -lopenbsd -lbsddb
 
 PROG=	mandoc
 
