@@ -67,6 +67,12 @@ do { \
 	    ((tsp)->tv_nsec cmp (usp)->tv_nsec) :			\
 	    ((tsp)->tv_sec cmp (usp)->tv_sec))
 #endif
+#if !defined(TIMEVAL_TO_TIMESPEC)
+#define	TIMEVAL_TO_TIMESPEC(tv, ts) {					\
+	(ts)->tv_sec = (tv)->tv_sec;					\
+	(ts)->tv_nsec = (tv)->tv_usec * 1000;				\
+}
+#endif
 #define is_strictly_before(t1, t2)	timespeccmp(&(t1), &(t2), <)
 #define ts_set_from_time_t(d, t) \
 do { \
@@ -110,5 +116,3 @@ extern char *time_to_string(TIMESTAMP t);
 
 
 #endif
-
-
