@@ -5,7 +5,7 @@ CFLAGS+= -I${.OBJDIR} -I${.CURDIR}
 HOSTCFLAGS+= -I${.OBJDIR} -I${.CURDIR}
 CDIAGFLAGS=-Wall -W -Wno-char-subscripts -Wstrict-prototypes -pedantic \
 	-Wmissing-prototypes
-LDADD+= -lbsdohash
+LDADD+= -lbsdc
 
 CDEFS+=-DUSE_TIMESPEC
 CDEFS+=-DHAS_BOOL_H
@@ -22,7 +22,7 @@ SRCS=	arch.c buf.c cmd_exec.c compat.c cond.c dir.c direxpand.c engine.c \
 	error.c for.c init.c job.c lowparse.c main.c make.c memory.c parse.c \
 	parsevar.c str.c stats.c suff.c targ.c targequiv.c timestamp.c \
 	var.c varmodifiers.c varname.c
-SRCS+=	lstAddNew.c lstAppend.c lstConcat.c lstConcatDestroy.c \
+SRCS+=	lstInit.c lstAddNew.c lstAppend.c lstConcat.c lstConcatDestroy.c \
 	lstDeQueue.c lstDestroy.c lstDupl.c lstFindFrom.c lstForEachFrom.c \
 	lstInsert.c lstMember.c lstRemove.c lstReplace.c lstRequeue.c lstSucc.c
 .PATH:	${.CURDIR}/lst.lib
