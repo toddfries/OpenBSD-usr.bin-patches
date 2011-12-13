@@ -33,7 +33,9 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/sysctl.h>
+#if !defined(__linux__)
 #include <sys/proc.h>
+#endif
 #include <sys/queue.h>
 #include <sys/stat.h>
 
@@ -46,7 +48,9 @@
 #include <signal.h>
 #include <regex.h>
 #include <ctype.h>
+#if !defined(__linux__)
 #include <kvm.h>
+#endif
 #include <err.h>
 #include <pwd.h>
 #include <grp.h>
