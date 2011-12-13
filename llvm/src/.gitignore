@@ -33,5 +33,3 @@ projects/*
 !projects/sample
 !projects/CMakeLists.txt
 !projects/Makefile
-# Clang, which is tracked independently.
-tools/clang
