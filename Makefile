@@ -5,7 +5,7 @@
 #SUBDIR= apply apropos ar arch asa asn1_compile aucat audioctl banner
 #	bdes bgplg \
 #	biff cal calendar cap_mkdb cdio chpass \
-#	col colrm \
+#	crontab csplit col colrm \
 #	column comm compile_et compress 
 #	dc deroff expand fgen finger from fsplit fstat 
 #	gencat getcap \
@@ -13,7 +13,7 @@
 SUBDIR= awk \
 	basename \
 	cmp \
-	cpp crontab csplit ctags cut \
+	cpp ctags cut \
 	diff diff3 dirname du encrypt env false file \
 	file2c find fmt fold ftp grep head hexdump id indent \
 	infocmp ipcrm ipcs \
