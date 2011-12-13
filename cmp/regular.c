@@ -42,6 +42,14 @@
 
 #include "extern.h"
 
+#if defined(__linux__)
+
+#if !defined(SIZE_T_MAX)
+#define SIZE_T_MAX ULONG_MAX
+#endif
+
+#endif
+
 void
 c_regular(int fd1, char *file1, off_t skip1, off_t len1,
     int fd2, char *file2, off_t skip2, off_t len2)
