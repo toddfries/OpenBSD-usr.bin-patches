@@ -2,6 +2,7 @@
 
 PROG=	id
 MAN=	id.1 groups.1 whoami.1
+LDADD+=	-lbsdc
 
 afterinstall:
 	${INSTALL} ${INSTALL_COPY} -o ${BINOWN} -g ${BINGRP} -m ${BINMODE} \

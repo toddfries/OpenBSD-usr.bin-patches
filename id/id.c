@@ -40,6 +40,10 @@
 #include <unistd.h>
 #include <err.h>
 
+#if defined(__linux__)
+#define UID_MAX UINT_MAX
+#endif
+
 void	current(void);
 void	pretty(struct passwd *);
 void	group(struct passwd *, int);
