@@ -27,7 +27,11 @@
  */
 
 #include <sys/types.h>
+#if !defined(__linux__)
 #include <sys/limits.h>
+#else
+#include <sys/param.h>
+#endif
 #include <sys/stat.h>
 #include <sys/queue.h>
 
@@ -453,8 +457,10 @@ main(int argc, char *argv[])
 
 	if (Eflag)
 		cflags |= REG_EXTENDED;
+#if !defined(__linux__)
 	if (Fflag)
 		cflags |= REG_NOSPEC;
+#endif
 #ifdef SMALL
 	/* Sorry, this won't work */
 	if (Fflag && wflag)

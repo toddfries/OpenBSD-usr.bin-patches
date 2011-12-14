@@ -16,7 +16,7 @@ MLINKS= grep.1 egrep.1 \
 
 CFLAGS+= -Wall
 
-LDADD=	-lz
+LDADD=	-lz -lbsdc
 DPADD=	${LIBZ}
 
 .include <bsd.prog.mk>

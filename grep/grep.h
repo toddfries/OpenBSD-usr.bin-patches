@@ -27,7 +27,12 @@
  */
 
 #include <sys/types.h>
+#if !defined(__linux__)
 #include <sys/limits.h>
+#else
+#include <sys/param.h>
+#define SIZE_T_MAX UINT_MAX
+#endif
 
 #include <regex.h>
 #include <stdio.h>
