@@ -23,6 +23,10 @@
 #include <unistd.h>
 #include <err.h>
 
+#if defined(__linux__)
+#define __dead
+#endif
+
 __dead void usage(void);
 
 int
