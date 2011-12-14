@@ -39,6 +39,10 @@
 #include <sys/utsname.h>
 #include <err.h>
 
+#if defined(__linux__)
+#define MACHINE_ARCH "arm"
+#endif
+
 static void usage(void);
 
 #define	PRINT_SYSNAME		0x01
