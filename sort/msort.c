@@ -39,6 +39,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#if defined(__linux__)
+#define _ALIGNBYTES	(sizeof(int) -1)
+#define _ALIGN(p)	(((unsigned long)(p) + _ALIGNBYTES) & ~_ALIGNBYTES)
+#define ALIGN(p)	_ALIGN(p)
+#endif
+
 /* Subroutines using comparisons: merge sort and check order */
 #define DELETE (1)
 #define LALIGN(n) ((n+(sizeof(long)-1)) & ~(sizeof(long)-1))

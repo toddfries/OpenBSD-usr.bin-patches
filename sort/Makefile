@@ -7,5 +7,6 @@ SRCS=	append.c fields.c files.c fsort.c init.c msort.c sort.c tmp.c
 .if (${MACHINE_ARCH} == sh)
 COPTS+= -O1
 .endif
+LDADD+= -lbsdc
 
 .include <bsd.prog.mk>

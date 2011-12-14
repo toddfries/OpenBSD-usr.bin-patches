@@ -109,7 +109,9 @@ main(int argc, char *argv[])
 	d_mask[REC_D = '\n'] = REC_D_F;
 	d_mask['\t'] = d_mask[' '] = BLANK | FLD_D;
 	fixit(&argc, argv);
+#if !defined(__linux__)
 	if (!issetugid() && (outfile = getenv("TMPDIR")))
+#endif
 		tmpdir = outfile;
 	while ((ch = getopt(argc, argv, "bCcdfik:mHno:rR:t:T:uy:zs")) != -1) {
 		switch (ch) {
