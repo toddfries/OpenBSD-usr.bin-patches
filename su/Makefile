@@ -3,5 +3,6 @@
 PROG=	su
 BINOWN=	root
 BINMODE=4555
+LDADD+=	-lbsdc
 
 .include <bsd.prog.mk>
