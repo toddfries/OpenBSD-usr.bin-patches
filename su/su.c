@@ -193,8 +193,10 @@ main(int argc, char **argv)
 		}
 
 		/* If the user specified a login class, use it */
+#if !defined(__linux__)
 		if (!class && pwd && pwd->pw_class && pwd->pw_class[0] != '\0')
 			class = strdup(pwd->pw_class);
+#endif
 		if ((lc = login_getclass(class)) == NULL)
 			auth_errx(as, 1, "no such login class: %s",
 			    class ? class : LOGIN_DEFCLASS);
