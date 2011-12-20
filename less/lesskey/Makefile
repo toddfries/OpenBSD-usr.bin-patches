@@ -2,6 +2,7 @@
 
 PROG=	lesskey
 SRCS=	lesskey.c version.c
+LDADD+=	-lbsdc
 
 CDIAGFLAGS+=-Wall -W
 

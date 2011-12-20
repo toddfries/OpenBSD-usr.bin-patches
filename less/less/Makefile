@@ -7,7 +7,7 @@ SRCS=	main.c screen.c brac.c ch.c charset.c cmdbuf.c command.c cvt.c \
 	os.c output.c pattern.c position.c prompt.c search.c signal.c \
 	tags.c ttyin.c version.c
 
-LDADD=	-lcurses
+LDADD=	-lcurses -lbsdc
 DPADD=	${LIBCURSES}
 
 LINKS=	${BINDIR}/less ${BINDIR}/more ${BINDIR}/less ${BINDIR}/page

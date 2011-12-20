@@ -22,6 +22,9 @@
  *	matching filenames as a single space-separated string.
  */
 
+#if defined(__linux__)
+#define __BSD_VISIBLE 1
+#endif
 #include <glob.h>
 
 #define	GLOB_FLAGS			(GLOB_NOCHECK|GLOB_BRACE|GLOB_TILDE)
