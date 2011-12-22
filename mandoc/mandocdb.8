@@ -1,4 +1,4 @@
-.\"	$Id: mandocdb.8,v 1.11 2011/12/03 14:53:12 schwarze Exp $
+.\"	$Id: mandocdb.8,v 1.13 2011/12/19 02:26:33 schwarze Exp $
 .\"
 .\" Copyright (c) 2011 Kristaps Dzonsons <kristaps@bsd.lv>
 .\"
@@ -14,7 +14,7 @@
 .\" ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\" OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: December 3 2011 $
+.Dd $Mdocdate: December 19 2011 $
 .Dt MANDOCDB 8
 .Os
 .Sh NAME
@@ -23,7 +23,10 @@
 .Sh SYNOPSIS
 .Nm
 .Op Fl av
-.Op Ar dir ...
+.Op Fl C Ar file
+.Nm
+.Op Fl av
+.Ar dir ...
 .Nm
 .Op Fl v
 .Fl d Ar dir
@@ -69,10 +72,16 @@ uses the default paths stipulated by
 .Xr man 1 .
 .Pp
 The arguments are as follows:
-.Bl -tag -width Ds
+.Bl -tag -width "-C file"
 .It Fl a
 Use all directories and files found below
 .Ar dir ... .
+.It Fl C Ar file
+Specify an alternative configuration
+.Ar file
+in
+.Xr man.conf 5
+format.
 .It Fl d Ar dir
 Merge (remove and re-add)
 .Ar
@@ -101,20 +110,19 @@ database with record values consisting of
 .Pp
 .Bl -enum -compact
 .It
-the string
-.Cm mdoc ,
-.Cm man ,
+the character
+.Cm d ,
+.Cm a ,
 or
-.Cm cat
+.Cm c
 to indicate the file type
 .Po
-file in
 .Xr mdoc 7 ,
 .Xr man 7 ,
 and post-formatted, respectively
 .Pc ,
 .It
-the filename,
+the filename relative to the databases' path,
 .It
 the manual section,
 .It
@@ -128,9 +136,7 @@ and the description.
 .Pp
 Each of the above is NUL-terminated.
 .Pp
-Both the manual section and description may be zero-length if the record
-is unassigned.
-Entries are sequentially-numbered, but the filenames are unordered.
+If the record value is zero-length, it is unassigned.
 .Ss Keyword Database
 The keyword database,
 .Pa mandoc.db ,
@@ -208,6 +214,10 @@ keyword database mapping keywords to a type and file reference in
 A
 .Xr recno 3
 database of indexed file-names.
+.It Pa /etc/man.conf
+The default
+.Xr man 1
+configuration file.
 .El
 .Sh EXIT STATUS
 The
@@ -249,9 +259,12 @@ This usually indicates database corruption or invalid command-line
 arguments.
 .El
 .Sh SEE ALSO
+.Xr apropos 1 ,
 .Xr man 1 ,
+.Xr whatis 1 ,
 .Xr btree 3 ,
-.Xr recno 3
+.Xr recno 3 ,
+.Xr man.conf 5
 .Sh AUTHORS
 The
 .Nm
