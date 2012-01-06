@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.126 2011/11/20 22:54:51 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.130 2011/12/09 22:56:35 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -56,6 +56,7 @@
 #define SNDIO_PRIO	(-20)
 
 #define PROG_AUCAT	"aucat"
+#define PROG_SNDIOD	"sndiod"
 
 /*
  * sample rate if no ``-r'' is used
@@ -83,12 +84,17 @@ volatile sig_atomic_t debug_level = 1;
 #endif
 volatile sig_atomic_t quit_flag = 0;
 
-char aucat_usage[] = "usage: " PROG_AUCAT " [-dlMn] [-a flag] [-b nframes] "
+char aucat_usage[] = "usage: " PROG_AUCAT " [-dn] [-b nframes] "
     "[-C min:max] [-c min:max] [-e enc]\n\t"
-    "[-f device] [-h fmt] [-i file] [-j flag] [-L addr] [-m mode] "
-    "[-o file]\n\t"
-    "[-q port] [-r rate] [-s name] [-t mode] [-U unit] [-v volume]\n\t"
-    "[-w flag] [-x policy] [-z nframes]\n";
+    "[-f device] [-h fmt] [-i file] [-j flag] [-m mode] [-o file]\n\t"
+    "[-q port] [-r rate] [-t mode] [-v volume] [-w flag] [-x policy]\n\t"
+    "[-z nframes]\n";
+
+char sndiod_usage[] = "usage: " PROG_SNDIOD " [-dM] [-a flag] [-b nframes] "
+    "[-C min:max] [-c min:max] [-e enc]\n\t"
+    "[-f device] [-j flag] [-L addr] [-m mode] [-q port] [-r rate]\n\t"
+    "[-s name] [-t mode] [-U unit] [-v volume] [-w flag] [-x policy]\n\t"
+    "[-z nframes]\n";
 
 /*
  * SIGINT handler, it raises the quit flag. If the flag is already set,
@@ -373,7 +379,7 @@ int
 main(int argc, char **argv)
 {
 	char *prog, *optstr, *usagestr;
-	int c, background, unit, server, active;
+	int c, background, unit, active;
 	char base[PATH_MAX], path[PATH_MAX];
 	unsigned mode, hdr, xrun, rate, join, mmc, vol;
 	unsigned hold, autovol, bufsz, round;
@@ -400,7 +406,6 @@ main(int argc, char **argv)
 	aparams_init(&ppar, 0, 1, DEFAULT_RATE);
 	aparams_init(&rpar, 0, 1, DEFAULT_RATE);
 	mode = MODE_MIDIMASK | MODE_PLAY | MODE_REC;
-	server = 0;
 
 #ifdef DEBUG
 	atexit(dbg_flush);
@@ -416,6 +421,11 @@ main(int argc, char **argv)
 	if (strcmp(prog, PROG_AUCAT) == 0) {
 		optstr = "a:b:c:C:de:f:h:i:j:lL:m:Mno:q:r:s:t:U:v:w:x:z:";
 		usagestr = aucat_usage;
+	} else if (strcmp(prog, PROG_SNDIOD) == 0) {
+		optstr = "a:b:c:C:de:f:j:L:m:Mq:r:s:t:U:v:w:x:z:";
+		usagestr = sndiod_usage;
+		background = 1;
+		hold = 0;
 	} else {
 		fprintf(stderr, "%s: can't determine program to run\n", prog);
 		return 1;
@@ -428,18 +438,17 @@ main(int argc, char **argv)
 			if (debug_level < 4)
 				debug_level++;
 #endif
+			background = 0;
 			break;
 		case 'U':
-			if (server)
-				errx(1, "-U must come before server options");
+			if (listen_list)
+				errx(1, "-U must come before -L");
 			unit = strtonum(optarg, 0, MIDI_MAXCTL, &str);
 			if (str)
 				errx(1, "%s: unit number is %s", optarg, str);
-			server = 1;
 			break;
 		case 'L':
 			listen_new_tcp(optarg, AUCAT_PORT + unit);
-			server = 1;
 			break;
 		case 'm':
 			mode = opt_mode();
@@ -496,11 +505,10 @@ main(int argc, char **argv)
 			dev_adjpar(d, w->mode, &w->hpar, NULL);
 			break;
 		case 's':
-			d = mkdev(NULL, 0, bufsz, round, 1, autovol);
+			d = mkdev(DEFAULT_DEV, 0, bufsz, round, 1, autovol);
 			mkopt(optarg, d, &rpar, &ppar,
 			    mode, vol, mmc, join);
 			/* XXX: set device rate, if never set */
-			server = 1;
 			break;
 		case 'q':
 			d = mkdev(NULL, mode, bufsz, round, 1, autovol);
@@ -531,7 +539,7 @@ main(int argc, char **argv)
 			mkdev("loopback", MODE_LOOP, bufsz, round, 1, autovol);
 			break;
 		case 'M':
-			mkdev("midithru", MODE_THRU, 0, 0, 1, 0);
+			mkdev("midithru", MODE_THRU, 0, 0, hold, 0);
 			break;
 		case 'l':
 			background = 1;
@@ -548,7 +556,7 @@ main(int argc, char **argv)
 		exit(1);
 	}
 	if (wav_list) {
-		if (server)
+		if (opt_list || listen_list)
 			errx(1, "-io not allowed in server mode");
 		if ((d = dev_list) && d->next)
 			errx(1, "only one device allowed in non-server mode");
@@ -564,10 +572,9 @@ main(int argc, char **argv)
 			if (opt_byname("default", d->num))
 				continue;
 			mkopt("default", d, &rpar, &ppar, mode, vol, mmc, join);
-			server = 1;
 		}
 	}
-	if (server) {
+	if (opt_list) {
 		getbasepath(base, sizeof(base));
 		snprintf(path, PATH_MAX, "%s/%s%u", base, AUCAT_PATH, unit);
 		listen_new_un(path);
@@ -608,12 +615,12 @@ main(int argc, char **argv)
 			dnext = d->next;
 			if (!dev_run(d))
 				goto fatal;
-			if (!dev_idle(d))
+			if (d->refcnt > 0)
 				active = 1;
 		}
 		if (dev_list == NULL)
 			break;
-		if (!server && !active)
+		if (!opt_list && !active)
 			break;
 		if (!file_poll())
 			break;
@@ -633,7 +640,7 @@ main(int argc, char **argv)
 	while (dev_list)
 		dev_del(dev_list);
 	filelist_done();
-	if (server) {
+	if (opt_list) {
 		if (rmdir(base) < 0 && errno != ENOTEMPTY && errno != EPERM)
 			warn("rmdir(\"%s\")", base);
 	}

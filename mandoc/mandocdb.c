@@ -1,4 +1,4 @@
-/*	$Id: mandocdb.c,v 1.15 2011/11/29 22:30:56 schwarze Exp $ */
+/*	$Id: mandocdb.c,v 1.24 2011/12/10 22:01:03 schwarze Exp $ */
 /*
  * Copyright (c) 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
@@ -99,7 +99,8 @@ static	void		  index_merge(const struct of *, struct mparse *,
 				recno_t, const recno_t *, size_t);
 static	void		  index_prune(const struct of *, DB *, 
 				const char *, DB *, const char *, 
-				recno_t *, recno_t **, size_t *);
+				recno_t *, recno_t **, size_t *,
+				size_t *);
 static	void		  ofile_argbuild(int, char *[], struct of **);
 static	int		  ofile_dirbuild(const char *, const char *,
 				const char *, int, struct of **);
@@ -108,147 +109,149 @@ static	void		  pformatted(DB *, struct buf *, struct buf *,
 				const struct of *);
 static	int		  pman_node(MAN_ARGS);
 static	void		  pmdoc_node(MDOC_ARGS);
-static	void		  pmdoc_An(MDOC_ARGS);
-static	void		  pmdoc_Cd(MDOC_ARGS);
-static	void		  pmdoc_Er(MDOC_ARGS);
-static	void		  pmdoc_Ev(MDOC_ARGS);
-static	void		  pmdoc_Fd(MDOC_ARGS);
-static	void		  pmdoc_In(MDOC_ARGS);
-static	void		  pmdoc_Fn(MDOC_ARGS);
-static	void		  pmdoc_Fo(MDOC_ARGS);
-static	void		  pmdoc_Nd(MDOC_ARGS);
-static	void		  pmdoc_Nm(MDOC_ARGS);
-static	void		  pmdoc_Pa(MDOC_ARGS);
-static	void		  pmdoc_St(MDOC_ARGS);
-static	void		  pmdoc_Vt(MDOC_ARGS);
-static	void		  pmdoc_Xr(MDOC_ARGS);
+static	int		  pmdoc_head(MDOC_ARGS);
+static	int		  pmdoc_body(MDOC_ARGS);
+static	int		  pmdoc_Fd(MDOC_ARGS);
+static	int		  pmdoc_In(MDOC_ARGS);
+static	int		  pmdoc_Fn(MDOC_ARGS);
+static	int		  pmdoc_Nd(MDOC_ARGS);
+static	int		  pmdoc_Nm(MDOC_ARGS);
+static	int		  pmdoc_Sh(MDOC_ARGS);
+static	int		  pmdoc_St(MDOC_ARGS);
+static	int		  pmdoc_Xr(MDOC_ARGS);
 static	void		  usage(void);
 
-typedef	void		(*pmdoc_nf)(MDOC_ARGS);
+#define	MDOCF_CHILD	  0x01  /* Automatically index child nodes. */
 
-static	const pmdoc_nf	  mdocs[MDOC_MAX] = {
-	NULL, /* Ap */
-	NULL, /* Dd */
-	NULL, /* Dt */
-	NULL, /* Os */
-	NULL, /* Sh */ 
-	NULL, /* Ss */ 
-	NULL, /* Pp */ 
-	NULL, /* D1 */
-	NULL, /* Dl */
-	NULL, /* Bd */
-	NULL, /* Ed */
-	NULL, /* Bl */ 
-	NULL, /* El */
-	NULL, /* It */
-	NULL, /* Ad */ 
-	pmdoc_An, /* An */ 
-	NULL, /* Ar */
-	pmdoc_Cd, /* Cd */ 
-	NULL, /* Cm */
-	NULL, /* Dv */ 
-	pmdoc_Er, /* Er */ 
-	pmdoc_Ev, /* Ev */ 
-	NULL, /* Ex */ 
-	NULL, /* Fa */ 
-	pmdoc_Fd, /* Fd */
-	NULL, /* Fl */
-	pmdoc_Fn, /* Fn */ 
-	NULL, /* Ft */ 
-	NULL, /* Ic */ 
-	pmdoc_In, /* In */ 
-	NULL, /* Li */
-	pmdoc_Nd, /* Nd */
-	pmdoc_Nm, /* Nm */
-	NULL, /* Op */
-	NULL, /* Ot */
-	pmdoc_Pa, /* Pa */
-	NULL, /* Rv */
-	pmdoc_St, /* St */ 
-	pmdoc_Vt, /* Va */
-	pmdoc_Vt, /* Vt */ 
-	pmdoc_Xr, /* Xr */ 
-	NULL, /* %A */
-	NULL, /* %B */
-	NULL, /* %D */
-	NULL, /* %I */
-	NULL, /* %J */
-	NULL, /* %N */
-	NULL, /* %O */
-	NULL, /* %P */
-	NULL, /* %R */
-	NULL, /* %T */
-	NULL, /* %V */
-	NULL, /* Ac */
-	NULL, /* Ao */
-	NULL, /* Aq */
-	NULL, /* At */ 
-	NULL, /* Bc */
-	NULL, /* Bf */
-	NULL, /* Bo */
-	NULL, /* Bq */
-	NULL, /* Bsx */
-	NULL, /* Bx */
-	NULL, /* Db */
-	NULL, /* Dc */
-	NULL, /* Do */
-	NULL, /* Dq */
-	NULL, /* Ec */
-	NULL, /* Ef */ 
-	NULL, /* Em */ 
-	NULL, /* Eo */
-	NULL, /* Fx */
-	NULL, /* Ms */ 
-	NULL, /* No */
-	NULL, /* Ns */
-	NULL, /* Nx */
-	NULL, /* Ox */
-	NULL, /* Pc */
-	NULL, /* Pf */
-	NULL, /* Po */
-	NULL, /* Pq */
-	NULL, /* Qc */
-	NULL, /* Ql */
-	NULL, /* Qo */
-	NULL, /* Qq */
-	NULL, /* Re */
-	NULL, /* Rs */
-	NULL, /* Sc */
-	NULL, /* So */
-	NULL, /* Sq */
-	NULL, /* Sm */ 
-	NULL, /* Sx */
-	NULL, /* Sy */
-	NULL, /* Tn */
-	NULL, /* Ux */
-	NULL, /* Xc */
-	NULL, /* Xo */
-	pmdoc_Fo, /* Fo */ 
-	NULL, /* Fc */ 
-	NULL, /* Oo */
-	NULL, /* Oc */
-	NULL, /* Bk */
-	NULL, /* Ek */
-	NULL, /* Bt */
-	NULL, /* Hf */
-	NULL, /* Fr */
-	NULL, /* Ud */
-	NULL, /* Lb */
-	NULL, /* Lp */ 
-	NULL, /* Lk */ 
-	NULL, /* Mt */ 
-	NULL, /* Brq */ 
-	NULL, /* Bro */ 
-	NULL, /* Brc */ 
-	NULL, /* %C */
-	NULL, /* Es */
-	NULL, /* En */
-	NULL, /* Dx */
-	NULL, /* %Q */
-	NULL, /* br */
-	NULL, /* sp */
-	NULL, /* %U */
-	NULL, /* Ta */
+struct	mdoc_handler {
+	int		(*fp)(MDOC_ARGS);  /* Optional handler. */
+	uint64_t	  mask;  /* Set unless handler returns 0. */
+	int		  flags;  /* For use by pmdoc_node. */
+};
+
+static	const struct mdoc_handler mdocs[MDOC_MAX] = {
+	{ NULL, 0, 0 },  /* Ap */
+	{ NULL, 0, 0 },  /* Dd */
+	{ NULL, 0, 0 },  /* Dt */
+	{ NULL, 0, 0 },  /* Os */
+	{ pmdoc_Sh, TYPE_Sh, MDOCF_CHILD }, /* Sh */
+	{ pmdoc_head, TYPE_Ss, MDOCF_CHILD }, /* Ss */
+	{ NULL, 0, 0 },  /* Pp */
+	{ NULL, 0, 0 },  /* D1 */
+	{ NULL, 0, 0 },  /* Dl */
+	{ NULL, 0, 0 },  /* Bd */
+	{ NULL, 0, 0 },  /* Ed */
+	{ NULL, 0, 0 },  /* Bl */
+	{ NULL, 0, 0 },  /* El */
+	{ NULL, 0, 0 },  /* It */
+	{ NULL, 0, 0 },  /* Ad */
+	{ NULL, TYPE_An, MDOCF_CHILD },  /* An */
+	{ NULL, TYPE_Ar, MDOCF_CHILD },  /* Ar */
+	{ NULL, TYPE_Cd, MDOCF_CHILD },  /* Cd */
+	{ NULL, TYPE_Cm, MDOCF_CHILD },  /* Cm */
+	{ NULL, TYPE_Dv, MDOCF_CHILD },  /* Dv */
+	{ NULL, TYPE_Er, MDOCF_CHILD },  /* Er */
+	{ NULL, TYPE_Ev, MDOCF_CHILD },  /* Ev */
+	{ NULL, 0, 0 },  /* Ex */
+	{ NULL, TYPE_Fa, MDOCF_CHILD },  /* Fa */
+	{ pmdoc_Fd, TYPE_In, 0 },  /* Fd */
+	{ NULL, TYPE_Fl, MDOCF_CHILD },  /* Fl */
+	{ pmdoc_Fn, 0, 0 },  /* Fn */
+	{ NULL, TYPE_Ft, MDOCF_CHILD },  /* Ft */
+	{ NULL, TYPE_Ic, MDOCF_CHILD },  /* Ic */
+	{ pmdoc_In, TYPE_In, 0 },  /* In */
+	{ NULL, TYPE_Li, MDOCF_CHILD },  /* Li */
+	{ pmdoc_Nd, TYPE_Nd, MDOCF_CHILD },  /* Nd */
+	{ pmdoc_Nm, TYPE_Nm, MDOCF_CHILD },  /* Nm */
+	{ NULL, 0, 0 },  /* Op */
+	{ NULL, 0, 0 },  /* Ot */
+	{ NULL, TYPE_Pa, MDOCF_CHILD },  /* Pa */
+	{ NULL, 0, 0 },  /* Rv */
+	{ pmdoc_St, TYPE_St, 0 },  /* St */
+	{ NULL, TYPE_Va, MDOCF_CHILD },  /* Va */
+	{ pmdoc_body, TYPE_Va, MDOCF_CHILD },  /* Vt */
+	{ pmdoc_Xr, TYPE_Xr, 0 },  /* Xr */
+	{ NULL, 0, 0 },  /* %A */
+	{ NULL, 0, 0 },  /* %B */
+	{ NULL, 0, 0 },  /* %D */
+	{ NULL, 0, 0 },  /* %I */
+	{ NULL, 0, 0 },  /* %J */
+	{ NULL, 0, 0 },  /* %N */
+	{ NULL, 0, 0 },  /* %O */
+	{ NULL, 0, 0 },  /* %P */
+	{ NULL, 0, 0 },  /* %R */
+	{ NULL, 0, 0 },  /* %T */
+	{ NULL, 0, 0 },  /* %V */
+	{ NULL, 0, 0 },  /* Ac */
+	{ NULL, 0, 0 },  /* Ao */
+	{ NULL, 0, 0 },  /* Aq */
+	{ NULL, TYPE_At, MDOCF_CHILD },  /* At */
+	{ NULL, 0, 0 },  /* Bc */
+	{ NULL, 0, 0 },  /* Bf */
+	{ NULL, 0, 0 },  /* Bo */
+	{ NULL, 0, 0 },  /* Bq */
+	{ NULL, TYPE_Bsx, MDOCF_CHILD },  /* Bsx */
+	{ NULL, TYPE_Bx, MDOCF_CHILD },  /* Bx */
+	{ NULL, 0, 0 },  /* Db */
+	{ NULL, 0, 0 },  /* Dc */
+	{ NULL, 0, 0 },  /* Do */
+	{ NULL, 0, 0 },  /* Dq */
+	{ NULL, 0, 0 },  /* Ec */
+	{ NULL, 0, 0 },  /* Ef */
+	{ NULL, TYPE_Em, MDOCF_CHILD },  /* Em */
+	{ NULL, 0, 0 },  /* Eo */
+	{ NULL, TYPE_Fx, MDOCF_CHILD },  /* Fx */
+	{ NULL, TYPE_Ms, MDOCF_CHILD },  /* Ms */
+	{ NULL, 0, 0 },  /* No */
+	{ NULL, 0, 0 },  /* Ns */
+	{ NULL, TYPE_Nx, MDOCF_CHILD },  /* Nx */
+	{ NULL, TYPE_Ox, MDOCF_CHILD },  /* Ox */
+	{ NULL, 0, 0 },  /* Pc */
+	{ NULL, 0, 0 },  /* Pf */
+	{ NULL, 0, 0 },  /* Po */
+	{ NULL, 0, 0 },  /* Pq */
+	{ NULL, 0, 0 },  /* Qc */
+	{ NULL, 0, 0 },  /* Ql */
+	{ NULL, 0, 0 },  /* Qo */
+	{ NULL, 0, 0 },  /* Qq */
+	{ NULL, 0, 0 },  /* Re */
+	{ NULL, 0, 0 },  /* Rs */
+	{ NULL, 0, 0 },  /* Sc */
+	{ NULL, 0, 0 },  /* So */
+	{ NULL, 0, 0 },  /* Sq */
+	{ NULL, 0, 0 },  /* Sm */
+	{ NULL, 0, 0 },  /* Sx */
+	{ NULL, TYPE_Sy, MDOCF_CHILD },  /* Sy */
+	{ NULL, TYPE_Tn, MDOCF_CHILD },  /* Tn */
+	{ NULL, 0, 0 },  /* Ux */
+	{ NULL, 0, 0 },  /* Xc */
+	{ NULL, 0, 0 },  /* Xo */
+	{ pmdoc_head, TYPE_Fn, 0 },  /* Fo */
+	{ NULL, 0, 0 },  /* Fc */
+	{ NULL, 0, 0 },  /* Oo */
+	{ NULL, 0, 0 },  /* Oc */
+	{ NULL, 0, 0 },  /* Bk */
+	{ NULL, 0, 0 },  /* Ek */
+	{ NULL, 0, 0 },  /* Bt */
+	{ NULL, 0, 0 },  /* Hf */
+	{ NULL, 0, 0 },  /* Fr */
+	{ NULL, 0, 0 },  /* Ud */
+	{ NULL, TYPE_Lb, MDOCF_CHILD },  /* Lb */
+	{ NULL, 0, 0 },  /* Lp */
+	{ NULL, TYPE_Lk, MDOCF_CHILD },  /* Lk */
+	{ NULL, TYPE_Mt, MDOCF_CHILD },  /* Mt */
+	{ NULL, 0, 0 },  /* Brq */
+	{ NULL, 0, 0 },  /* Bro */
+	{ NULL, 0, 0 },  /* Brc */
+	{ NULL, 0, 0 },  /* %C */
+	{ NULL, 0, 0 },  /* Es */
+	{ NULL, 0, 0 },  /* En */
+	{ NULL, TYPE_Dx, MDOCF_CHILD },  /* Dx */
+	{ NULL, 0, 0 },  /* %Q */
+	{ NULL, 0, 0 },  /* br */
+	{ NULL, 0, 0 },  /* sp */
+	{ NULL, 0, 0 },  /* %U */
+	{ NULL, 0, 0 },  /* Ta */
 };
 
 static	const char	 *progname;
@@ -262,7 +265,9 @@ mandocdb(int argc, char *argv[])
 	struct manpaths	 dirs;
 	enum op		 op; /* current operation */
 	const char	*dir;
-	char		 ibuf[MAXPATHLEN], /* index fname */
+	char		*cp;
+	char		 pbuf[PATH_MAX],
+			 ibuf[MAXPATHLEN], /* index fname */
 			 fbuf[MAXPATHLEN];  /* btree fname */
 	int		 ch, i, flags;
 	DB		*idx, /* index database */
@@ -325,6 +330,7 @@ mandocdb(int argc, char *argv[])
 	argv += optind;
 
 	memset(&info, 0, sizeof(BTREEINFO));
+	info.lorder = 4321;
 	info.flags = R_DUP;
 
 	mp = mparse_alloc(MPARSE_AUTO, MANDOCLEVEL_FATAL, NULL, NULL);
@@ -378,7 +384,7 @@ mandocdb(int argc, char *argv[])
 		of = of->first;
 
 		index_prune(of, db, fbuf, idx, ibuf,
-				&maxrec, &recs, &recsz);
+				&maxrec, &recs, &recsz, &reccur);
 
 		/*
 		 * Go to the root of the respective manual tree
@@ -403,10 +409,15 @@ mandocdb(int argc, char *argv[])
 	 */
 
 	if (argc > 0) {
-		dirs.paths = mandoc_malloc(argc * sizeof(char *));
+		dirs.paths = mandoc_calloc(argc, sizeof(char *));
 		dirs.sz = argc;
-		for (i = 0; i < argc; i++)
-			dirs.paths[i] = mandoc_strdup(argv[i]);
+		for (i = 0; i < argc; i++) {
+			if (NULL == (cp = realpath(argv[i], pbuf))) {
+				perror(argv[i]);
+				goto out;
+			}
+			dirs.paths[i] = mandoc_strdup(cp);
+		}
 	} else
 		manpath_parse(&dirs, NULL, NULL);
 
@@ -510,28 +521,14 @@ index_merge(const struct of *of, struct mparse *mp,
 		fn = of->fname;
 
 		/*
-		 * Reclaim an empty index record, if available.
-		 */
-
-		if (reccur > 0) {
-			--reccur;
-			rec = recs[(int)reccur];
-		} else if (maxrec > 0) {
-			rec = maxrec;
-			maxrec = 0;
-		} else
-			rec++;
-
-		mparse_reset(mp);
-		hash_reset(&hash);
-		mdoc = NULL;
-		man = NULL;
-
-		/*
 		 * Try interpreting the file as mdoc(7) or man(7)
 		 * source code, unless it is already known to be
 		 * formatted.  Fall back to formatted mode.
 		 */
+
+		mparse_reset(mp);
+		mdoc = NULL;
+		man = NULL;
 
 		if ((MANDOC_SRC & of->src_form ||
 		    ! (MANDOC_FORM & of->src_form)) &&
@@ -561,14 +558,14 @@ index_merge(const struct of *of, struct mparse *mp,
 		if (0 == use_all) {
 			assert(of->sec);
 			assert(msec);
-			if (strcmp(msec, of->sec))
+			if (strcasecmp(msec, of->sec))
 				continue;
 
 			if (NULL == arch) {
 				if (NULL != of->arch)
 					continue;
 			} else if (NULL == of->arch ||
-					strcmp(arch, of->arch))
+					strcasecmp(arch, of->arch))
 				continue;
 		}
 
@@ -607,8 +604,12 @@ index_merge(const struct of *of, struct mparse *mp,
 
 		sv = dbuf->len;
 
-		/* Fix the record number in the btree value. */
+		/*
+		 * Collect keyword/mask pairs.
+		 * Each pair will become a new btree node.
+		 */
 
+		hash_reset(&hash);
 		if (mdoc)
 			pmdoc_node(hash, buf, dbuf,
 				mdoc_node(mdoc), mdoc_meta(mdoc));
@@ -618,22 +619,31 @@ index_merge(const struct of *of, struct mparse *mp,
 			pformatted(hash, buf, dbuf, of);
 
 		/*
-		 * Copy from the in-memory hashtable of pending keywords
-		 * into the database.
+		 * Reclaim an empty index record, if available.
+		 * Use its record number for all new btree nodes.
 		 */
 
-		vbuf.rec = rec;
+		if (reccur > 0) {
+			--reccur;
+			rec = recs[(int)reccur];
+		} else if (maxrec > 0) {
+			rec = maxrec;
+			maxrec = 0;
+		} else
+			rec++;
+		vbuf.rec = htobe32(rec);
+
+		/*
+		 * Copy from the in-memory hashtable of pending
+		 * keyword/mask pairs into the database.
+		 */
+
 		seq = R_FIRST;
 		while (0 == (ch = (*hash->seq)(hash, &key, &val, seq))) {
 			seq = R_NEXT;
-
-			vbuf.mask = *(uint64_t *)val.data;
+			vbuf.mask = htobe64(*(uint64_t *)val.data);
 			val.size = sizeof(struct db_val);
 			val.data = &vbuf;
-
-			if (verb > 1)
-				printf("%s: Added keyword: %s\n", 
-						fn, (char *)key.data);
 			dbt_put(db, dbf, &key, &val);
 		}
 		if (ch < 0) {
@@ -657,6 +667,7 @@ index_merge(const struct of *of, struct mparse *mp,
 
 		if (verb)
 			printf("%s: Added index\n", fn);
+
 		dbt_put(idx, idxf, &key, &val);
 	}
 }
@@ -669,34 +680,47 @@ index_merge(const struct of *of, struct mparse *mp,
  */
 static void
 index_prune(const struct of *ofile, DB *db, const char *dbf, 
-		DB *idx, const char *idxf,
-		recno_t *maxrec, recno_t **recs, size_t *recsz)
+		DB *idx, const char *idxf, recno_t *maxrec,
+		recno_t **recs, size_t *recsz, size_t *reccur)
 {
 	const struct of	*of;
-	const char	*fn;
+	const char	*fn, *cp;
 	struct db_val	*vbuf;
 	unsigned	 seq, sseq;
 	DBT		 key, val;
-	size_t		 reccur;
 	int		 ch;
 
-	reccur = 0;
+	*reccur = 0;
 	seq = R_FIRST;
 	while (0 == (ch = (*idx->seq)(idx, &key, &val, seq))) {
 		seq = R_NEXT;
 		*maxrec = *(recno_t *)key.data;
-		if (0 == val.size) {
-			if (reccur >= *recsz) {
-				*recsz += MANDOC_SLOP;
-				*recs = mandoc_realloc(*recs, 
-					*recsz * sizeof(recno_t));
-			}
-			(*recs)[(int)reccur] = *maxrec;
-			reccur++;
-			continue;
-		}
+		cp = val.data;
 
-		fn = (char *)val.data;
+		/* Deleted records are zero-sized.  Skip them. */
+
+		if (0 == val.size)
+			goto cont;
+
+		/*
+		 * Make sure we're sane.
+		 * Read past our mdoc/man/cat type to the next string,
+		 * then make sure it's bounded by a NUL.
+		 * Failing any of these, we go into our error handler.
+		 */
+
+		if (NULL == (fn = memchr(cp, '\0', val.size)))
+			break;
+		if (++fn - cp >= (int)val.size)
+			break;
+		if (NULL == memchr(fn, '\0', val.size - (fn - cp)))
+			break;
+
+		/* 
+		 * Search for the file in those we care about.
+		 * XXX: build this into a tree.  Too slow.
+		 */
+
 		for (of = ofile; of; of = of->next)
 			if (0 == strcmp(fn, of->fname))
 				break;
@@ -704,22 +728,30 @@ index_prune(const struct of *ofile, DB *db, const char *dbf,
 		if (NULL == of)
 			continue;
 
+		/*
+		 * Search through the keyword database, throwing out all
+		 * references to our file.
+		 */
+
 		sseq = R_FIRST;
 		while (0 == (ch = (*db->seq)(db, &key, &val, sseq))) {
 			sseq = R_NEXT;
-			assert(sizeof(struct db_val) == val.size);
+			if (sizeof(struct db_val) != val.size)
+				break;
+
 			vbuf = val.data;
-			if (*maxrec != vbuf->rec)
+			if (*maxrec != betoh32(vbuf->rec))
 				continue;
-			if (verb)
-				printf("%s: Deleted keyword: %s\n", 
-						fn, (char *)key.data);
-			ch = (*db->del)(db, &key, R_CURSOR);
-			if (ch < 0)
+
+			if ((ch = (*db->del)(db, &key, R_CURSOR)) < 0)
 				break;
 		}
+
 		if (ch < 0) {
 			perror(dbf);
+			exit((int)MANDOCLEVEL_SYSERR);
+		} else if (1 != ch) {
+			fprintf(stderr, "%s: Corrupt database\n", dbf);
 			exit((int)MANDOCLEVEL_SYSERR);
 		}
 
@@ -728,20 +760,28 @@ index_prune(const struct of *ofile, DB *db, const char *dbf,
 
 		val.size = 0;
 		ch = (*idx->put)(idx, &key, &val, R_CURSOR);
-		if (ch < 0) {
-			perror(idxf);
-			exit((int)MANDOCLEVEL_SYSERR);
-		}
 
-		if (reccur >= *recsz) {
+		if (ch < 0)
+			break;
+cont:
+		if (*reccur >= *recsz) {
 			*recsz += MANDOC_SLOP;
 			*recs = mandoc_realloc
 				(*recs, *recsz * sizeof(recno_t));
 		}
 
-		(*recs)[(int)reccur] = *maxrec;
-		reccur++;
+		(*recs)[(int)*reccur] = *maxrec;
+		(*reccur)++;
 	}
+
+	if (ch < 0) {
+		perror(idxf);
+		exit((int)MANDOCLEVEL_SYSERR);
+	} else if (1 != ch) {
+		fprintf(stderr, "%s: Corrupt index\n", idxf);
+		exit((int)MANDOCLEVEL_SYSERR);
+	}
+
 	(*maxrec)++;
 }
 
@@ -810,18 +850,6 @@ buf_appendmdoc(struct buf *buf, const struct mdoc_node *n, int f)
 	}
 }
 
-/* ARGSUSED */
-static void
-pmdoc_An(MDOC_ARGS)
-{
-	
-	if (SEC_AUTHORS != n->sec)
-		return;
-
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_An);
-}
-
 static void
 hash_reset(DB **db)
 {
@@ -838,26 +866,42 @@ hash_reset(DB **db)
 }
 
 /* ARGSUSED */
-static void
+static int
+pmdoc_head(MDOC_ARGS)
+{
+
+	return(MDOC_HEAD == n->type);
+}
+
+/* ARGSUSED */
+static int
+pmdoc_body(MDOC_ARGS)
+{
+
+	return(MDOC_BODY == n->type);
+}
+
+/* ARGSUSED */
+static int
 pmdoc_Fd(MDOC_ARGS)
 {
 	const char	*start, *end;
 	size_t		 sz;
-	
+
 	if (SEC_SYNOPSIS != n->sec)
-		return;
+		return(0);
 	if (NULL == (n = n->child) || MDOC_TEXT != n->type)
-		return;
+		return(0);
 
 	/*
 	 * Only consider those `Fd' macro fields that begin with an
 	 * "inclusion" token (versus, e.g., #define).
 	 */
 	if (strcmp("#include", n->string))
-		return;
+		return(0);
 
 	if (NULL == (n = n->next) || MDOC_TEXT != n->type)
-		return;
+		return(0);
 
 	/*
 	 * Strip away the enclosing angle brackets and make sure we're
@@ -869,7 +913,7 @@ pmdoc_Fd(MDOC_ARGS)
 		start++;
 
 	if (0 == (sz = strlen(start)))
-		return;
+		return(0);
 
 	end = &start[(int)sz - 1];
 	if ('>' == *end || '"' == *end)
@@ -879,83 +923,90 @@ pmdoc_Fd(MDOC_ARGS)
 
 	buf_appendb(buf, start, (size_t)(end - start + 1));
 	buf_appendb(buf, "", 1);
-
-	hash_put(hash, buf, TYPE_In);
+	return(1);
 }
 
 /* ARGSUSED */
-static void
-pmdoc_Cd(MDOC_ARGS)
-{
-	
-	if (SEC_SYNOPSIS != n->sec)
-		return;
-
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_Cd);
-}
-
-/* ARGSUSED */
-static void
+static int
 pmdoc_In(MDOC_ARGS)
 {
-	
-	if (SEC_SYNOPSIS != n->sec)
-		return;
+
 	if (NULL == n->child || MDOC_TEXT != n->child->type)
-		return;
+		return(0);
 
 	buf_append(buf, n->child->string);
-	hash_put(hash, buf, TYPE_In);
+	return(1);
 }
 
 /* ARGSUSED */
-static void
+static int
 pmdoc_Fn(MDOC_ARGS)
 {
+	struct mdoc_node *nn;
 	const char	*cp;
-	
-	if (SEC_SYNOPSIS != n->sec)
-		return;
-	if (NULL == n->child || MDOC_TEXT != n->child->type)
-		return;
 
-	/* .Fn "struct type *arg" "foo" */
+	nn = n->child;
 
-	cp = strrchr(n->child->string, ' ');
+	if (NULL == nn || MDOC_TEXT != nn->type)
+		return(0);
+
+	/* .Fn "struct type *name" "char *arg" */
+
+	cp = strrchr(nn->string, ' ');
 	if (NULL == cp)
-		cp = n->child->string;
+		cp = nn->string;
 
 	/* Strip away pointer symbol. */
 
 	while ('*' == *cp)
 		cp++;
 
+	/* Store the function name. */
+
 	buf_append(buf, cp);
 	hash_put(hash, buf, TYPE_Fn);
+
+	/* Store the function type. */
+
+	if (nn->string < cp) {
+		buf->len = 0;
+		buf_appendb(buf, nn->string, cp - nn->string);
+		buf_appendb(buf, "", 1);
+		hash_put(hash, buf, TYPE_Ft);
+	}
+
+	/* Store the arguments. */
+
+	for (nn = nn->next; nn; nn = nn->next) {
+		if (MDOC_TEXT != nn->type)
+			continue;
+		buf->len = 0;
+		buf_append(buf, nn->string);
+		hash_put(hash, buf, TYPE_Fa);
+	}
+
+	return(0);
 }
 
 /* ARGSUSED */
-static void
+static int
 pmdoc_St(MDOC_ARGS)
 {
-	
-	if (SEC_STANDARDS != n->sec)
-		return;
+
 	if (NULL == n->child || MDOC_TEXT != n->child->type)
-		return;
+		return(0);
 
 	buf_append(buf, n->child->string);
-	hash_put(hash, buf, TYPE_St);
+	return(1);
 }
 
 /* ARGSUSED */
-static void
+static int
 pmdoc_Xr(MDOC_ARGS)
 {
 
 	if (NULL == (n = n->child))
-		return;
+		return(0);
 
 	buf_appendb(buf, n->string, strlen(n->string));
 
@@ -965,128 +1016,43 @@ pmdoc_Xr(MDOC_ARGS)
 	} else
 		buf_appendb(buf, ".", 2);
 
-	hash_put(hash, buf, TYPE_Xr);
+	return(1);
 }
 
 /* ARGSUSED */
-static void
-pmdoc_Vt(MDOC_ARGS)
-{
-	const char	*start;
-	size_t		 sz;
-	
-	if (SEC_SYNOPSIS != n->sec)
-		return;
-	if (MDOC_Vt == n->tok && MDOC_BODY != n->type)
-		return;
-	if (NULL == n->last || MDOC_TEXT != n->last->type)
-		return;
-
-	/*
-	 * Strip away leading pointer symbol '*' and trailing ';'.
-	 */
-
-	start = n->last->string;
-
-	while ('*' == *start)
-		start++;
-
-	if (0 == (sz = strlen(start)))
-		return;
-
-	if (';' == start[(int)sz - 1])
-		sz--;
-
-	if (0 == sz)
-		return;
-
-	buf_appendb(buf, start, sz);
-	buf_appendb(buf, "", 1);
-	hash_put(hash, buf, TYPE_Va);
-}
-
-/* ARGSUSED */
-static void
-pmdoc_Fo(MDOC_ARGS)
-{
-	
-	if (SEC_SYNOPSIS != n->sec || MDOC_HEAD != n->type)
-		return;
-	if (NULL == n->child || MDOC_TEXT != n->child->type)
-		return;
-
-	buf_append(buf, n->child->string);
-	hash_put(hash, buf, TYPE_Fn);
-}
-
-
-/* ARGSUSED */
-static void
+static int
 pmdoc_Nd(MDOC_ARGS)
 {
 
 	if (MDOC_BODY != n->type)
-		return;
+		return(0);
 
 	buf_appendmdoc(dbuf, n->child, 1);
-	buf_appendmdoc(buf, n->child, 0);
-
-	hash_put(hash, buf, TYPE_Nd);
+	return(1);
 }
 
 /* ARGSUSED */
-static void
-pmdoc_Er(MDOC_ARGS)
-{
-
-	if (SEC_ERRORS != n->sec)
-		return;
-	
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_Er);
-}
-
-/* ARGSUSED */
-static void
-pmdoc_Ev(MDOC_ARGS)
-{
-
-	if (SEC_ENVIRONMENT != n->sec)
-		return;
-	
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_Ev);
-}
-
-/* ARGSUSED */
-static void
-pmdoc_Pa(MDOC_ARGS)
-{
-
-	if (SEC_FILES != n->sec)
-		return;
-	
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_Pa);
-}
-
-/* ARGSUSED */
-static void
+static int
 pmdoc_Nm(MDOC_ARGS)
 {
-	
-	if (SEC_NAME == n->sec) {
-		buf_appendmdoc(buf, n->child, 0);
-		hash_put(hash, buf, TYPE_Nm);
-		return;
-	} else if (SEC_SYNOPSIS != n->sec || MDOC_HEAD != n->type)
-		return;
+
+	if (SEC_NAME == n->sec)
+		return(1);
+	else if (SEC_SYNOPSIS != n->sec || MDOC_HEAD != n->type)
+		return(0);
 
 	if (NULL == n->child)
 		buf_append(buf, m->name);
 
-	buf_appendmdoc(buf, n->child, 0);
-	hash_put(hash, buf, TYPE_Nm);
+	return(1);
+}
+
+/* ARGSUSED */
+static int
+pmdoc_Sh(MDOC_ARGS)
+{
+
+	return(SEC_CUSTOM == n->sec && MDOC_HEAD == n->type);
 }
 
 static void
@@ -1152,11 +1118,36 @@ pmdoc_node(MDOC_ARGS)
 	case (MDOC_BLOCK):
 		/* FALLTHROUGH */
 	case (MDOC_ELEM):
-		if (NULL == mdocs[n->tok])
+		buf->len = 0;
+
+		/*
+		 * Both NULL handlers and handlers returning true
+		 * request using the data.  Only skip the element
+		 * when the handler returns false.
+		 */
+
+		if (NULL != mdocs[n->tok].fp &&
+		    0 == (*mdocs[n->tok].fp)(hash, buf, dbuf, n, m))
 			break;
 
-		buf->len = 0;
-		(*mdocs[n->tok])(hash, buf, dbuf, n, m);
+		/*
+		 * For many macros, use the text from all children.
+		 * Set zero flags for macros not needing this.
+		 * In that case, the handler must fill the buffer.
+		 */
+
+		if (MDOCF_CHILD & mdocs[n->tok].flags)
+			buf_appendmdoc(buf, n->child, 0);
+
+		/*
+		 * Cover the most common case:
+		 * Automatically stage one string per element.
+		 * Set a zero mask for macros not needing this.
+		 * Additional staging can be done in the handler.
+		 */
+
+		if (mdocs[n->tok].mask)
+			hash_put(hash, buf, mdocs[n->tok].mask);
 		break;
 	default:
 		break;
@@ -1294,52 +1285,72 @@ pformatted(DB *hash, struct buf *buf, struct buf *dbuf,
 	buf_append(buf, of->title);
 	hash_put(hash, buf, TYPE_Nm);
 
-	while (NULL != (line = fgetln(stream, &len)) && '\n' != *line)
-		/* Skip to first blank line. */ ;
+	/* Skip to first blank line. */
 
-	while (NULL != (line = fgetln(stream, &len)) &&
-			('\n' == *line || ' ' == *line))
-		/* Skip to first section header. */ ;
+	while (NULL != (line = fgetln(stream, &len)))
+		if ('\n' == *line)
+			break;
 
 	/*
-	 * If no page content can be found,
-	 * reuse the page title as the page description.
+	 * Assume the first line that is not indented
+	 * is the first section header.  Skip to it.
 	 */
 
-	if (NULL == (line = fgetln(stream, &len))) {
+	while (NULL != (line = fgetln(stream, &len)))
+		if ('\n' != *line && ' ' != *line)
+			break;
+
+	/*
+	 * If no page content can be found, or the input line
+	 * is already the next section header, or there is no
+	 * trailing newline, reuse the page title as the page
+	 * description.
+	 */
+
+	line = fgetln(stream, &len);
+	if (NULL == line || ' ' != *line || '\n' != line[(int)len - 1]) {
 		buf_appendb(dbuf, buf->cp, buf->size);
 		hash_put(hash, buf, TYPE_Nd);
 		fclose(stream);
 		return;
 	}
-	fclose(stream);
+
+	line[(int)--len] = '\0';
 
 	/*
-	 * If there is a dash, skip to the text following it.
+	 * Skip to the first dash.
+	 * Use the remaining line as the description (no more than 70
+	 * bytes).
 	 */
 
-	for (p = line, plen = len; plen; p++, plen--)
-		if ('-' == *p)
-			break;
-	for ( ; plen; p++, plen--)
-		if ('-' != *p && ' ' != *p && 8 != *p)
-			break;
-	if (0 == plen) {
+	if (NULL != (p = strstr(line, "- "))) {
+		for (p += 2; ' ' == *p || '\b' == *p; p++)
+			/* Skip to next word. */ ;
+	} else
 		p = line;
-		plen = len;
+
+	if ((plen = strlen(p)) > 70) {
+		plen = 70;
+		p[plen] = '\0';
 	}
 
-	/*
-	 * Copy the rest of the line, but no more than 70 bytes.
-	 */
+	/* Strip backspace-encoding from line. */
 
-	if (70 < plen)
-		plen = 70;
-	p[plen-1] = '\0';
-	buf_appendb(dbuf, p, plen);
+	while (NULL != (line = memchr(p, '\b', plen))) {
+		len = line - p;
+		if (0 == len) {
+			memmove(line, line + 1, plen--);
+			continue;
+		} 
+		memmove(line - 1, line + 1, plen - len);
+		plen -= 2;
+	}
+
+	buf_appendb(dbuf, p, plen + 1);
 	buf->len = 0;
-	buf_appendb(buf, p, plen);
+	buf_appendb(buf, p, plen + 1);
 	hash_put(hash, buf, TYPE_Nd);
+	fclose(stream);
 }
 
 static void
@@ -1383,13 +1394,12 @@ ofile_argbuild(int argc, char *argv[], struct of **of)
 				*p = '\0';
 				continue;
 			}
-			if (strncmp("man", p + 1, 3)) {
+			if (0 == strncmp("man", p + 1, 3))
 				src_form |= MANDOC_SRC;
-				arch = p + 1;
-			} else if (strncmp("cat", p + 1, 3)) {
+			else if (0 == strncmp("cat", p + 1, 3))
 				src_form |= MANDOC_FORM;
+			else
 				arch = p + 1;
-			}
 			break;
 		}
 		if (NULL == title)
@@ -1546,6 +1556,10 @@ ofile_dirbuild(const char *dir, const char* psec, const char *parch,
 			buf[0] = '\0';
 			strlcat(buf, dir, MAXPATHLEN);
 			p = strrchr(buf, '/');
+			if (NULL != parch && NULL != p)
+				for (p--; p > buf; p--)
+					if ('/' == *p)
+						break;
 			if (NULL == p)
 				p = buf;
 			else
