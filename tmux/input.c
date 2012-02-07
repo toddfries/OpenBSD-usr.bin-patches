@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.43 2011/12/29 08:06:24 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.48 2012/02/02 00:10:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -978,17 +978,7 @@ input_esc_dispatch(struct input_ctx *ictx)
 		ictx->old_cx = 0;
 		ictx->old_cy = 0;
 
-		screen_reset_tabs(sctx->s);
-
-		screen_write_scrollregion(sctx, 0, screen_size_y(sctx->s) - 1);
-
-		screen_write_insertmode(sctx, 0);
-		screen_write_kcursormode(sctx, 0);
-		screen_write_kkeypadmode(sctx, 0);
-		screen_write_mousemode_off(sctx);
-
-		screen_write_clearscreen(sctx);
-		screen_write_cursormove(sctx, 0, 0);
+		screen_write_reset(sctx);
 		break;
 	case INPUT_ESC_IND:
 		screen_write_linefeed(sctx, 0);
@@ -1446,7 +1436,7 @@ input_csi_dispatch_sgr(struct input_ctx *ictx)
 		case 106:
 		case 107:
 			gc->flags &= ~GRID_FLAG_BG256;
-			gc->bg = n;
+			gc->bg = n - 10;
 			break;
 		}
 	}
@@ -1558,10 +1548,11 @@ input_exit_rename(struct input_ctx *ictx)
 {
 	if (ictx->flags & INPUT_DISCARD)
 		return;
+	if (!options_get_number(&ictx->wp->window->options, "allow-rename"))
+		return;
 	log_debug("%s: \"%s\"", __func__, ictx->input_buf);
 
-	xfree(ictx->wp->window->name);
-	ictx->wp->window->name = xstrdup(ictx->input_buf);
+	window_set_name(ictx->wp->window, ictx->input_buf);
 	options_set_number(&ictx->wp->window->options, "automatic-rename", 0);
 
 	server_status_window(ictx->wp->window);

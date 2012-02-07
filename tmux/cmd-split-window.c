@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-split-window.c,v 1.26 2011/12/09 16:28:18 nicm Exp $ */
+/* $OpenBSD: cmd-split-window.c,v 1.28 2012/01/31 15:52:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -33,8 +33,9 @@ int	cmd_split_window_exec(struct cmd *, struct cmd_ctx *);
 
 const struct cmd_entry cmd_split_window_entry = {
 	"split-window", "splitw",
-	"dl:hp:Pt:v", 0, 1,
-	"[-dhvP] [-p percentage|-l size] [-t target-pane] [command]",
+	"c:dl:hp:Pt:v", 0, 1,
+	"[-dhvP] [-c start-directory] [-p percentage|-l size] [-t target-pane] "
+	"[command]",
 	0,
 	cmd_split_window_key_binding,
 	NULL,
@@ -58,8 +59,8 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 	struct window		*w;
 	struct window_pane	*wp, *new_wp = NULL;
 	struct environ		 env;
-	char		 	*cmd, *cwd, *cause, *new_cause;
-	const char		*shell;
+	const char	       	*cmd, *cwd, *shell;
+	char			*cause, *new_cause;
 	u_int			 hlimit, paneidx;
 	int			 size, percentage;
 	enum layout_type	 type;
@@ -78,7 +79,7 @@ cmd_split_window_exec(struct cmd *self, struct cmd_ctx *ctx)
 		cmd = options_get_string(&s->options, "default-command");
 	else
 		cmd = args->argv[0];
-	cwd = cmd_get_default_path(ctx);
+	cwd = cmd_get_default_path(ctx, args_get(args, 'c'));
 
 	type = LAYOUT_TOPBOTTOM;
 	if (args_has(args, 'h'))
