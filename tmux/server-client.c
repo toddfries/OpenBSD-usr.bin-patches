@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.61 2011/08/20 20:37:30 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.67 2012/02/02 00:04:54 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,6 +27,8 @@
 
 #include "tmux.h"
 
+void	server_client_check_mouse(struct client *c,
+	    struct window_pane *wp, struct mouse_event *mouse);
 void	server_client_handle_key(int, struct mouse_event *, void *);
 void	server_client_repeat_timer(int, short, void *);
 void	server_client_check_exit(struct client *);
@@ -124,24 +126,24 @@ server_client_lost(struct client *c)
 	if (c->flags & CLIENT_TERMINAL)
 		tty_free(&c->tty);
 
+	if (c->stdin_event != NULL)
+		bufferevent_free(c->stdin_event);
 	if (c->stdin_fd != -1) {
 		setblocking(c->stdin_fd, 1);
 		close(c->stdin_fd);
 	}
-	if (c->stdin_event != NULL)
-		bufferevent_free(c->stdin_event);
+	if (c->stdout_event != NULL)
+		bufferevent_free(c->stdout_event);
 	if (c->stdout_fd != -1) {
 		setblocking(c->stdout_fd, 1);
 		close(c->stdout_fd);
 	}
-	if (c->stdout_event != NULL)
-		bufferevent_free(c->stdout_event);
+	if (c->stderr_event != NULL)
+		bufferevent_free(c->stderr_event);
 	if (c->stderr_fd != -1) {
 		setblocking(c->stderr_fd, 1);
 		close(c->stderr_fd);
 	}
-	if (c->stderr_event != NULL)
-		bufferevent_free(c->stderr_event);
 
 	status_free_jobs(&c->status_new);
 	status_free_jobs(&c->status_old);
@@ -262,6 +264,67 @@ server_client_status_timer(void)
 	}
 }
 
+/* Check for mouse keys. */
+void
+server_client_check_mouse(
+    struct client *c, struct window_pane *wp, struct mouse_event *mouse)
+{
+	struct session	*s = c->session;
+	struct options	*oo = &s->options;
+	int		 statusat;
+
+	statusat = status_at_line(c);
+
+	/* Is this a window selection click on the status line? */
+	if (statusat != -1 && mouse->y == (u_int)statusat &&
+	    options_get_number(oo, "mouse-select-window")) {
+		if (mouse->b == MOUSE_UP && c->last_mouse.b != MOUSE_UP) {
+			status_set_window_at(c, mouse->x);
+			return;
+		}
+		if (mouse->b & MOUSE_45) {
+			if ((mouse->b & MOUSE_BUTTON) == MOUSE_1) {
+				session_previous(c->session, 0);
+				server_redraw_session(s);
+			}
+			if ((mouse->b & MOUSE_BUTTON) == MOUSE_2) {
+				session_next(c->session, 0);
+				server_redraw_session(s);
+			}
+			return;
+		}
+		memcpy(&c->last_mouse, mouse, sizeof c->last_mouse);
+		return;
+	}
+
+	/*
+	 * Not on status line - adjust mouse position if status line is at the
+	 * top and limit if at the bottom. From here on a struct mouse
+	 * represents the offset onto the window itself.
+	 */
+	if (statusat == 0 &&mouse->y > 0)
+		mouse->y--;
+	else if (statusat > 0 && mouse->y >= (u_int)statusat)
+		mouse->y = statusat - 1;
+
+	/* Is this a pane selection? Allow down only in copy mode. */
+	if (options_get_number(oo, "mouse-select-pane") &&
+	    ((!(mouse->b & MOUSE_DRAG) && mouse->b != MOUSE_UP) ||
+	    wp->mode != &window_copy_mode)) {
+		window_set_active_at(wp->window, mouse->x, mouse->y);
+		server_redraw_window_borders(wp->window);
+		wp = wp->window->active; /* may have changed */
+	}
+
+	/* Check if trying to resize pane. */
+	if (options_get_number(oo, "mouse-resize-pane"))
+		layout_resize_pane_mouse(c, mouse);
+
+	/* Update last and pass through to client. */
+	memcpy(&c->last_mouse, mouse, sizeof c->last_mouse);
+	window_pane_mouse(wp, c->session, mouse);
+}
+
 /* Handle data key input from client. */
 void
 server_client_handle_key(int key, struct mouse_event *mouse, void *data)
@@ -273,9 +336,7 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 	struct options		*oo;
 	struct timeval		 tv;
 	struct key_binding	*bd;
-	struct keylist		*keylist;
 	int		      	 xtimeout, isprefix;
-	u_int			 i;
 
 	/* Check the client is good to accept input. */
 	if ((c->flags & (CLIENT_DEAD|CLIENT_SUSPENDED)) != 0)
@@ -319,53 +380,17 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 	if (key == KEYC_MOUSE) {
 		if (c->flags & CLIENT_READONLY)
 			return;
-		if (options_get_number(oo, "mouse-select-pane") &&
-		    ((!(mouse->b & MOUSE_DRAG) && mouse->b != MOUSE_UP) ||
-		    wp->mode != &window_copy_mode)) {
-			/*
-			 * Allow pane switching in copy mode only by mouse down
-			 * (click).
-			 */
-			window_set_active_at(w, mouse->x, mouse->y);
-			server_redraw_window_borders(w);
-			wp = w->active;
-		}
-		if (mouse->y + 1 == c->tty.sy &&
-		    options_get_number(oo, "mouse-select-window") &&
-		    options_get_number(oo, "status")) {
-			if (mouse->b == MOUSE_UP &&
-			    c->last_mouse.b != MOUSE_UP) {
-				status_set_window_at(c, mouse->x);
-				return;
-			}
-			if (mouse->b & MOUSE_45) {
-				if ((mouse->b & MOUSE_BUTTON) == MOUSE_1) {
-					session_previous(c->session, 0);
-					server_redraw_session(s);
-				}
-				if ((mouse->b & MOUSE_BUTTON) == MOUSE_2) {
-					session_next(c->session, 0);
-					server_redraw_session(s);
-				}
-				return;
-			}
-		}
-		if (options_get_number(oo, "mouse-resize-pane"))
-			layout_resize_pane_mouse(c, mouse);
-		memcpy(&c->last_mouse, mouse, sizeof c->last_mouse);
-		window_pane_mouse(wp, c->session, mouse);
+		server_client_check_mouse(c, wp, mouse);
 		return;
 	}
 
 	/* Is this a prefix key? */
-	keylist = options_get_data(&c->session->options, "prefix");
-	isprefix = 0;
-	for (i = 0; i < ARRAY_LENGTH(keylist); i++) {
-		if (key == ARRAY_ITEM(keylist, i)) {
-			isprefix = 1;
-			break;
-		}
-	}
+	if (key == options_get_number(&c->session->options, "prefix"))
+		isprefix = 1;
+	else if (key == options_get_number(&c->session->options, "prefix2"))
+		isprefix = 1;
+	else
+		isprefix = 0;
 
 	/* No previous prefix key. */
 	if (!(c->flags & CLIENT_PREFIX)) {
@@ -474,7 +499,7 @@ server_client_reset_state(struct client *c)
 	struct screen		*s = wp->screen;
 	struct options		*oo = &c->session->options;
 	struct options		*wo = &w->options;
-	int			 status, mode;
+	int			 status, mode, o;
 
 	if (c->flags & CLIENT_SUSPENDED)
 		return;
@@ -484,8 +509,10 @@ server_client_reset_state(struct client *c)
 	status = options_get_number(oo, "status");
 	if (!window_pane_visible(wp) || wp->yoff + s->cy >= c->tty.sy - status)
 		tty_cursor(&c->tty, 0, 0);
-	else
-		tty_cursor(&c->tty, wp->xoff + s->cx, wp->yoff + s->cy);
+	else {
+		o = status && options_get_number (oo, "status-position") == 0;
+		tty_cursor(&c->tty, wp->xoff + s->cx, o + wp->yoff + s->cy);
+	}
 
 	/*
 	 * Resizing panes with the mouse requires at least button mode to give
@@ -561,50 +588,6 @@ server_client_check_exit(struct client *c)
 	server_write_client(c, MSG_EXIT, &exitdata, sizeof exitdata);
 
 	c->flags &= ~CLIENT_EXIT;
-}
-
-/*
- * Check if the client should backoff. During backoff, data from external
- * programs is not written to the terminal. When the existing data drains, the
- * client is redrawn.
- *
- * There are two backoff phases - both the tty and client have backoff flags -
- * the first to allow existing data to drain and the latter to ensure backoff
- * is disabled until the redraw has finished and prevent the redraw triggering
- * another backoff.
- */
-void
-server_client_check_backoff(struct client *c)
-{
-	struct tty	*tty = &c->tty;
-	size_t		 used;
-
-	used = EVBUFFER_LENGTH(tty->event->output);
-
-	/*
-	 * If in the second backoff phase (redrawing), don't check backoff
-	 * until the redraw has completed (or enough of it to drop below the
-	 * backoff threshold).
-	 */
-	if (c->flags & CLIENT_BACKOFF) {
-		if (used > BACKOFF_THRESHOLD)
-			return;
-		c->flags &= ~CLIENT_BACKOFF;
-		return;
-	}
-
-	/* Once drained, allow data through again and schedule redraw. */
-	if (tty->flags & TTY_BACKOFF) {
-		if (used != 0)
-			return;
-		tty->flags &= ~TTY_BACKOFF;
-		c->flags |= (CLIENT_BACKOFF|CLIENT_REDRAWWINDOW|CLIENT_STATUS);
-		return;
-	}
-
-	/* If too much data, start backoff. */
-	if (used > BACKOFF_THRESHOLD)
-		tty->flags |= TTY_BACKOFF;
 }
 
 /* Check for client redraws. */
