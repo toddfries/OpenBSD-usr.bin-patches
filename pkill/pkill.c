@@ -1,4 +1,4 @@
-/*	$OpenBSD: pkill.c,v 1.19 2011/04/10 03:20:59 guenther Exp $	*/
+/*	$OpenBSD: pkill.c,v 1.24 2012/03/01 13:04:29 lum Exp $	*/
 /*	$NetBSD: pkill.c,v 1.5 2002/10/27 11:49:34 kleink Exp $	*/
 
 /*-
@@ -36,6 +36,7 @@
 #include <sys/proc.h>
 #include <sys/queue.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,7 +64,8 @@ enum listtype {
 	LT_GROUP,
 	LT_TTY,
 	LT_PGRP,
-	LT_SID
+	LT_SID,
+	LT_RTABLE
 };
 
 struct list {
@@ -95,6 +97,7 @@ struct listhead pgrplist = SLIST_HEAD_INITIALIZER(list);
 struct listhead ppidlist = SLIST_HEAD_INITIALIZER(list);
 struct listhead tdevlist = SLIST_HEAD_INITIALIZER(list);
 struct listhead sidlist = SLIST_HEAD_INITIALIZER(list);
+struct listhead rtablist = SLIST_HEAD_INITIALIZER(list);
 
 int	main(int, char **);
 void	usage(void);
@@ -149,7 +152,7 @@ main(int argc, char **argv)
 
 	criteria = 0;
 
-	while ((ch = getopt(argc, argv, "G:P:U:d:fg:lnos:t:u:vx")) != -1)
+	while ((ch = getopt(argc, argv, "G:P:T:U:d:fg:lnos:t:u:vx")) != -1)
 		switch (ch) {
 		case 'G':
 			makelist(&rgidlist, LT_GROUP, optarg);
@@ -157,6 +160,10 @@ main(int argc, char **argv)
 			break;
 		case 'P':
 			makelist(&ppidlist, LT_GENERIC, optarg);
+			criteria = 1;
+			break;
+		case 'T':
+			makelist(&rtablist, LT_RTABLE, optarg);
 			criteria = 1;
 			break;
 		case 'U':
@@ -176,8 +183,6 @@ main(int argc, char **argv)
 			criteria = 1;
 			break;
 		case 'l':
-			if (!pgrep)
-				usage();
 			longfmt = 1;
 			break;
 		case 'n':
@@ -355,6 +360,14 @@ main(int argc, char **argv)
 			continue;
 		}
 
+		SLIST_FOREACH(li, &rtablist, li_chain)
+			if (kp->p_rtableid == (u_int32_t)li->li_number)
+				break;
+		if (SLIST_FIRST(&rtablist) != NULL && li == NULL) {
+			selected[i] = 0;
+			continue;
+		}
+
 		if (argc == 0)
 			selected[i] = 1;
 	}
@@ -397,6 +410,8 @@ main(int argc, char **argv)
 		if ((kp->p_flag & P_SYSTEM) != 0 || kp->p_pid == mypid)
 			continue;
 		if (selected[i]) {
+			if (longfmt && !pgrep)
+				printf("%d %s\n", (int)kp->p_pid, kp->p_comm);
 			if (inverse)
 				continue;
 		} else if (!inverse)
@@ -421,12 +436,13 @@ usage(void)
 	if (pgrep)
 		ustr = "[-flnovx] [-d delim]";
 	else
-		ustr = "[-signal] [-fnovx]";
+		ustr = "[-signal] [-flnovx]";
 
-	fprintf(stderr, "usage: %s %s [-G gid] [-g pgrp] [-P ppid] [-s sid] "
-	    "[-t tty]\n\t[-U uid] [-u euid] [pattern ...]\n", __progname, ustr);
+	fprintf(stderr, "usage: %s %s [-G gid] [-g pgrp] [-P ppid] [-s sid]"
+	    "\n\t[-T rtable] [-t tty] [-U uid] [-u euid] [pattern ...]\n",
+	    __progname, ustr);
 
-	exit(STATUS_ERROR);
+	exit(STATUS_BADUSAGE);
 }
 
 int
@@ -486,7 +502,7 @@ makelist(struct listhead *head, enum listtype type, char *src)
 		SLIST_INSERT_HEAD(head, li, li_chain);
 		empty = 0;
 
-		li->li_number = (uid_t)strtol(sp, &p, 0);
+		li->li_number = strtol(sp, &p, 0);
 		if (*p == '\0') {
 			switch (type) {
 			case LT_PGRP:
@@ -496,6 +512,12 @@ makelist(struct listhead *head, enum listtype type, char *src)
 			case LT_SID:
 				if (li->li_number == 0)
 					li->li_number = getsid(mypid);
+				break;
+			case LT_RTABLE:
+				if (li->li_number < 0 ||
+				    li->li_number > RT_TABLEID_MAX)
+					errx(STATUS_BADUSAGE,
+					    "rtable out of range");
 				break;
 			case LT_TTY:
 				usage();

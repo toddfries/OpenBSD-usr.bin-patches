@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.82 2011/12/01 20:42:31 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.87 2012/01/29 09:37:02 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -58,6 +58,20 @@ int
 status_out_cmp(struct status_out *so1, struct status_out *so2)
 {
 	return (strcmp(so1->cmd, so2->cmd));
+}
+
+/* Get screen line of status line. -1 means off. */
+int
+status_at_line(struct client *c)
+{
+	struct session	*s = c->session;
+
+	if (!options_get_number(&s->options, "status"))
+		return (-1);
+
+	if (options_get_number(&s->options, "status-position") == 0)
+		return (0);
+	return (c->tty.sy - 1);
 }
 
 /* Retrieve options for left string. */
@@ -462,12 +476,13 @@ do_replace:
 		ptrlen = limit;
 
 	if (*optr + ptrlen >= out + outsize - 1)
-		return;
+		goto out;
 	while (ptrlen > 0 && *ptr != '\0') {
 		*(*optr)++ = *ptr++;
 		ptrlen--;
 	}
 
+out:
 	if (freeptr != NULL)
 		xfree(freeptr);
 	return;
@@ -490,9 +505,10 @@ status_replace(struct client *c, struct session *s, struct winlink *wl,
 {
 	static char	out[BUFSIZ];
 	char		in[BUFSIZ], ch, *iptr, *optr;
+	size_t		len;
 
-	strftime(in, sizeof in, fmt, localtime(&t));
-	in[(sizeof in) - 1] = '\0';
+	len = strftime(in, sizeof in, fmt, localtime(&t));
+	in[len] = '\0';
 
 	iptr = in;
 	optr = out;
@@ -684,14 +700,34 @@ status_print(
 		fmt = options_get_string(oo, "window-status-current-format");
 	}
 
-	if (wl->flags & WINLINK_ALERTFLAGS) {
-		fg = options_get_number(oo, "window-status-alert-fg");
+	if (wl->flags & WINLINK_BELL) {
+		fg = options_get_number(oo, "window-status-bell-fg");
 		if (fg != 8)
 			colour_set_fg(gc, fg);
-		bg = options_get_number(oo, "window-status-alert-bg");
+		bg = options_get_number(oo, "window-status-bell-bg");
 		if (bg != 8)
 			colour_set_bg(gc, bg);
-		attr = options_get_number(oo, "window-status-alert-attr");
+		attr = options_get_number(oo, "window-status-bell-attr");
+		if (attr != 0)
+			gc->attr = attr;
+	} else if (wl->flags & WINLINK_CONTENT) {
+		fg = options_get_number(oo, "window-status-content-fg");
+		if (fg != 8)
+			colour_set_fg(gc, fg);
+		bg = options_get_number(oo, "window-status-content-bg");
+		if (bg != 8)
+			colour_set_bg(gc, bg);
+		attr = options_get_number(oo, "window-status-content-attr");
+		if (attr != 0)
+			gc->attr = attr;
+	} else if (wl->flags & (WINLINK_ACTIVITY|WINLINK_SILENCE)) {
+		fg = options_get_number(oo, "window-status-activity-fg");
+		if (fg != 8)
+			colour_set_fg(gc, fg);
+		bg = options_get_number(oo, "window-status-activity-bg");
+		if (bg != 8)
+			colour_set_bg(gc, bg);
+		attr = options_get_number(oo, "window-status-activity-attr");
 		if (attr != 0)
 			gc->attr = attr;
 	}
@@ -978,7 +1014,7 @@ status_prompt_key(struct client *c, int key)
 	struct paste_buffer	*pb;
 	char			*s, *first, *last, word[64], swapc;
 	const char		*histstr;
-	const char		*wsep;
+	const char		*wsep = NULL;
 	u_char			 ch;
 	size_t			 size, n, off, idx;
 
@@ -1124,8 +1160,12 @@ status_prompt_key(struct client *c, int key)
 		c->prompt_index = idx;
 		c->flags |= CLIENT_STATUS;
 		break;
+	case MODEKEYEDIT_NEXTSPACE:
+		wsep = " ";
+		/* FALLTHROUGH */
 	case MODEKEYEDIT_NEXTWORD:
-		wsep = options_get_string(oo, "word-separators");
+		if (wsep == NULL)
+			wsep = options_get_string(oo, "word-separators");
 
 		/* Find a separator. */
 		while (c->prompt_index != size) {
@@ -1143,8 +1183,12 @@ status_prompt_key(struct client *c, int key)
 
 		c->flags |= CLIENT_STATUS;
 		break;
+	case MODEKEYEDIT_NEXTSPACEEND:
+		wsep = " ";
+		/* FALLTHROUGH */
 	case MODEKEYEDIT_NEXTWORDEND:
-		wsep = options_get_string(oo, "word-separators");
+		if (wsep == NULL)
+			wsep = options_get_string(oo, "word-separators");
 
 		/* Find a word. */
 		while (c->prompt_index != size) {
@@ -1162,8 +1206,12 @@ status_prompt_key(struct client *c, int key)
 
 		c->flags |= CLIENT_STATUS;
 		break;
+	case MODEKEYEDIT_PREVIOUSSPACE:
+		wsep = " ";
+		/* FALLTHROUGH */
 	case MODEKEYEDIT_PREVIOUSWORD:
-		wsep = options_get_string(oo, "word-separators");
+		if (wsep == NULL)
+			wsep = options_get_string(oo, "word-separators");
 
 		/* Find a non-separator. */
 		while (c->prompt_index != 0) {
