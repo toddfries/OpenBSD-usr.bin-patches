@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.21 2012/02/15 18:44:49 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.23 2012/02/29 21:10:51 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -731,4 +731,37 @@ options_table_print_entry(
 		break;
 	}
 	return (out);
+}
+
+/* Find an option. */
+int
+options_table_find(
+    const char *optstr, const struct options_table_entry **table,
+    const struct options_table_entry **oe)
+{
+	static const struct options_table_entry	*tables[] = {
+		server_options_table,
+		window_options_table,
+		session_options_table
+	};
+	const struct options_table_entry	*oe_loop;
+	u_int					 i;
+
+	for (i = 0; i < nitems(tables); i++) {
+		for (oe_loop = tables[i]; oe_loop->name != NULL; oe_loop++) {
+			if (strncmp(oe_loop->name, optstr, strlen(optstr)) != 0)
+				continue;
+
+			/* If already found, ambiguous. */
+			if (*oe != NULL)
+				return (-1);
+			*oe = oe_loop;
+			*table = tables[i];
+
+			/* Bail now if an exact match. */
+			if (strcmp((*oe)->name, optstr) == 0)
+				break;
+		}
+	}
+	return (0);
 }
