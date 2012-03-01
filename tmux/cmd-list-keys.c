@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-keys.c,v 1.15 2011/07/08 15:18:20 nicm Exp $ */
+/* $OpenBSD: cmd-list-keys.c,v 1.17 2012/01/21 11:12:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -54,9 +54,8 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_ctx *ctx)
 		return (cmd_list_keys_table(self, ctx));
 
 	width = 0;
-	*flags = '\0';
 
-	SPLAY_FOREACH(bd, key_bindings, &key_bindings) {
+	RB_FOREACH(bd, key_bindings, &key_bindings) {
 		key = key_string_lookup_key(bd->key & ~KEYC_PREFIX);
 		if (key == NULL)
 			continue;
@@ -73,11 +72,12 @@ cmd_list_keys_exec(struct cmd *self, struct cmd_ctx *ctx)
 			width = keywidth;
 	}
 
-	SPLAY_FOREACH(bd, key_bindings, &key_bindings) {
+	RB_FOREACH(bd, key_bindings, &key_bindings) {
 		key = key_string_lookup_key(bd->key & ~KEYC_PREFIX);
 		if (key == NULL)
 			continue;
 
+		*flags = '\0';
 		if (!(bd->key & KEYC_PREFIX)) {
 			if (bd->can_repeat)
 				xsnprintf(flags, sizeof flags, "-rn ");
@@ -116,7 +116,7 @@ cmd_list_keys_table(struct cmd *self, struct cmd_ctx *ctx)
 
 	width = 0;
 	any_mode = 0;
-	SPLAY_FOREACH(mbind, mode_key_tree, mtab->tree) {
+	RB_FOREACH(mbind, mode_key_tree, mtab->tree) {
 		key = key_string_lookup_key(mbind->key);
 		if (key == NULL)
 			continue;
@@ -129,7 +129,7 @@ cmd_list_keys_table(struct cmd *self, struct cmd_ctx *ctx)
 			width = keywidth;
 	}
 
-	SPLAY_FOREACH(mbind, mode_key_tree, mtab->tree) {
+	RB_FOREACH(mbind, mode_key_tree, mtab->tree) {
 		key = key_string_lookup_key(mbind->key);
 		if (key == NULL)
 			continue;
