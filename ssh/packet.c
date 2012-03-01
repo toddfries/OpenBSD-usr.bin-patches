@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.174 2011/12/07 05:44:38 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.176 2012/01/25 19:40:09 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -959,8 +959,10 @@ packet_send2(void)
 
 	/* during rekeying we can only send key exchange messages */
 	if (active_state->rekeying) {
-		if (!((type >= SSH2_MSG_TRANSPORT_MIN) &&
-		    (type <= SSH2_MSG_TRANSPORT_MAX))) {
+		if ((type < SSH2_MSG_TRANSPORT_MIN) ||
+		    (type > SSH2_MSG_TRANSPORT_MAX) ||
+		    (type == SSH2_MSG_SERVICE_REQUEST) ||
+		    (type == SSH2_MSG_SERVICE_ACCEPT)) {
 			debug("enqueue packet: %u", type);
 			p = xmalloc(sizeof(*p));
 			p->type = type;
@@ -1432,12 +1434,6 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 			}
 		}
 	}
-}
-
-int
-packet_read_poll(void)
-{
-	return packet_read_poll_seqnr(NULL);
 }
 
 /*

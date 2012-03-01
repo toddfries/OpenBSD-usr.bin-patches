@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.73 2011/12/02 10:34:50 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.76 2012/01/26 09:07:03 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -283,7 +283,7 @@ dev_open(struct dev *d)
 	else
 		d->opar.rate = d->ipar.rate;
 	if (d->opar.rate == 0)
-		d->opar.rate = d->ipar.rate = 44100; /* XXX */
+		d->opar.rate = d->ipar.rate = 48000; /* XXX */
 
 	if (d->mode & MODE_THRU)
 		d->mode &= ~MODE_AUDIOMASK;
@@ -836,7 +836,7 @@ dev_run(struct dev *d)
 	    ((d->mode & MODE_REC)  && !APROC_OK(d->sub)) ||
 	    ((d->mode & MODE_MON)  && !APROC_OK(d->submon))) {
 #ifdef DEBUG
-		if (debug_level >= 1) {
+		if (debug_level >= 2) {
 			dev_dbg(d);
 			dbg_puts(": device disappeared\n");
 		}
@@ -1050,7 +1050,6 @@ dev_attach(struct dev *d, char *name, unsigned mode,
     struct abuf *obuf, struct aparams *sopar, unsigned onch,
     unsigned xrun, int vol)
 {
-	struct abuf *pbuf = NULL, *rbuf = NULL;
 	struct aparams ipar, opar;
 	struct aproc *conv;
 	unsigned round, nblk, nch;
@@ -1066,7 +1065,6 @@ dev_attach(struct dev *d, char *name, unsigned mode,
 #endif
 	if (mode & MODE_PLAY) {
 		ipar = *sipar;
-		pbuf = LIST_FIRST(&d->mix->outs);
 		nblk = (d->bufsz / d->round + 3) / 4;
 		round = dev_roundof(d, ipar.rate);
 		nch = ipar.cmax - ipar.cmin + 1;
@@ -1110,7 +1108,6 @@ dev_attach(struct dev *d, char *name, unsigned mode,
 	}
 	if (mode & MODE_REC) {
 		opar = *sopar;
-		rbuf = LIST_FIRST(&d->sub->ins);
 		round = dev_roundof(d, opar.rate);
 		nblk = (d->bufsz / d->round + 3) / 4;
 		nch = opar.cmax - opar.cmin + 1;
@@ -1152,7 +1149,6 @@ dev_attach(struct dev *d, char *name, unsigned mode,
 	}
 	if (mode & MODE_MON) {
 		opar = *sopar;
-		rbuf = LIST_FIRST(&d->submon->ins);
 		round = dev_roundof(d, opar.rate);
 		nblk = (d->bufsz / d->round + 3) / 4;
 		nch = opar.cmax - opar.cmin + 1;

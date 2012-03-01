@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.130 2011/12/09 22:56:35 ratchov Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.133 2012/02/09 18:33:36 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -62,14 +62,21 @@
  * sample rate if no ``-r'' is used
  */
 #ifndef DEFAULT_RATE
-#define DEFAULT_RATE	44100
+#define DEFAULT_RATE	48000
 #endif
 
 /*
- * block size if no ``-z'' is used
+ * block size if neither ``-z'' nor ``-b'' is used
  */
 #ifndef DEFAULT_ROUND
-#define DEFAULT_ROUND	(44100 / 15)
+#define DEFAULT_ROUND	960
+#endif
+
+/*
+ * buffer size if neither ``-z'' nor ``-b'' is used
+ */
+#ifndef DEFAULT_BUFSZ
+#define DEFAULT_BUFSZ	7860
 #endif
 
 /*
@@ -344,12 +351,13 @@ mkdev(char *path, int mode, int bufsz, int round, int hold, int autovol)
 			return dev_list;
 		path = "default";
 	}
-	if (!bufsz) {
-		if (!round)
-			round = DEFAULT_ROUND;
-		bufsz = round * 4;
+	if (!bufsz && !round) {
+		round = DEFAULT_ROUND;
+		bufsz = DEFAULT_BUFSZ;
+	} else if (!bufsz) {
+		bufsz = round * 2;
 	} else if (!round)
-		round = bufsz / 4;
+		round = bufsz / 2;
 	d = dev_new(path, mode, bufsz, round, hold, autovol);
 	if (d == NULL)
 		exit(1);
@@ -505,9 +513,11 @@ main(int argc, char **argv)
 			dev_adjpar(d, w->mode, &w->hpar, NULL);
 			break;
 		case 's':
-			d = mkdev(DEFAULT_DEV, 0, bufsz, round, 1, autovol);
-			mkopt(optarg, d, &rpar, &ppar,
-			    mode, vol, mmc, join);
+			if ((d = dev_list) == NULL) {
+				d = mkdev(DEFAULT_DEV, 0, bufsz, round,
+				    hold, autovol);
+			}
+			mkopt(optarg, d, &rpar, &ppar, mode, vol, mmc, join);
 			/* XXX: set device rate, if never set */
 			break;
 		case 'q':

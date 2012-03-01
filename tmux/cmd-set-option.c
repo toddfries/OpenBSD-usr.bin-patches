@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-option.c,v 1.51 2011/04/05 19:37:01 nicm Exp $ */
+/* $OpenBSD: cmd-set-option.c,v 1.53 2012/02/25 12:57:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -29,9 +29,6 @@
 
 int	cmd_set_option_exec(struct cmd *, struct cmd_ctx *);
 
-int	cmd_set_option_find(const char *, const struct options_table_entry **,
-	    const struct options_table_entry **);
-
 int	cmd_set_option_unset(struct cmd *, struct cmd_ctx *,
 	    const struct options_table_entry *, struct options *,
 	    const char *);
@@ -45,7 +42,7 @@ struct options_entry *cmd_set_option_string(struct cmd *, struct cmd_ctx *,
 struct options_entry *cmd_set_option_number(struct cmd *, struct cmd_ctx *,
 	    const struct options_table_entry *, struct options *,
 	    const char *);
-struct options_entry *cmd_set_option_keys(struct cmd *, struct cmd_ctx *,
+struct options_entry *cmd_set_option_key(struct cmd *, struct cmd_ctx *,
 	    const struct options_table_entry *, struct options *,
 	    const char *);
 struct options_entry *cmd_set_option_colour(struct cmd *, struct cmd_ctx *,
@@ -81,39 +78,6 @@ const struct cmd_entry cmd_set_window_option_entry = {
 	cmd_set_option_exec
 };
 
-/* Look for an option in all three tables. */
-int
-cmd_set_option_find(
-    const char *optstr, const struct options_table_entry **table,
-    const struct options_table_entry **oe)
-{
-	static const struct options_table_entry	*tables[] = {
-		server_options_table,
-		window_options_table,
-		session_options_table
-	};
-	const struct options_table_entry	*oe_loop;
-	u_int					 i;
-
-	for (i = 0; i < nitems(tables); i++) {
-		for (oe_loop = tables[i]; oe_loop->name != NULL; oe_loop++) {
-			if (strncmp(oe_loop->name, optstr, strlen(optstr)) != 0)
-				continue;
-
-			/* If already found, ambiguous. */
-			if (*oe != NULL)
-				return (-1);
-			*oe = oe_loop;
-			*table = tables[i];
-
-			/* Bail now if an exact match. */
-			if (strcmp((*oe)->name, optstr) == 0)
-				break;
-		}
-	}
-	return (0);
-}
-
 int
 cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
@@ -139,7 +103,7 @@ cmd_set_option_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	/* Find the option entry, try each table. */
 	table = oe = NULL;
-	if (cmd_set_option_find(optstr, &table, &oe) != 0) {
+	if (options_table_find(optstr, &table, &oe) != 0) {
 		ctx->error(ctx, "ambiguous option: %s", optstr);
 		return (-1);
 	}
@@ -236,8 +200,8 @@ cmd_set_option_set(struct cmd *self, struct cmd_ctx *ctx,
 	case OPTIONS_TABLE_NUMBER:
 		o = cmd_set_option_number(self, ctx, oe, oo, value);
 		break;
-	case OPTIONS_TABLE_KEYS:
-		o = cmd_set_option_keys(self, ctx, oe, oo, value);
+	case OPTIONS_TABLE_KEY:
+		o = cmd_set_option_key(self, ctx, oe, oo, value);
 		break;
 	case OPTIONS_TABLE_COLOUR:
 		o = cmd_set_option_colour(self, ctx, oe, oo, value);
@@ -298,31 +262,19 @@ cmd_set_option_number(unused struct cmd *self, struct cmd_ctx *ctx,
 	return (options_set_number(oo, oe->name, ll));
 }
 
-/* Set a keys option. */
+/* Set a key option. */
 struct options_entry *
-cmd_set_option_keys(unused struct cmd *self, struct cmd_ctx *ctx,
+cmd_set_option_key(unused struct cmd *self, struct cmd_ctx *ctx,
     const struct options_table_entry *oe, struct options *oo, const char *value)
 {
-	struct keylist	*keylist;
-	char		*copy, *ptr, *s;
-	int		 key;
+	int	key;
 
-	keylist = xmalloc(sizeof *keylist);
-	ARRAY_INIT(keylist);
-
-	ptr = copy = xstrdup(value);
-	while ((s = strsep(&ptr, ",")) != NULL) {
-		if ((key = key_string_lookup_string(s)) == KEYC_NONE) {
-			ctx->error(ctx, "unknown key: %s", s);
-			xfree(copy);
-			xfree(keylist);
-			return (NULL);
-		}
-		ARRAY_ADD(keylist, key);
+	if ((key = key_string_lookup_string(value)) == KEYC_NONE) {
+		ctx->error(ctx, "bad key: %s", value);
+		return (NULL);
 	}
-	xfree(copy);
 
-	return (options_set_data(oo, oe->name, keylist, xfree));
+	return (options_set_number(oo, oe->name, key));
 }
 
 /* Set a colour option. */
