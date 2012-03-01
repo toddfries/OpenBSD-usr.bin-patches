@@ -3,6 +3,8 @@
 PROG=	nc
 SRCS=	netcat.c atomicio.c socks.c
 
+.if !${unix:MOpenBSD.}
 LDADD=	-lbsd
+.endif
 
 .include <bsd.prog.mk>
