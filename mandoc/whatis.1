@@ -1,5 +1,4 @@
-.\"     $OpenBSD: apropos.1,v 1.16 2012/01/22 13:45:22 schwarze Exp $
-.\"     $NetBSD: apropos.1,v 1.4 1995/09/04 20:46:17 tls Exp $
+.\"	$OpenBSD: whatis.1,v 1.7 2012/01/14 23:31:33 schwarze Exp $
 .\"
 .\" Copyright (c) 1989, 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -28,117 +27,140 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	@(#)apropos.1	8.1 (Berkeley) 6/29/93
+.\"     @(#)whatis.1	8.1 (Berkeley) 6/6/93
 .\"
-.Dd $Mdocdate: January 22 2012 $
-.Dt APROPOS 1
+.Dd $Mdocdate: January 14 2012 $
+.Dt WHATIS 1
 .Os
 .Sh NAME
-.Nm apropos
-.Nd locate commands by keyword lookup
+.Nm whatis
+.Nd describe what a command is
 .Sh SYNOPSIS
-.Nm apropos
+.Nm whatis
 .Op Fl C Ar file
 .Op Fl M Ar path
 .Op Fl m Ar path
-.Op Fl S Ar subsection
+.Op Fl S Ar arch
 .Op Fl s Ar section
-.Ar keyword ...
+.Ar name ...
 .Sh DESCRIPTION
+The
 .Nm
-shows which manual pages contain instances of any of the given
-.Ar keyword(s)
-in their title line.
-Each word is considered separately and case of letters is ignored.
-Words which are part of other words are considered; when looking for
-.Dq compile ,
+utility looks up the given commands and shows the header lines
+from the manual pages.
+You can then use the
+.Xr man 1
+command to get more information.
 .Nm
-will also list all instances of
-.Dq compiler .
-.Pp
-If the line output by
-.Nm
-starts
-.Dq Li name (section) ... ,
-you can enter
-.Dq Li man section name
-to get
-its documentation.
+will match manual page
+.Ar names
+on a case insensitive basis and for multiple word entries
+will match on each individual word.
 .Pp
 The options are as follows:
-.Bl -tag -width "-C file"
+.Bl -tag -width Ds
 .It Fl C Ar file
-Specify an alternative configuration
+Specify an alternate configuration
 .Ar file
 in
 .Xr man.conf 5
 format.
+The default is
+.Pa /etc/man.conf .
 .It Fl M Ar path
 Override the list of standard directories
 .Nm
-searches for a database named
-.Pa whatis.db .
+searches for its database named
+.Dq Pa mandoc.db .
 The supplied
 .Ar path
 must be a colon
-.Pq Sq \&:
+.Pq Ql \&:
 separated list of directories.
 This search path may also be set using the environment variable
 .Ev MANPATH .
 .It Fl m Ar path
 Augment the list of standard directories
 .Nm
-searches for its database.
+searches for its database named
+.Dq Pa mandoc.db .
 The supplied
 .Ar path
-must be a colon
-.Pq Sq \&:
-separated list of directories.
-These directories will be searched before the standard directories,
+must be a colon-separated list of directories.
+These directories will be searched before the standard directories
 or the directories supplied with the
 .Fl M
 option or the
 .Ev MANPATH
-environment variable.
-.It Fl S Ar subsection
-Restrict the search to pages for the specified machine architecture.
+environment variable are searched.
+.It Fl S Ar arch
+Restrict the search to pages for the specified
+.Xr machine 1
+architecture.
+.Ar arch
+is case insensitive.
 By default, pages for all architectures are shown.
 .It Fl s Ar section
 Restrict the search to the specified section of the manual.
 By default, pages from all sections are shown.
+See
+.Xr man 1
+for a listing of sections.
 .El
 .Sh ENVIRONMENT
 .Bl -tag -width MANPATH
 .It Ev MANPATH
 The standard search path used by
 .Xr man 1
-may be overridden by specifying a path in the
+may be changed by specifying a path in the
 .Ev MANPATH
 environment variable.
-The format of the path is a colon
-.Pq Sq \&:
-separated list of directories.
+If
+.Ev MANPATH
+begins with a colon, it is appended to the default list;
+if it ends with a colon, it is prepended to the default list;
+or if it contains two adjacent colons,
+the standard search path is inserted between the colons.
+If none of these conditions are met, it overrides the
+standard search path.
 .El
 .Sh FILES
-.Bl -tag -width /etc/man.conf -compact
-.It Pa whatis.db
-name of the apropos database
+.Bl -tag -width "/etc/man.conf" -compact
+.It Pa mandoc.db
+name of the
+.Xr makewhatis 8
+keyword database
+.It Pa mandoc.index
+name of the
+.Xr makewhatis 8
+filename database
 .It Pa /etc/man.conf
 default
 .Xr man 1
 configuration file
 .El
+.Sh EXIT STATUS
+.Ex -std
 .Sh SEE ALSO
+.Xr apropos 1 ,
 .Xr man 1 ,
-.Xr whatis 1 ,
 .Xr whereis 1 ,
+.Xr which 1 ,
 .Xr man.conf 5 ,
 .Xr makewhatis 8
 .Sh HISTORY
+Part of the functionality of
+.Nm
+was already provided by the former
+.Nm manwhere
+utility in
+.Bx 1 .
 The
 .Nm
 command first appeared in
 .Bx 2 .
+It was rewritten from scratch for
+.Ox 5.1 .
 .Pp
 The
 .Fl M
@@ -153,14 +175,21 @@ in
 in
 .Bx 4.4 Lite1 ;
 and
-.Fl s
-and
 .Fl S
+and
+.Fl s
 in
-.Ox 4.5 .
+.Ox 5.1 .
 .Sh AUTHORS
+.An -nosplit
 .An Bill Joy
-wrote the original
+wrote
+.Nm manwhere
+in 1977
+and the original
 .Bx
 .Nm
 in February 1979.
+The current version was written by
+.An Kristaps Dzonsons ,
+.Mt kristaps@bsd.lv .
