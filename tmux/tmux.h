@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.313 2012/02/25 12:57:42 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.320 2012/03/09 21:42:13 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -58,9 +58,6 @@ extern char   **environ;
 
 /* Automatic name refresh interval, in milliseconds. */
 #define NAME_INTERVAL 500
-
-/* Maximum data to buffer for output before suspending writing to a tty. */
-#define BACKOFF_THRESHOLD 16384
 
 /*
  * Maximum sizes of strings in message data. Don't forget to bump
@@ -457,6 +454,8 @@ enum mode_key_cmd {
 	MODEKEYEDIT_STARTOFLINE,
 	MODEKEYEDIT_SWITCHMODE,
 	MODEKEYEDIT_SWITCHMODEAPPEND,
+	MODEKEYEDIT_SWITCHMODEAPPENDLINE,
+	MODEKEYEDIT_SWITCHMODEBEGINLINE,
 	MODEKEYEDIT_TRANSPOSECHARS,
 
 	/* Menu (choice) keys. */
@@ -573,6 +572,7 @@ struct mode_key_table {
 #define MODE_MOUSE_BUTTON 0x40
 #define MODE_MOUSE_ANY 0x80
 #define MODE_MOUSE_UTF8 0x100
+#define MODE_BRACKETPASTE 0x200
 
 #define ALL_MOUSE_MODES (MODE_MOUSE_STANDARD|MODE_MOUSE_BUTTON|MODE_MOUSE_ANY)
 
@@ -975,8 +975,6 @@ struct session {
 
 	struct environ	 environ;
 
-	int		 wlmouse;
-
 	int		 references;
 
 	TAILQ_ENTRY(session) gentry;
@@ -1047,7 +1045,6 @@ struct tty {
 #define TTY_UTF8 0x8
 #define TTY_STARTED 0x10
 #define TTY_OPENED 0x20
-#define TTY_BACKOFF 0x40
 	int		 flags;
 
 	int		 term_flags;
@@ -1198,6 +1195,8 @@ struct client {
 	struct session	*last_session;
 
 	struct mouse_event last_mouse;
+
+	int		 wlmouse;
 
 	int		 references;
 };
@@ -1367,7 +1366,7 @@ int		 format_cmp(struct format_entry *, struct format_entry *);
 RB_PROTOTYPE(format_tree, format_entry, entry, format_cmp);
 struct format_tree *format_create(void);
 void		 format_free(struct format_tree *);
-void		 format_add(
+void printflike3 format_add(
 		     struct format_tree *, const char *, const char *, ...);
 const char	*format_find(struct format_tree *, const char *);
 char		*format_expand(struct format_tree *, const char *);
@@ -1605,6 +1604,7 @@ extern const struct cmd_entry cmd_load_buffer_entry;
 extern const struct cmd_entry cmd_lock_client_entry;
 extern const struct cmd_entry cmd_lock_server_entry;
 extern const struct cmd_entry cmd_lock_session_entry;
+extern const struct cmd_entry cmd_move_pane_entry;
 extern const struct cmd_entry cmd_move_window_entry;
 extern const struct cmd_entry cmd_new_session_entry;
 extern const struct cmd_entry cmd_new_window_entry;
@@ -1683,7 +1683,7 @@ const char *key_string_lookup_key(int);
 extern struct clients clients;
 extern struct clients dead_clients;
 extern struct paste_stack global_buffers;
-int	 server_start(void);
+int	 server_start(int, char *);
 void	 server_update_socket(void);
 
 /* server-client.c */
@@ -1882,6 +1882,7 @@ void	 screen_write_cell(struct screen_write_ctx *,
 	     const struct grid_cell *, const struct utf8_data *);
 void	 screen_write_setselection(struct screen_write_ctx *, u_char *, u_int);
 void	 screen_write_rawstring(struct screen_write_ctx *, u_char *, u_int);
+void	 screen_write_bracketpaste(struct screen_write_ctx *, int);
 
 /* screen-redraw.c */
 void	 screen_redraw_screen(struct client *, int, int);
@@ -1999,7 +2000,7 @@ void		 layout_resize_pane_mouse(
 		     struct client *c, struct mouse_event *mouse);
 void		 layout_assign_pane(struct layout_cell *, struct window_pane *);
 struct layout_cell *layout_split_pane(
-		     struct window_pane *, enum layout_type, int);
+		     struct window_pane *, enum layout_type, int, int);
 void		 layout_close_pane(struct window_pane *);
 
 /* layout-custom.c */
@@ -2021,7 +2022,7 @@ extern const struct window_mode window_clock_mode;
 extern const struct window_mode window_copy_mode;
 void		 window_copy_init_from_pane(struct window_pane *);
 void		 window_copy_init_for_output(struct window_pane *);
-void		 window_copy_add(struct window_pane *, const char *, ...);
+void printflike2 window_copy_add(struct window_pane *, const char *, ...);
 void		 window_copy_vadd(struct window_pane *, const char *, va_list);
 void		 window_copy_pageup(struct window_pane *);
 
