@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.114 2012/02/15 17:25:02 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.118 2012/03/12 12:43:18 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -480,6 +480,12 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 		else
 			tty_putcode(tty, TTYC_RMKX);
 	}
+	if (changed & MODE_BRACKETPASTE) {
+		if (mode & MODE_BRACKETPASTE)
+			tty_puts(tty, "\033[?2004h");
+		else
+			tty_puts(tty, "\033[?2004l");
+	}
 	tty->mode = mode;
 }
 
@@ -582,7 +588,8 @@ tty_draw_line(struct tty *tty, struct screen *s, u_int py, u_int ox, u_int oy)
 	tty_reset(tty);
 
 	tty_cursor(tty, ox + sx, oy + py);
-	if (screen_size_x(s) >= tty->sx && tty_term_has(tty->term, TTYC_EL))
+	if (ox + screen_size_x(s) >= tty->sx &&
+	    tty_term_has(tty->term, TTYC_EL))
 		tty_putcode(tty, TTYC_EL);
 	else {
 		for (i = sx; i < screen_size_x(s); i++)
@@ -621,7 +628,7 @@ tty_write(
 		if (s->curw->window == wp->window) {
 			if (c->tty.term == NULL)
 				continue;
-			if (c->tty.flags & (TTY_FREEZE|TTY_BACKOFF))
+			if (c->tty.flags & TTY_FREEZE)
 				continue;
 			oo = &s->options;
 
