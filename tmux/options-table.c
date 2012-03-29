@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.23 2012/02/29 21:10:51 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.26 2012/03/20 11:23:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -465,6 +465,21 @@ const struct options_table_entry window_options_table[] = {
 	  .default_num = 1
 	},
 
+
+	{ .name = "c0-change-trigger",
+	  .type = OPTIONS_TABLE_NUMBER,
+	  .default_num = 250,
+	  .minimum = 0,
+	  .maximum = USHRT_MAX
+	},
+
+	{ .name = "c0-change-interval",
+	  .type = OPTIONS_TABLE_NUMBER,
+	  .default_num = 100,
+	  .minimum = 1,
+	  .maximum = USHRT_MAX
+	},
+
 	{ .name = "clock-mode-colour",
 	  .type = OPTIONS_TABLE_COLOUR,
 	  .default_num = 4
@@ -667,6 +682,11 @@ const struct options_table_entry window_options_table[] = {
 	{ .name = "window-status-format",
 	  .type = OPTIONS_TABLE_STRING,
 	  .default_str = "#I:#W#F"
+	},
+
+	{ .name = "wrap-search",
+	  .type = OPTIONS_TABLE_FLAG,
+	  .default_num = 1
 	},
 
 	{ .name = "xterm-keys",

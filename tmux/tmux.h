@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.320 2012/03/09 21:42:13 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.325 2012/03/20 11:01:00 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -811,6 +811,7 @@ struct window_pane {
 
 	int		 flags;
 #define PANE_REDRAW 0x1
+#define PANE_DROP 0x2
 
 	char		*cmd;
 	char		*shell;
@@ -818,6 +819,10 @@ struct window_pane {
 
 	pid_t		 pid;
 	char		 tty[TTY_NAME_MAX];
+
+	u_int		 changes;
+	struct event	 changes_timer;
+	u_int		 changes_redraw;
 
 	int		 fd;
 	struct bufferevent *event;
@@ -1013,6 +1018,7 @@ LIST_HEAD(tty_terms, tty_term);
 
 struct tty {
 	char		*path;
+	u_int		 xterm_version;
 
 	u_int		 sx;
 	u_int		 sy;
@@ -1395,6 +1401,16 @@ void	mode_key_init_trees(void);
 void	mode_key_init(struct mode_key_data *, struct mode_key_tree *);
 enum mode_key_cmd mode_key_lookup(struct mode_key_data *, int);
 
+/* notify.c */
+void	notify_window_layout_changed(struct window *);
+void	notify_window_unlinked(struct session *, struct window *);
+void	notify_window_linked(struct session *, struct window *);
+void	notify_window_renamed(struct window *);
+void	notify_attached_session_changed(struct client *);
+void	notify_session_renamed(struct session *);
+void	notify_session_created(struct session *);
+void	notify_session_closed(struct session *);
+
 /* options.c */
 int	options_cmp(struct options_entry *, struct options_entry *);
 RB_PROTOTYPE(options_tree, options_entry, entry, options_cmp);
@@ -1443,6 +1459,7 @@ void	environ_update(const char *, struct environ *, struct environ *);
 void	environ_push(struct environ *);
 
 /* tty.c */
+void	tty_init_termios(int, struct termios *, struct bufferevent *);
 void	tty_raw(struct tty *, const char *);
 void	tty_attributes(struct tty *, const struct grid_cell *);
 void	tty_reset(struct tty *);
@@ -1460,8 +1477,9 @@ void	tty_putc(struct tty *, u_char);
 void	tty_pututf8(struct tty *, const struct grid_utf8 *);
 void	tty_init(struct tty *, int, char *);
 int	tty_resize(struct tty *);
-int	tty_set_size(struct tty *tty, u_int sx, u_int sy);
+int	tty_set_size(struct tty *, u_int, u_int);
 void	tty_start_tty(struct tty *);
+void	tty_set_version(struct tty *, u_int);
 void	tty_stop_tty(struct tty *);
 void	tty_set_title(struct tty *, const char *);
 void	tty_update_mode(struct tty *, int, struct screen *);
@@ -1950,6 +1968,7 @@ void		 window_destroy_panes(struct window *);
 struct window_pane *window_pane_find_by_id(u_int);
 struct window_pane *window_pane_create(struct window *, u_int, u_int, u_int);
 void		 window_pane_destroy(struct window_pane *);
+void		 window_pane_timer_start(struct window_pane *);
 int		 window_pane_spawn(struct window_pane *, const char *,
 		     const char *, const char *, struct environ *,
 		     struct termios *, char **);
@@ -1968,7 +1987,6 @@ int		 window_pane_visible(struct window_pane *);
 char		*window_pane_search(
 		     struct window_pane *, const char *, u_int *);
 char		*window_printable_flags(struct session *, struct winlink *);
-
 struct window_pane *window_pane_find_up(struct window_pane *);
 struct window_pane *window_pane_find_down(struct window_pane *);
 struct window_pane *window_pane_find_left(struct window_pane *);

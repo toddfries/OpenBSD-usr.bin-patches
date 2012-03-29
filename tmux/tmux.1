@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.280 2012/03/12 13:31:09 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.286 2012/03/22 11:11:57 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: March 12 2012 $
+.Dd $Mdocdate: March 22 2012 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1099,6 +1099,7 @@ to
 .Ql 9
 keys.
 .It Xo Ic find-window
+.Op Fl CNT
 .Op Fl t Ar target-window
 .Ar match-string
 .Xc
@@ -1108,8 +1109,17 @@ Search for the
 pattern
 .Ar match-string
 in window names, titles, and visible content (but not history).
-If only one window is matched, it'll be automatically selected, otherwise a
-choice list is shown.
+The flags control matching behavior:
+.Fl C
+matches only visible window contents,
+.Fl N
+matches only the window name and
+.Fl T
+matches only the window title.
+The default is
+.Fl CNT .
+If only one window is matched, it'll be automatically selected,
+otherwise a choice list is shown.
 This command only works from inside
 .Nm .
 .It Xo Ic join-pane
@@ -1788,7 +1798,7 @@ command.
 Commands which set options are as follows:
 .Bl -tag -width Ds
 .It Xo Ic set-option
-.Op Fl agsuw
+.Op Fl agqsuw
 .Op Fl t Ar target-session | Ar target-window
 .Ar option Ar value
 .Xc
@@ -1815,6 +1825,12 @@ The
 flag unsets an option, so a session inherits the option from the global
 options.
 It is not possible to unset a global option.
+.Pp
+The
+.Fl q
+flag suppresses the informational message (as if the
+.Ic quiet
+server option was set).
 .Pp
 Available window options are listed under
 .Ic set-window-option .
@@ -2381,7 +2397,7 @@ The default is
 .Ql \ -_@ .
 .El
 .It Xo Ic set-window-option
-.Op Fl agu
+.Op Fl agqu
 .Op Fl t Ar target-window
 .Ar option Ar value
 .Xc
@@ -2389,7 +2405,8 @@ The default is
 Set a window option.
 The
 .Fl a ,
-.Fl g
+.Fl g ,
+.Fl q
 and
 .Fl u
 flags work similarly to the
@@ -2455,6 +2472,24 @@ It may be switched off globally with:
 .Bd -literal -offset indent
 set-window-option -g automatic-rename off
 .Ed
+.Pp
+.It Ic c0-change-interval Ar interval
+.It Ic c0-change-trigger Ar trigger
+These two options configure a simple form of rate limiting for a pane.
+If
+.Nm
+sees more than
+.Ar trigger
+C0 sequences that modify the screen (for example, carriage returns, linefeeds
+or backspaces) in one millisecond, it will stop updating the pane immediately and
+instead redraw it entirely every
+.Ar interval
+milliseconds.
+This helps to prevent fast output (such as
+.Xr yes 1
+overwhelming the terminal).
+The default is a trigger of 250 and an interval of 100.
+A trigger of zero disables the rate limiting.
 .Pp
 .It Ic clock-mode-colour Ar colour
 Set clock colour.
@@ -2654,6 +2689,12 @@ will generate
 function key sequences; these have a number included to indicate modifiers such
 as Shift, Alt or Ctrl.
 The default is off.
+.Pp
+.It Xo Ic wrap-search
+.Op Ic on | off
+.Xc
+If this option is set, searches will wrap around the end of the pane contents.
+The default is on.
 .El
 .It Xo Ic show-options
 .Op Fl gsw
@@ -2867,12 +2908,16 @@ new process.
 .It Xo Ic show-environment
 .Op Fl g
 .Op Fl t Ar target-session
+.Op Ar variable
 .Xc
 .D1 (alias: Ic showenv )
 Display the environment for
 .Ar target-session
 or the global environment with
 .Fl g .
+If
+.Ar variable
+is omitted, all variables are shown.
 Variables removed from the environment are prefixed with
 .Ql - .
 .El
