@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.328 2012/04/11 06:16:14 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.330 2012/04/29 17:20:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -777,6 +777,12 @@ struct input_ctx {
 #define INPUT_DISCARD 0x1
 
 	const struct input_state *state;
+
+	/*
+	 * All input received since we were last in the ground state. Sent to
+	 * control clients on connection.
+	 */
+	struct evbuffer	 	*since_ground;
 };
 
 /*
@@ -2110,6 +2116,7 @@ void		 session_group_remove(struct session *);
 void		 session_group_synchronize_to(struct session *);
 void		 session_group_synchronize_from(struct session *);
 void		 session_group_synchronize1(struct session *, struct session *);
+void		 session_renumber_windows(struct session *);
 
 /* utf8.c */
 void	utf8_build(void);

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.288 2012/04/01 13:18:38 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.292 2012/05/02 19:29:13 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: April 1 2012 $
+.Dd $Mdocdate: May 2 2012 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -1157,11 +1157,18 @@ The
 .Fl a
 option kills all but the pane given with
 .Fl t .
-.It Ic kill-window Op Fl t Ar target-window
+.It Xo Ic kill-window
+.Op Fl a
+.Op Fl t Ar target-window
+.Xc
 .D1 (alias: Ic killw )
 Kill the current window or the window at
 .Ar target-window ,
 removing it from any sessions to which it is linked.
+The
+.Fl a
+option kills all but the window given with
+.Fl t .
 .It Ic last-pane Op Fl t Ar target-window
 .D1 (alias: Ic lastp )
 Select the last (previously selected) pane.
@@ -1251,7 +1258,7 @@ and
 .Ar dst-pane
 may belong to the same window.
 .It Xo Ic move-window
-.Op Fl dk
+.Op Fl rdk
 .Op Fl s Ar src-window
 .Op Fl t Ar dst-window
 .Xc
@@ -1262,6 +1269,12 @@ except the window at
 .Ar src-window
 is moved to
 .Ar dst-window .
+With
+.Fl r ,
+all windows in the session are renumbered in sequential order, respecting
+the
+.Ic base-index
+option.
 .It Xo Ic new-window
 .Op Fl adkP
 .Op Fl c Ar start-directory
@@ -1931,16 +1944,10 @@ Set the default working directory for new panes.
 If empty (the default), the working directory is determined from the process
 running in the active pane, from the command line environment or from the
 working directory where the session was created.
-If
-.Ar path
-is "$HOME" or "~", the value of the
-.Ev HOME
-environment variable is used.
-If
-.Ar path
-is ".", the working directory when
-.Nm
-was started is used.
+Otherwise the same options are available as for the
+.Fl c
+flag to
+.Ic new-window .
 .It Ic default-shell Ar path
 Specify the default shell.
 This is used as the login shell for new windows when the
@@ -2115,6 +2122,15 @@ Set the pane border colour for panes aside from the active pane.
 Set the key accepted as a prefix key.
 .It Ic prefix2 Ar key
 Set a secondary key accepted as a prefix key.
+.It Xo Ic renumber-windows
+.Op Ic on | off
+.Xc
+If on, when a window is closed in a session, automatically renumber the other
+windows in numerical order.
+This respects the
+.Ic base-index
+option if it has been set.
+If off, do not renumber the windows.
 .It Ic repeat-time Ar time
 Allow multiple commands to be entered without pressing the prefix-key again
 in the specified
@@ -2692,6 +2708,10 @@ See the
 option for details of special character sequences available.
 The default is
 .Ql #I:#W#F .
+.Pp
+.It Ic window-status-separator Ar string
+Sets the separator drawn between windows in the status line.
+The default is a single space character.
 .Pp
 .It Xo Ic xterm-keys
 .Op Ic on | off

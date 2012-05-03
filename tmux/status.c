@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.90 2012/03/17 18:24:07 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.92 2012/04/29 07:33:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -81,7 +81,7 @@ status_redraw_get_left(struct client *c,
 {
 	struct session	*s = c->session;
 	char		*left;
-	u_char		 fg, bg, attr;
+	int		 fg, bg, attr;
 	size_t		 leftlen;
 
 	fg = options_get_number(&s->options, "status-left-fg");
@@ -111,7 +111,7 @@ status_redraw_get_right(struct client *c,
 {
 	struct session	*s = c->session;
 	char		*right;
-	u_char		 fg, bg, attr;
+	int		 fg, bg, attr;
 	size_t		 rightlen;
 
 	fg = options_get_number(&s->options, "status-right-fg");
@@ -160,11 +160,12 @@ status_redraw(struct client *c)
 	struct winlink	       *wl;
 	struct screen		old_status, window_list;
 	struct grid_cell	stdgc, lgc, rgc, gc;
+	struct options	       *oo;
 	time_t			t;
-	char		       *left, *right;
+	char		       *left, *right, *sep;
 	u_int			offset, needed;
 	u_int			wlstart, wlwidth, wlavailable, wloffset, wlsize;
-	size_t			llen, rlen;
+	size_t			llen, rlen, seplen;
 	int			larrow, rarrow, utf8flag;
 
 	/* No status line? */
@@ -230,7 +231,11 @@ status_redraw(struct client *c)
 
 		if (wl == s->curw)
 			wloffset = wlwidth;
-		wlwidth += wl->status_width + 1;
+
+		oo = &wl->window->options;
+		sep = options_get_string(oo, "window-status-separator");
+		seplen = screen_write_strlen(utf8flag, "%s", sep);
+		wlwidth += wl->status_width + seplen;
 	}
 
 	/* Create a new screen for the window list. */
@@ -241,7 +246,10 @@ status_redraw(struct client *c)
 	RB_FOREACH(wl, winlinks, &s->windows) {
 		screen_write_cnputs(&ctx,
 		    -1, &wl->status_cell, utf8flag, "%s", wl->status_text);
-		screen_write_putc(&ctx, &stdgc, ' ');
+
+		oo = &wl->window->options;
+		sep = options_get_string(oo, "window-status-separator");
+		screen_write_nputs(&ctx, -1, &stdgc, utf8flag, "%s", sep);
 	}
 	screen_write_stop(&ctx);
 
@@ -675,7 +683,7 @@ status_print(
 	struct session	*s = c->session;
 	const char	*fmt;
 	char   		*text;
-	u_char		 fg, bg, attr;
+	int		 fg, bg, attr;
 
 	fg = options_get_number(oo, "window-status-fg");
 	if (fg != 8)
