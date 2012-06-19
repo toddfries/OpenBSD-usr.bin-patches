@@ -1,4 +1,4 @@
-/*	$OpenBSD: top.c,v 1.77 2012/04/20 16:36:11 pirofti Exp $	*/
+/*	$OpenBSD: top.c,v 1.79 2012/06/08 13:41:16 lum Exp $	*/
 
 /*
  *  Top users/processes display for Unix
@@ -126,7 +126,7 @@ usage(void)
 
 	fprintf(stderr,
 	    "usage: %s [-1bCHIinqSu] [-d count] [-g string] [-o field] "
-	    "[-p pid] [-s time]\n\t[-U user] [number]\n",
+	    "[-p pid] [-s time]\n\t[-U [-]user] [number]\n",
 	    __progname);
 }
 
@@ -149,9 +149,17 @@ parseargs(int ac, char **av)
 			break;
 
 		case 'U':	/* display only username's processes */
-			if ((ps.uid = userid(optarg)) == (uid_t)-1)
+			if (optarg[0] == '-') {
+				if ((ps.huid = userid(optarg+1)) == (uid_t)-1)
+					new_message(MT_delayed, "%s: unknown user",
+					    optarg);
+				else
+					ps.uid = (uid_t)-1;
+			} else if ((ps.uid = userid(optarg)) == (uid_t)-1)
 				new_message(MT_delayed, "%s: unknown user",
 				    optarg);
+			else
+				ps.huid = (uid_t)-1;
 			break;
 
 		case 'p': {	/* display only process id */
@@ -282,6 +290,7 @@ main(int argc, char *argv[])
 	ps.idle = Yes;
 	ps.system = No;
 	ps.uid = (uid_t)-1;
+	ps.huid = (uid_t)-1;
 	ps.pid = (pid_t)-1;
 	ps.command = NULL;
 
@@ -540,7 +549,7 @@ rundisplay(void)
 	char ch, *iptr;
 	int change, i;
 	struct pollfd pfd[1];
-	uid_t uid;
+	uid_t uid, huid;
 	static char command_chars[] = "\f qh?en#sdkriIuSopCHg+P1";
 
 	/*
@@ -774,15 +783,27 @@ rundisplay(void)
 			new_message(MT_standout,
 			    "Username to show: ");
 			if (readline(tempbuf, sizeof(tempbuf)) > 0) {
-				if (tempbuf[0] == '+' &&
+				if ((tempbuf[0] == '+' || tempbuf[0] == '-') &&
 				    tempbuf[1] == '\0') {
 					ps.uid = (uid_t)-1;
+					ps.huid = (uid_t)-1;
+				} else if (tempbuf[0] == '-') {
+					if ((huid = userid(tempbuf+1)) == (uid_t)-1) {
+						new_message(MT_standout,
+						    " %s: unknown user", tempbuf+1);
+						no_command = Yes;
+					} else {
+						ps.huid = huid;
+						ps.uid = (uid_t)-1;
+					}
 				} else if ((uid = userid(tempbuf)) == (uid_t)-1) {
-					new_message(MT_standout,
-					    " %s: unknown user", tempbuf);
-					no_command = Yes;
-				} else
+						new_message(MT_standout,
+					    	    " %s: unknown user", tempbuf);
+						no_command = Yes;
+				} else {
 					ps.uid = uid;
+					ps.huid = (uid_t)-1;
+				}
 				putr();
 			} else
 				clear_message();
@@ -899,6 +920,7 @@ rundisplay(void)
 
 		case CMD_add:
 			ps.uid = (uid_t)-1;	/* uid */
+			ps.huid = (uid_t)-1;
 			ps.pid = (pid_t)-1; 	/* pid */
 			ps.system = old_system;
 			ps.command = NULL;	/* grep */

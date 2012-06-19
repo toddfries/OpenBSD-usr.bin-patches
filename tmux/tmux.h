@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.330 2012/04/29 17:20:01 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.342 2012/06/18 13:16:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -19,7 +19,7 @@
 #ifndef TMUX_H
 #define TMUX_H
 
-#define PROTOCOL_VERSION 6
+#define PROTOCOL_VERSION 7
 
 #include <sys/param.h>
 #include <sys/time.h>
@@ -91,6 +91,35 @@ extern char   **environ;
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
+
+/* Default format templates. */
+#define DEFAULT_BUFFER_LIST_TEMPLATE				\
+	"#{line}: #{buffer_size} bytes: \"#{buffer_sample}\""
+#define DEFAULT_CLIENT_TEMPLATE					\
+	"#{client_tty}: #{session_name} "			\
+	"[#{client_width}x#{client_height} #{client_termname}]"	\
+	"#{?client_utf8, (utf8),} #{?client_readonly, (ro),}"
+#define DEFAULT_DISPLAY_MESSAGE_TEMPLATE			\
+	"[#{session_name}] #{window_index}:"			\
+	"#{window_name}, current pane #{pane_index} "		\
+	"- (%H:%M %d-%b-%y)"
+#define DEFAULT_FIND_WINDOW_TEMPLATE				\
+	"#{window_index}: #{window_name} "			\
+	"[#{window_width}x#{window_height}] "			\
+	"(#{window_panes} panes) #{window_find_matches}"
+#define DEFAULT_SESSION_TEMPLATE \
+	"#{session_name}: #{session_windows} windows "		\
+	"(created #{session_created_string}) "			\
+	"[#{session_width}x#{session_height}]"			\
+	"#{?session_grouped, (group ,}"				\
+	"#{session_group}#{?session_grouped,),}"		\
+	"#{?session_attached, (attached),}"
+#define DEFAULT_WINDOW_TEMPLATE					\
+	"#{window_index}: #{window_name}#{window_flags} "	\
+	"(#{window_panes} panes) "				\
+	"[#{window_width}x#{window_height}]"
+#define DEFAULT_PANE_INFO_TEMPLATE				\
+	"#{session_name}:#{window_index}.#{pane_index}"
 
 /* Bell option values. */
 #define BELL_NONE 0
@@ -316,7 +345,6 @@ enum tty_code_code {
 	TTYC_RI,	/* scroll_reverse, sr */
 	TTYC_RMACS,	/* exit_alt_charset_mode */
 	TTYC_RMCUP,	/* exit_ca_mode, te */
-	TTYC_RMIR,	/* exit_insert_mode, ei */
 	TTYC_RMKX,	/* keypad_local, ke */
 	TTYC_SETAB,	/* set_a_background, AB */
 	TTYC_SETAF,	/* set_a_foreground, AF */
@@ -324,7 +352,6 @@ enum tty_code_code {
 	TTYC_SITM,	/* enter_italics_mode, it */
 	TTYC_SMACS,	/* enter_alt_charset_mode, as */
 	TTYC_SMCUP,	/* enter_ca_mode, ti */
-	TTYC_SMIR,	/* enter_insert_mode, im */
 	TTYC_SMKX,	/* keypad_xmit, ks */
 	TTYC_SMSO,	/* enter_standout_mode, so */
 	TTYC_SMUL,	/* enter_underline_mode, us */
@@ -369,7 +396,7 @@ enum msgtype {
 	MSG_EXITED,
 	MSG_EXITING,
 	MSG_IDENTIFY,
-	MSG_PRINT,
+	MSG_STDIN,
 	MSG_READY,
 	MSG_RESIZE,
 	MSG_SHUTDOWN,
@@ -406,6 +433,8 @@ struct msg_identify_data {
 #define IDENTIFY_UTF8 0x1
 #define IDENTIFY_256COLOURS 0x2
 #define IDENTIFY_88COLOURS 0x4
+#define IDENTIFY_CONTROL 0x8
+#define IDENTIFY_TERMIOS 0x10
 	int		flags;
 };
 
@@ -423,6 +452,21 @@ struct msg_shell_data {
 
 struct msg_exit_data {
 	int		retcode;
+};
+
+struct msg_stdin_data {
+	ssize_t	size;
+	char	data[BUFSIZ];
+};
+
+struct msg_stdout_data {
+	ssize_t	size;
+	char	data[BUFSIZ];
+};
+
+struct msg_stderr_data {
+	ssize_t	size;
+	char	data[BUFSIZ];
 };
 
 /* Mode key commands. */
@@ -1004,6 +1048,29 @@ struct session {
 RB_HEAD(sessions, session);
 ARRAY_DECL(sessionslist, struct session *);
 
+/*
+ * Mouse input. xterm mouse mode is fairly silly. Buttons are in the bottom two
+ * bits: 0 = button 1; 1 = button 2; 2 = button 3; 3 = buttons released. Bits
+ * 3, 4 and 5 are for keys. Bit 6 is set for dragging and 7 for mouse buttons 4
+ * and 5.
+ */
+struct mouse_event {
+	u_int	b;
+#define MOUSE_1 0
+#define MOUSE_2 1
+#define MOUSE_3 2
+#define MOUSE_UP 3
+#define MOUSE_BUTTON 3
+#define MOUSE_SHIFT 4
+#define MOUSE_ESCAPE 8
+#define MOUSE_CTRL 16
+#define MOUSE_DRAG 32
+#define MOUSE_45 64
+#define MOUSE_RESIZE_PANE 128 /* marker for resizing */
+	u_int	x;
+	u_int	y;
+};
+
 /* TTY information. */
 struct tty_key {
 	char		 ch;
@@ -1033,6 +1100,8 @@ struct tty_term {
 LIST_HEAD(tty_terms, tty_term);
 
 struct tty {
+	struct client	*client;
+
 	char		*path;
 	u_int		 xterm_version;
 
@@ -1071,8 +1140,8 @@ struct tty {
 
 	int		 term_flags;
 
-	void		 (*key_callback)(int, struct mouse_event *, void *);
-	void		*key_data;
+	struct mouse_event mouse;
+
 	struct event	 key_timer;
 	struct tty_key	*key_tree;
 };
@@ -1107,29 +1176,6 @@ struct tty_ctx {
 	u_int		 last_width;
 };
 
-/*
- * Mouse input. xterm mouse mode is fairly silly. Buttons are in the bottom two
- * bits: 0 = button 1; 1 = button 2; 2 = button 3; 3 = buttons released. Bits
- * 3, 4 and 5 are for keys. Bit 6 is set for dragging and 7 for mouse buttons 4
- * and 5.
- */
-struct mouse_event {
-	u_int	b;
-#define MOUSE_1 0
-#define MOUSE_2 1
-#define MOUSE_3 2
-#define MOUSE_UP 3
-#define MOUSE_BUTTON 3
-#define MOUSE_SHIFT 4
-#define MOUSE_ESCAPE 8
-#define MOUSE_CTRL 16
-#define MOUSE_DRAG 32
-#define MOUSE_45 64
-#define MOUSE_RESIZE_PANE 128 /* marker for resizing */
-	u_int	x;
-	u_int	y;
-};
-
 /* Saved message entry. */
 struct message_entry {
 	char   *msg;
@@ -1161,16 +1207,12 @@ struct client {
 
 	struct tty	 tty;
 
-	int		 stdin_fd;
-	void		*stdin_data;
-	void		(*stdin_callback)(struct client *, void *);
-	struct bufferevent *stdin_event;
-
-	int		 stdout_fd;
-	struct bufferevent *stdout_event;
-
-	int		 stderr_fd;
-	struct bufferevent *stderr_event;
+	void		(*stdin_callback)(struct client *, int, void *);
+	void		*stdin_callback_data;
+	struct evbuffer	*stdin_data;
+	int              stdin_closed;
+	struct evbuffer	*stdout_data;
+	struct evbuffer	*stderr_data;
 
 	struct event	 repeat_timer;
 
@@ -1184,7 +1226,7 @@ struct client {
 #define CLIENT_EXIT 0x4
 #define CLIENT_REDRAW 0x8
 #define CLIENT_STATUS 0x10
-#define CLIENT_REPEAT 0x20	/* allow command to repeat within repeat time */
+#define CLIENT_REPEAT 0x20 /* allow command to repeat within repeat time */
 #define CLIENT_SUSPENDED 0x40
 #define CLIENT_BAD 0x80
 #define CLIENT_IDENTIFY 0x100
@@ -1192,6 +1234,7 @@ struct client {
 #define CLIENT_BORDERS 0x400
 #define CLIENT_READONLY 0x800
 #define CLIENT_REDRAWWINDOW 0x1000
+#define CLIENT_CONTROL 0x2000
 	int		 flags;
 
 	struct event	 identify_timer;
@@ -1397,6 +1440,7 @@ void		 format_client(struct format_tree *, struct client *);
 void		 format_winlink(
 		     struct format_tree *, struct session *, struct winlink *);
 void		 format_window_pane(struct format_tree *, struct window_pane *);
+void		 format_paste_buffer(struct format_tree *, struct paste_buffer *);
 
 /* mode-key.c */
 extern const struct mode_key_table mode_key_tables[];
@@ -1491,7 +1535,7 @@ void	tty_putcode_ptr2(struct tty *, enum tty_code_code, const void *, const void
 void	tty_puts(struct tty *, const char *);
 void	tty_putc(struct tty *, u_char);
 void	tty_pututf8(struct tty *, const struct grid_utf8 *);
-void	tty_init(struct tty *, int, char *);
+void	tty_init(struct tty *, struct client *, int, char *);
 int	tty_resize(struct tty *);
 int	tty_set_size(struct tty *, u_int, u_int);
 void	tty_start_tty(struct tty *);
@@ -1722,7 +1766,9 @@ void	 server_update_socket(void);
 void	 server_add_accept(int);
 
 /* server-client.c */
+void	 server_client_handle_key(struct client *, int);
 void	 server_client_create(int);
+int      server_client_open(struct client *, struct session *, char **);
 void	 server_client_lost(struct client *);
 void	 server_client_callback(int, short, void *);
 void	 server_client_status_timer(void);
@@ -1733,7 +1779,8 @@ void	 server_window_loop(void);
 
 /* server-fn.c */
 void	 server_fill_environ(struct session *, struct environ *);
-void	 server_write_client(
+void	 server_write_ready(struct client *);
+int	 server_write_client(
 	     struct client *, enum msgtype, const void *, size_t);
 void	 server_write_session(
 	     struct session *, enum msgtype, const void *, size_t);
@@ -1761,6 +1808,10 @@ void	 server_check_unattached (void);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
 void	 server_update_event(struct client *);
+void	 server_push_stdout(struct client *);
+void	 server_push_stderr(struct client *);
+int	 server_set_stdin_callback(struct client *, void (*)(struct client *,
+	     int, void *), void *, char **);
 
 /* status.c */
 int	 status_out_cmp(struct status_out *, struct status_out *);
@@ -1812,6 +1863,7 @@ int	 attributes_fromstring(const char *);
 
 /* grid.c */
 extern const struct grid_cell grid_default_cell;
+extern const struct grid_cell grid_marker_cell;
 struct grid *grid_create(u_int, u_int, u_int);
 void	 grid_destroy(struct grid *);
 int	 grid_compare(struct grid *, struct grid *);
@@ -2082,6 +2134,9 @@ char		*default_window_name(struct window *);
 void set_signals(void(*)(int, short, void *));
 void clear_signals(int);
 
+/* control.c */
+void control_callback(struct client *, int, void*);
+
 /* session.c */
 extern struct sessions sessions;
 extern struct sessions dead_sessions;
@@ -2130,8 +2185,7 @@ char   *get_proc_name(int, char *);
 char   *get_proc_cwd(pid_t);
 
 /* log.c */
-void		 log_open_tty(int);
-void		 log_open_file(int, const char *);
+void		 log_open(int, const char *);
 void		 log_close(void);
 void printflike1 log_warn(const char *, ...);
 void printflike1 log_warnx(const char *, ...);

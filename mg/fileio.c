@@ -1,4 +1,4 @@
-/*	$OpenBSD: fileio.c,v 1.87 2012/04/12 04:47:59 lum Exp $	*/
+/*	$OpenBSD: fileio.c,v 1.93 2012/06/18 07:14:55 jasper Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -21,16 +21,22 @@
 #include <unistd.h>
 
 #include "kbd.h"
+#include "pathnames.h"
 
-static FILE	*ffp;
+static char *bkuplocation(const char *);
+static int   bkupleavetmp(const char *);
+char	    *expandtilde(const char *);
+
+static char *bkupdir;
+static int   leavetmp = 0;	/* 1 = leave any '~' files in tmp dir */
 
 /*
  * Open a file for reading.
  */
 int
-ffropen(const char *fn, struct buffer *bp)
+ffropen(FILE ** ffp, const char *fn, struct buffer *bp)
 {
-	if ((ffp = fopen(fn, "r")) == NULL) {
+	if ((*ffp = fopen(fn, "r")) == NULL) {
 		if (errno == ENOENT)
 			return (FIOFNF);
 		return (FIOERR);
@@ -40,8 +46,8 @@ ffropen(const char *fn, struct buffer *bp)
 	if (fisdir(fn) == TRUE)
 		return (FIODIR);
 
-	ffstat(bp);
-	
+	ffstat(*ffp, bp);
+
 	return (FIOSUC);
 }
 
@@ -49,7 +55,7 @@ ffropen(const char *fn, struct buffer *bp)
  * Update stat/dirty info
  */
 void
-ffstat(struct buffer *bp)
+ffstat(FILE *ffp, struct buffer *bp)
 {
 	struct stat	sb;
 
@@ -71,13 +77,15 @@ ffstat(struct buffer *bp)
 int
 fupdstat(struct buffer *bp)
 {
+	FILE *ffp;
+
 	if ((ffp = fopen(bp->b_fname, "r")) == NULL) {
 		if (errno == ENOENT)
 			return (FIOFNF);
 		return (FIOERR);
 	}
-	ffstat(bp);
-	(void)ffclose(bp);
+	ffstat(ffp, bp);
+	(void)ffclose(ffp, bp);
 	return (FIOSUC);
 }
 
@@ -85,7 +93,7 @@ fupdstat(struct buffer *bp)
  * Open a file for writing.
  */
 int
-ffwopen(const char *fn, struct buffer *bp)
+ffwopen(FILE ** ffp, const char *fn, struct buffer *bp)
 {
 	int	fd;
 	mode_t	fmode = DEFFILEMODE;
@@ -100,7 +108,7 @@ ffwopen(const char *fn, struct buffer *bp)
 		return (FIOERR);
 	}
 
-	if ((ffp = fdopen(fd, "w")) == NULL) {
+	if ((*ffp = fdopen(fd, "w")) == NULL) {
 		ewprintf("Cannot open file for writing : %s", strerror(errno));
 		close(fd);
 		return (FIOERR);
@@ -125,11 +133,11 @@ ffwopen(const char *fn, struct buffer *bp)
  */
 /* ARGSUSED */
 int
-ffclose(struct buffer *bp)
+ffclose(FILE *ffp, struct buffer *bp)
 {
 	if (fclose(ffp) == 0)
 		return (FIOSUC);
-	return (FIOERR);	
+	return (FIOERR);
 }
 
 /*
@@ -137,7 +145,7 @@ ffclose(struct buffer *bp)
  * buffer. Return the status.
  */
 int
-ffputbuf(struct buffer *bp)
+ffputbuf(FILE *ffp, struct buffer *bp)
 {
 	struct line   *lp, *lpend;
 
@@ -170,7 +178,7 @@ ffputbuf(struct buffer *bp)
  * If the line length exceeds nbuf, FIOLONG is returned.
  */
 int
-ffgetline(char *buf, int nbuf, int *nbytes)
+ffgetline(FILE *ffp, char *buf, int nbuf, int *nbytes)
 {
 	int	c, i;
 
@@ -203,23 +211,28 @@ fbackupfile(const char *fn)
 	int		 from, to, serrno;
 	ssize_t		 nread;
 	char		 buf[BUFSIZ];
-	char		*nname, *tname;
+	char		*nname, *tname, *bkpth;
 
 	if (stat(fn, &sb) == -1) {
 		ewprintf("Can't stat %s : %s", fn, strerror(errno));
 		return (FALSE);
 	}
 
-	if (asprintf(&nname, "%s~", fn) == -1) {
-		ewprintf("Can't allocate temp file name : %s", strerror(errno));
+	if ((bkpth = bkuplocation(fn)) == NULL)
+		return (FALSE);
+
+	if (asprintf(&nname, "%s~", bkpth) == -1) {
+		ewprintf("Can't allocate backup file name : %s", strerror(errno));
+		free(bkpth);
 		return (ABORT);
 	}
-
-	if (asprintf(&tname, "%s.XXXXXXXXXX", fn) == -1) {
+	if (asprintf(&tname, "%s.XXXXXXXXXX", bkpth) == -1) {
 		ewprintf("Can't allocate temp file name : %s", strerror(errno));
+		free(bkpth);
 		free(nname);
 		return (ABORT);
 	}
+	free(bkpth);
 
 	if ((from = open(fn, O_RDONLY)) == -1) {
 		free(nname);
@@ -272,10 +285,7 @@ adjustname(const char *fn, int slashslash)
 {
 	static char	 fnb[MAXPATHLEN];
 	const char	*cp, *ep = NULL;
-	char		 user[LOGIN_NAME_MAX], path[MAXPATHLEN];
-	size_t		 ulen, plen;
-
-	path[0] = '\0';
+	char		*path;
 
 	if (slashslash == TRUE) {
 		cp = fn + strlen(fn) - 1;
@@ -290,49 +300,13 @@ adjustname(const char *fn, int slashslash)
 				ep = NULL;
 		}
 	}
-
-	/* first handle tilde expansion */
-	if (fn[0] == '~') {
-		struct passwd *pw;
-
-		cp = strchr(fn, '/');
-		if (cp == NULL)
-			cp = fn + strlen(fn); /* point to the NUL byte */
-		ulen = cp - &fn[1];
-		if (ulen >= sizeof(user)) {
-			ewprintf("Login name too long");
-			return (NULL);
-		}
-		if (ulen == 0) /* ~/ or ~ */
-			(void)strlcpy(user, getlogin(), sizeof(user));
-		else { /* ~user/ or ~user */
-			memcpy(user, &fn[1], ulen);
-			user[ulen] = '\0';
-		}
-		pw = getpwnam(user);
-		if (pw == NULL) {
-			ewprintf("Unknown user %s", user);
-			return (NULL);
-		}
-		plen = strlcpy(path, pw->pw_dir, sizeof(path));
-		if (plen == 0 || path[plen - 1] != '/') {
-			if (strlcat(path, "/", sizeof(path)) >= sizeof(path)) {
-				ewprintf("Path too long");
-				return (NULL);
-			}
-		}
-		fn = cp;
-		if (*fn == '/')
-			fn++;
-	}
-	if (strlcat(path, fn, sizeof(path)) >= sizeof(path)) {
-		ewprintf("Path too long");
+	if ((path = expandtilde(fn)) == NULL)
 		return (NULL);
-	}
 
 	if (realpath(path, fnb) == NULL)
 		(void)strlcpy(fnb, path, sizeof(fnb));
 
+	free(path);
 	return (fnb);
 }
 
@@ -353,11 +327,11 @@ startupfile(char *suffix)
 		goto nohome;
 
 	if (suffix == NULL) {
-		ret = snprintf(file, sizeof(file), "%s/.mg", home);
+		ret = snprintf(file, sizeof(file), _PATH_MG_STARTUP, home);
 		if (ret < 0 || ret >= sizeof(file))
 			return (NULL);
 	} else {
-		ret = snprintf(file, sizeof(file), "%s/.mg-%s", home, suffix);
+		ret = snprintf(file, sizeof(file), _PATH_MG_TERM, home, suffix);
 		if (ret < 0 || ret >= sizeof(file))
 			return (NULL);
 	}
@@ -603,5 +577,174 @@ fchecktime(struct buffer *bp)
 		return (FALSE);
 
 	return (TRUE);
-	
+
+}
+
+/*
+ * Location of backup file. This function creates the correct path.
+ */
+static char *
+bkuplocation(const char *fn)
+{
+	struct stat sb;
+	char *ret;
+
+	if (bkupdir != NULL && (stat(bkupdir, &sb) == 0) &&
+	    S_ISDIR(sb.st_mode) && !bkupleavetmp(fn)) {
+		char fname[NFILEN];
+		const char *c;
+		int i = 0, len;
+
+		c = fn;
+		len = strlen(bkupdir);
+
+		while (*c != '\0') {
+			/* Make sure we don't go over combined:
+		 	* strlen(bkupdir + '/' + fname + '\0')
+		 	*/
+			if (i >= NFILEN - len - 1)
+				return (NULL);
+			if (*c == '/') {
+				fname[i] = '!';
+			} else if (*c == '!') {
+				if (i >= NFILEN - len - 2)
+					return (NULL);
+				fname[i++] = '!';
+				fname[i] = '!';
+			} else
+				fname[i] = *c;
+			i++;
+			c++;
+		}
+		fname[i] = '\0';
+		if (asprintf(&ret, "%s/%s", bkupdir, fname) == -1)
+			return (NULL);
+
+	} else if ((ret = strndup(fn, NFILEN)) == NULL)
+		return (NULL);
+
+	return (ret);
+}
+
+int
+backuptohomedir(int f, int n)
+{
+	const char	*c = _PATH_MG_DIR;
+	char		*p;
+
+	if (bkupdir == NULL) {
+		p = adjustname(c, TRUE);
+		bkupdir = strndup(p, NFILEN);
+		if (bkupdir == NULL)
+			return(FALSE);
+
+		if (mkdir(bkupdir, 0700) == -1 && errno != EEXIST) {
+			free(bkupdir);
+			bkupdir = NULL;
+		}
+	} else {
+		free(bkupdir);
+		bkupdir = NULL;
+	}
+
+	return (TRUE);
+}
+
+/*
+ * For applications that use mg as the editor and have a desire to keep
+ * '~' files in the TMPDIR, toggle the location: /tmp | ~/.mg.d
+ */
+int
+toggleleavetmp(int f, int n)
+{
+	leavetmp = !leavetmp;
+
+	return (TRUE);
+}
+
+/*
+ * Returns TRUE if fn is located in the temp directory and we want to save
+ * those backups there.
+ */
+int
+bkupleavetmp(const char *fn)
+{
+	char	*tmpdir, *tmp = NULL;
+
+	if (!leavetmp)
+		return(FALSE);
+
+	if((tmpdir = getenv("TMPDIR")) != NULL && *tmpdir != '\0') {
+		tmp = strstr(fn, tmpdir);
+		if (tmp == fn)
+			return (TRUE);
+
+		return (FALSE);
+	}
+
+	tmp = strstr(fn, "/tmp");
+	if (tmp == fn)
+		return (TRUE);
+
+	return (FALSE);
+}
+
+/*
+ * Expand file names beginning with '~' if appropriate:
+ *   1, if ./~fn exists, continue without expanding tilde.
+ *   2, else, if username 'fn' exists, expand tilde with home directory path.
+ *   3, otherwise, continue and create new buffer called ~fn.
+ */
+char *
+expandtilde(const char *fn)
+{
+	struct passwd	*pw;
+	struct stat	 statbuf;
+	const char	*cp;
+	char		 user[LOGIN_NAME_MAX], path[NFILEN], *ret;
+	size_t		 ulen, plen;
+
+	path[0] = '\0';
+
+	if (fn[0] != '~' || stat(fn, &statbuf) == 0) {
+		if ((ret = strndup(fn, NFILEN)) == NULL)
+			return (NULL);
+		return(ret);
+	}
+	cp = strchr(fn, '/');
+	if (cp == NULL)
+		cp = fn + strlen(fn); /* point to the NUL byte */
+	ulen = cp - &fn[1];
+	if (ulen >= sizeof(user)) {
+		if ((ret = strndup(fn, NFILEN)) == NULL)
+			return (NULL);
+		return(ret);
+	}
+	if (ulen == 0) /* ~/ or ~ */
+		(void)strlcpy(user, getlogin(), sizeof(user));
+	else { /* ~user/ or ~user */
+		memcpy(user, &fn[1], ulen);
+		user[ulen] = '\0';
+	}
+	pw = getpwnam(user);
+	if (pw != NULL) {
+		plen = strlcpy(path, pw->pw_dir, sizeof(path));
+		if (plen == 0 || path[plen - 1] != '/') {
+			if (strlcat(path, "/", sizeof(path)) >= sizeof(path)) {
+				ewprintf("Path too long");
+				return (NULL);
+			}
+		}
+		fn = cp;
+		if (*fn == '/')
+			fn++;
+	}
+	if (strlcat(path, fn, sizeof(path)) >= sizeof(path)) {
+		ewprintf("Path too long");
+		return (NULL);
+	}
+	if ((ret = strndup(path, NFILEN)) == NULL)
+		return (NULL);
+
+	return (ret);
 }

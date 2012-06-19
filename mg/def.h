@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.120 2012/04/12 04:47:59 lum Exp $	*/
+/*	$OpenBSD: def.h,v 1.124 2012/06/14 17:21:22 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -103,6 +103,8 @@ typedef int	(*PF)(int, int);	/* generally useful type */
 #define KBACK	0x02		/* Backwards insert into kill ring */
 #define KREG	0x04		/* This is a region-based kill */
 
+#define MAX_TOKEN 64
+
 /*
  * This structure holds the starting position
  * (as a line/offset pair) and the number of characters in a
@@ -194,9 +196,9 @@ struct mgwin {
 	struct line	*w_markp;	/* Line containing "mark"	*/
 	int		 w_doto;	/* Byte offset for "."		*/
 	int		 w_marko;	/* Byte offset for "mark"	*/
-	char		 w_toprow;	/* Origin 0 top row of window	*/
-	char		 w_ntrows;	/* # of rows of text in window	*/
-	char		 w_frame;	/* #lines to reframe by.	*/
+	int		 w_toprow;	/* Origin 0 top row of window	*/
+	int		 w_ntrows;	/* # of rows of text in window	*/
+	int		 w_frame;	/* #lines to reframe by.	*/
 	char		 w_rflag;	/* Redisplay Flags.		*/
 	char		 w_flag;	/* Flags.			*/
 	struct line	*w_wrapline;
@@ -349,7 +351,7 @@ int		 filewrite(int, int);
 int		 filesave(int, int);
 int		 buffsave(struct buffer *);
 int		 makebkfile(int, int);
-int		 writeout(struct buffer *, char *);
+int		 writeout(FILE **, struct buffer *, char *);
 void		 upmodes(struct buffer *);
 size_t		 xbasename(char *, const char *, size_t);
 
@@ -430,12 +432,12 @@ int		 getxtra(struct list *, struct list *, int, int);
 void		 free_file_list(struct list *);
 
 /* fileio.c */
-int		 ffropen(const char *, struct buffer *);
-void		 ffstat(struct buffer *);
-int		 ffwopen(const char *, struct buffer *);
-int		 ffclose(struct buffer *);
-int		 ffputbuf(struct buffer *);
-int		 ffgetline(char *, int, int *);
+int		 ffropen(FILE **, const char *, struct buffer *);
+void		 ffstat(FILE *, struct buffer *);
+int		 ffwopen(FILE **, const char *, struct buffer *);
+int		 ffclose(FILE *, struct buffer *);
+int		 ffputbuf(FILE *, struct buffer *);
+int		 ffgetline(FILE *, char *, int, int *);
 int		 fbackupfile(const char *);
 char		*adjustname(const char *, int);
 char		*startupfile(char *);
@@ -444,6 +446,8 @@ struct list	*make_file_list(char *);
 int		 fisdir(const char *);
 int		 fchecktime(struct buffer *);
 int		 fupdstat(struct buffer *);
+int		 backuptohomedir(int, int);
+int		 toggleleavetmp(int, int);
 
 /* kbd.c X */
 int		 do_meta(int, int);
@@ -513,6 +517,22 @@ int		 joinline(int, int);
 int		 findtag(int, int);
 int 		 poptag(int, int);
 int		 tagsvisit(int, int);
+int		 curtoken(int, int, char *);
+
+/* cscope.c */
+int		cssymbol(int, int);
+int		csdefinition(int, int);
+int		csfuncalled(int, int);
+int		cscallerfuncs(int, int);
+int		csfindtext(int, int);
+int		csegrep(int, int);
+int		csfindfile(int, int);
+int		csfindinc(int, int);
+int		csnextfile(int, int);
+int		csnextmatch(int, int);
+int		csprevfile(int, int);
+int		csprevmatch(int, int);
+int		cscreatelist(int, int);
 
 /* extend.c X */
 int		 insert(int, int);

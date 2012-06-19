@@ -40,8 +40,16 @@ People who have worked on previous versions of Mg:
 
 	rtech!daveb@sun.com		Dave Brower
 
-Currently maintained in the OpenBSD src tree, with contributions from
-many others.
+Early release history:
+
+* Nov 16, 1986: First release to mod.sources
+* Mar 3, 1987: First Release (mg1a) via comp.sources.unix
+* May 26, 1988: Second release: (mg2a) via comp.sources.misc
+* Jan 26, 1992: Linux port released by Charles Hedrick. This version
+  later makes its way onto tsx-11, Infomagic, and various other Linux
+  repositories.
+* Feb 25, 2000: First import into the OpenBSD tree, where it is
+  currently maintained with contributions from many others.
 
 ----------------------------------------------------------------------
 
@@ -65,6 +73,12 @@ Unlike GNU Emacs, Mg's minibuffer isn't multi-line aware and hence
 some commands like "shell-command-on-region" always pop up a buffer to
 display output irrespective of output's size.
 
+While navigating source code using Mg's cscope commands, the cursor
+is always at the match location rather than in *cscope* buffer. Mg uses
+the same keybindings of GNU Emacs's xcscope package for it's cscope commands.
+As Mg's keybindings are case-insensitive some of the commands don't have a
+default keybinding.
+
 New implementation oddities:
 
 insert and define-key are new commands corresponding to the mocklisp
@@ -73,4 +87,9 @@ functions in GNU Emacs.	 (Mg does not have non-command functions.)
 
 The display wrap code does not work at all like that of GNU emacs.
 
-
+Some commands that do not mimic emacs exactly don't have a "standard"
+emacs name. For example 'backup-to-home-directory' is only a partial
+implementation of emacs' range of commands that allow a user to
+customise the backup file location. If a more complete implementation
+were coded of these commands the non standard commands would probably
+be removed. 

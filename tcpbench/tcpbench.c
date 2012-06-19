@@ -568,7 +568,7 @@ tcp_process_slice(int fd, short event, void *bula)
 		mainstats.peak_mbps = slice_mbps;
 	printf("Conn: %3d Mbps: %12.3Lf Peak Mbps: %12.3Lf Avg Mbps: %12.3Lf\n",
 	    mainstats.nconns, slice_mbps, mainstats.peak_mbps,
-	    slice_mbps / mainstats.nconns); 
+	    mainstats.nconns ? slice_mbps / mainstats.nconns : 0); 
 	mainstats.slice_bytes = 0;
 
 	set_slice_timer(mainstats.nconns > 0);
@@ -657,7 +657,6 @@ tcp_server_handle_sc(int fd, short event, void *v_sc)
 
 		free(sc);
 		mainstats.nconns--;
-		set_slice_timer(mainstats.nconns > 0);
 		return;
 	}
 	if (ptb->vflag >= 3)
@@ -723,7 +722,8 @@ tcp_server_accept(int fd, short event, void *arg)
 	event_add(&sc->ev, NULL);
 	TAILQ_INSERT_TAIL(&sc_queue, sc, entry);
 	mainstats.nconns++;
-	set_slice_timer(mainstats.nconns > 0);
+	if (mainstats.nconns == 1)
+		set_slice_timer(1);
 	if (ptb->vflag)
 		fprintf(stderr, "Accepted connection from %s, fd = %d\n",
 		    tmp, sc->fd);
@@ -879,7 +879,6 @@ client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc,
 				if (bind(sock, (struct sockaddr *)aib->ai_addr,
 				    aib->ai_addrlen) == -1)
 					err(1, "bind");
-				freeaddrinfo(aib);
 			}
 			if (ptb->Tflag != -1 && ai->ai_family == AF_INET) {
 				if (setsockopt(sock, IPPROTO_IP, IP_TOS,
@@ -935,9 +934,12 @@ client_init(struct addrinfo *aitop, int nconn, struct statctx *udp_sc,
 		event_add(&sc->ev, NULL);
 		TAILQ_INSERT_TAIL(&sc_queue, sc, entry);
 		mainstats.nconns++;
-		set_slice_timer(mainstats.nconns > 0);
+		if (mainstats.nconns == 1)
+			set_slice_timer(1);
 	}
 	freeaddrinfo(aitop);
+	if (aib != NULL)
+		freeaddrinfo(aib);
 
 	if (ptb->vflag && nconn > 1)
 		fprintf(stderr, "%d connections established\n",

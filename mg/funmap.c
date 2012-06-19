@@ -1,4 +1,4 @@
-/*	$OpenBSD: funmap.c,v 1.38 2012/04/12 04:47:59 lum Exp $	*/
+/*	$OpenBSD: funmap.c,v 1.40 2012/06/14 17:21:22 lum Exp $	*/
 
 /* This file is in the public domain */
 
@@ -25,6 +25,7 @@ static struct funmap functnames[] = {
 	{fillmode, "auto-fill-mode",},
 	{indentmode, "auto-indent-mode",},
 	{backtoindent, "back-to-indentation",},
+	{backuptohomedir, "backup-to-home-directory",},
 	{backchar, "backward-char",},
 	{delbword, "backward-kill-word",},
 	{gotobop, "backward-paragraph",},
@@ -99,6 +100,7 @@ static struct funmap functnames[] = {
 	{killpara, "kill-paragraph",},
 	{killregion, "kill-region",},
 	{delfword, "kill-word",},
+	{toggleleavetmp, "leave-tmpdir-backups",},
 	{linenotoggle, "line-number-mode",},
 	{listbuffers, "list-buffers",},
 	{evalfile, "load",},
@@ -182,6 +184,19 @@ static struct funmap functnames[] = {
 	{showcpos, "what-cursor-position",},
 	{filewrite, "write-file",},
 	{yank, "yank",},
+	{cssymbol, "cscope-find-this-symbol",},
+	{csdefinition, "cscope-find-global-definition",},
+	{csfuncalled, "cscope-find-called-functions",},
+	{cscallerfuncs, "cscope-find-functions-calling-this-function",},
+	{csfindtext, "cscope-find-this-text-string",},
+	{csegrep, "cscope-find-egrep-pattern",},
+	{csfindfile, "cscope-find-this-file",},
+	{csfindinc, "cscope-find-files-including-file",},
+	{csnextmatch, "cscope-next-symbol",},
+	{csprevmatch, "cscope-prev-symbol",},
+	{csnextfile, "cscope-next-file",},
+	{csprevfile, "cscope-prev-file",},
+	{cscreatelist, "cscope-create-list-of-files-to-index"},
 	{NULL, NULL,}
 };
 
