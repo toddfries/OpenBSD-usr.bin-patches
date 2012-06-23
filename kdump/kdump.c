@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.70 2012/04/12 12:33:04 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.72 2012/06/21 06:55:58 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -135,6 +135,7 @@ static char *ptrace_ops[] = {
 	"PT_WRITE_I",	"PT_WRITE_D",	"PT_WRITE_U",	"PT_CONTINUE",
 	"PT_KILL",	"PT_ATTACH",	"PT_DETACH",	"PT_IO",
 	"PT_SET_EVENT_MASK", "PT_GET_EVENT_MASK", "PT_GET_PROCESS_STATE",
+	"PT_GET_THREAD_FIRST", "PT_GET_THREAD_NEXT",
 };
 
 static int narg;
@@ -1433,6 +1434,13 @@ ktrrlimit(const struct rlimit *limp)
 }
 
 static void
+ktrtfork(const struct __tfork *tf)
+{
+	printf("struct __tfork { tcb=%p, tid=%p, stack=%p }\n",
+	    tf->tf_tcb, (void *)tf->tf_tid, tf->tf_stack);
+}
+
+static void
 ktrstruct(char *buf, size_t buflen)
 {
 	char *name, *data;
@@ -1501,6 +1509,13 @@ ktrstruct(char *buf, size_t buflen)
 			goto invalid;
 		memcpy(&lim, data, datalen);
 		ktrrlimit(&lim);
+	} else if (strcmp(name, "tfork") == 0) {
+		struct __tfork tf;
+
+		if (datalen != sizeof(tf))
+			goto invalid;
+		memcpy(&tf, data, datalen);
+		ktrtfork(&tf);
 	} else {
 		printf("unknown structure %s\n", name);
 	}
