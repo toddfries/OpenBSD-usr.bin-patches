@@ -1,6 +1,7 @@
-# $OpenBSD: Program.pm,v 1.2 2012/06/28 18:24:42 espie Exp $
+# $OpenBSD: Program.pm,v 1.6 2012/07/08 10:42:25 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
+# Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -22,6 +23,7 @@ package LT::Program;
 use File::Basename;
 use LT::Archive;
 use LT::Util;
+use LT::Trace;
 
 sub new
 {
@@ -36,7 +38,7 @@ sub write_wrapper
 	my $self = shift;
 
 	my $program = $self->{outfilepath};
-	my $pfile = basename $program;
+	my $pfile = basename($program);
 	my $realprogram = $ltdir . '/' . $pfile;
 	open(my $pw, '>', $program) or die "Cannot write $program: $!\n";
 	print $pw <<EOF
@@ -66,38 +68,61 @@ EOF
 	chmod 0755, $program;
 }
 
+sub install
+{
+	my ($class, $src, $dst, $instprog, $instopts) = @_;
+
+	my $srcdir = dirname $src;
+	my $srcfile = basename $src;
+	my $realpath = "$srcdir/$ltdir/$srcfile";
+	LT::Exec->install(@$instprog, @$instopts, $realpath, $dst);
+}
+
 sub link
 {
-	my ($self, $ltprog, $dirs, $libs, $deplibs, $libdirs, $parser,
+	require LT::Linker;
+	return LT::Linker::Program->link(@_);
+}
+
+package LT::Linker::Program;
+our @ISA = qw(LT::Linker);
+
+use LT::Trace;
+use LT::Util;
+use File::Basename;
+
+sub link
+{
+	my ($class, $self, $ltprog, $dirs, $libs, $deplibs, $libdirs, $parser,
 	    $opts) = @_;
 
-	LT::Trace::debug {"linking program (", ($opts->{'static'}) ? "not " : "",
-	      	"dynamically linking not-installed libtool libraries)\n"};
+	tsay {"linking program (", ($opts->{'static'}) ? "not " : "",
+	      	"dynamically linking not-installed libtool libraries)"};
 
 	my $what = ref($self);
 	my $fpath  = $self->{outfilepath};
 	my $RPdirs = $self->{RPdirs};
 
-	my $odir  = dirname  $fpath;
-	my $fname = basename $fpath;
+	my $odir  = dirname($fpath);
+	my $fname = basename($fpath);
 
 	my @libflags;
 	my @cmd;
 	my $dst;
 
-	LT::Trace::debug {"argvstring (pre resolve_la): @{$parser->{args}}\n"};
+	tsay {"argvstring (pre resolve_la): @{$parser->{args}}"};
 	my $args = $parser->resolve_la($deplibs, $libdirs);
-	LT::Trace::debug {"argvstring (post resolve_la): @{$parser->{args}}\n"};
+	tsay {"argvstring (post resolve_la): @{$parser->{args}}"};
 	my $orderedlibs = [];
 	my $staticlibs = [];
 	$parser->{args} = $args;
 	$parser->{seen_la_shared} = 0;
 	$args = $parser->parse_linkargs2(\@main::Rresolved,
 		\@main::libsearchdirs, $orderedlibs, $staticlibs, $dirs, $libs);
-	LT::Trace::debug {"staticlibs = \n", join("\n", @$staticlibs), "\n"};
-	LT::Trace::debug {"orderedlibs = @$orderedlibs\n"};
+	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
+	tsay {"orderedlibs = @$orderedlibs"};
 	my $finalorderedlibs = reverse_zap_duplicates_ref($orderedlibs);
-	LT::Trace::debug {"final orderedlibs = @$finalorderedlibs\n"};
+	tsay {"final orderedlibs = @$finalorderedlibs"};
 
 	my $symlinkdir = $ltdir;
 	if ($odir ne '.') {
@@ -130,11 +155,11 @@ sub link
 	$RPdirs = reverse_zap_duplicates_ref($RPdirs);
 	map { $_ = "-Wl,-rpath,$_" } @$RPdirs;
 	foreach my $k (keys %$libs) {
-		LT::Trace::debug {"key = $k - "};
+		tprint {"key = $k - "};
 		my $r = ref($libs->{$k});
-		LT::Trace::debug {"ref = $r\n"};
+		tsay {"ref = $r"};
 		if (!defined $libs->{$k}) {
-			LT::Trace::debug {"creating library object for $k\n"};
+			tsay {"creating library object for $k"};
 			require LT::Library;
 			$libs->{$k} = LT::Library->new($k);
 		}
@@ -143,21 +168,21 @@ sub link
 	}
 
 	my @libobjects = values %$libs;
-	LT::Trace::debug {"libs:\n", join("\n", (keys %$libs)), "\n"};
-	LT::Trace::debug {"libfiles:\n", join("\n", map { $_->{fullpath} } @libobjects), "\n"};
+	tsay {"libs:\n", join("\n", keys %$libs)};
+	tsay {"libfiles:\n", join("\n", map { $_->{fullpath} } @libobjects)};
 
-	main::create_symlinks($symlinkdir, $libs);
+	$class->create_symlinks($symlinkdir, $libs);
 	foreach my $k (@$finalorderedlibs) {
 		my $a = $libs->{$k}->{fullpath} || die "Link error: $k not found in \$libs\n";
 		if ($a =~ m/\.a$/) {
 			# don't make a -lfoo out of a static library
 			push @libflags, $a;
 		} else {
-			my $lib = basename $a;
+			my $lib = basename($a);
 			if ($lib =~ m/^lib(.*)\.so(\.\d+){2}/) {
 				$lib = $1;
 			} else {
-				say "warning: cannot derive -l flag from library filename, assuming hash key";
+				say "warning: cannot derive -l flag from library filename $a, assuming hash key $k";
 				$lib = $k;
 			}
 			push @libflags, "-l$lib";
@@ -174,15 +199,4 @@ sub link
 	push @cmd, "-Wl,-retain-symbols-file,$symbolsfile" if ($symbolsfile);
 	LT::Exec->link(@cmd);
 }
-
-sub install
-{
-	my ($class, $src, $dst, $instprog, $instopts) = @_;
-
-	my $srcdir = dirname $src;
-	my $srcfile = basename $src;
-	my $realpath = "$srcdir/$ltdir/$srcfile";
-	LT::Exec->install(@$instprog, @$instopts, $realpath, $dst);
-}
-
 1;

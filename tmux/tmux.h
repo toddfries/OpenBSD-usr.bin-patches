@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.344 2012/06/25 14:27:25 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.346 2012/07/08 16:04:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1664,6 +1664,7 @@ extern const struct cmd_entry cmd_capture_pane_entry;
 extern const struct cmd_entry cmd_choose_buffer_entry;
 extern const struct cmd_entry cmd_choose_client_entry;
 extern const struct cmd_entry cmd_choose_session_entry;
+extern const struct cmd_entry cmd_choose_tree_entry;
 extern const struct cmd_entry cmd_choose_window_entry;
 extern const struct cmd_entry cmd_clear_history_entry;
 extern const struct cmd_entry cmd_clock_mode_entry;
@@ -2076,6 +2077,7 @@ struct window_pane *window_pane_find_down(struct window_pane *);
 struct window_pane *window_pane_find_left(struct window_pane *);
 struct window_pane *window_pane_find_right(struct window_pane *);
 void		 window_set_name(struct window *, const char *);
+void		 winlink_clear_flags(struct winlink *);
 
 /* layout.c */
 u_int		 layout_count_cells(struct layout_cell *);

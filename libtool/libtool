@@ -1,7 +1,8 @@
 #!/usr/bin/perl
-# $OpenBSD: libtool,v 1.7 2012/06/28 18:24:42 espie Exp $
+# $OpenBSD: libtool,v 1.32 2012/07/09 21:52:03 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
+# Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -18,18 +19,15 @@
 use strict;
 use warnings;
 use feature qw(say switch state);
-use Cwd qw(getcwd abs_path);
-use File::Basename;
+use Cwd qw(getcwd);
 use File::Glob ':glob';
 use File::Path;
-use Getopt::Long;
 
 use LT::Trace;
 use LT::Exec;
 use LT::Util;
+use LT::Getopt;
 
-
-package main;
 $SIG{__DIE__} = sub {
 	require Carp;
 
@@ -39,31 +37,259 @@ $SIG{__DIE__} = sub {
 	die &Carp::longmess;
 };
 
-
-use subs qw(
-	create_symlinks
-	guess_implicit_mode
-	help
-	notyet
-	);
-
-
+package LT::OSConfig;
 
 use Config;
-my @no_shared_archs = qw(m88k vax);
-my $machine_arch = $Config{'ARCH'};
-(my $gnu_arch = $machine_arch) =~ s/amd64/x86_64/;
-my @valid_modes = qw(clean compile execute finish install link uninstall);
+use LT::Util;
+
+sub new
+{
+    my $class = shift;
+    # XXX: incomplete
+    my $self = {
+	machine_arch => $Config{ARCH},
+	ltdir => $ltdir,
+	version => $version,
+	pic_flags => join(' ', @picflags),
+    };
+    ($self->{gnu_arch} = $self->{machine_arch}) =~ s/amd64/x86_64/;
+
+    if (grep { $_ eq $self->{machine_arch} } qw(m88k vax)) {
+	$self->{noshared} = 1;
+    } else {
+	$self->{noshared} = 0;
+    }
+
+    bless $self, $class;
+}
+
+sub dump
+{
+	my $self = shift;
+	while (my ($key, $value) = each(%$self)) {
+		print "$key = $value\n";
+	}
+}
+
+package LT::Mode;
+use LT::Util;
+
+sub new
+{
+	my ($class, $origin) = @_;
+	bless {origin => $origin }, $class;
+}
+
+sub load_subclass
+{
+	my ($self, $class) = @_;
+	local $SIG{__DIE__} = 'DEFAULT';
+	eval "require $class;";
+	if ($@) {
+		unless ($@ =~ m/^Can't locate .* in \@INC/) {
+			say STDERR $@;
+			exit 1;
+		}
+	}
+}
+
+my $mode_maker = { compile => 'LT::Mode::Compile', 
+	clean => 'LT::Mode::Clean',
+	execute => 'LT::Mode::Execute',
+	finish => 'LT::Mode::Finish',
+	install => 'LT::Mode::Install',
+	link => 'LT::Mode::Link',
+	uninstall => 'LT::Mode::Uninstall' };
+
+sub factory
+{
+	my ($class, $mode, $origin) = @_;
+	my $s = $mode_maker->{$mode};
+	if ($s) {
+		$class->load_subclass($s);
+		return $s->new($origin);
+	} else {
+		shortdie "Mode=$mode not implemented yet.\n";
+	}
+}
+
+sub help
+{
+}
+
+sub help_all
+{
+	my $class = shift;
+	for my $s (sort values %$mode_maker) {
+		$class->load_subclass($s);
+		$s->help;
+	}
+}
+
+package LT::Mode::Empty;
+our @ISA = qw(LT::Mode);
+sub run
+{
+	exit 0;
+}
+
+package LT::Mode::Clean;
+our @ISA = qw(LT::Mode::Empty);
+sub help
+{
+	print <<"EOH";
+
+Usage: $0 --mode=clean RM [RM-Option]... FILE...
+has not been implemented.
+It should remove files from the build directory.
+EOH
+}
+
+package LT::Mode::Execute;
+our @ISA = qw(LT::Mode);
+sub run
+{
+	my ($class, $ltprog, $gp, $noshared) = @_;
+	# XXX check whether this is right
+	LT::Exec->silent_run;
+	LT::Exec->execute(@$ltprog, @main::ARGV);
+}
+
+sub help
+{
+	print <<"EOH";
+
+Usage: $0 --mode=execute COMMAND  [ARGS...]
+Run a program after setting correct library path.
+EOH
+}
+
+
+package LT::Mode::Finish;
+our @ISA = qw(LT::Mode::Empty);
+sub help
+{
+	print <<"EOH";
+
+Usage: $0 --mode=finish [LIBDIR}...
+Complete the installation of libtool libraries.
+Not needed for our usage.
+EOH
+}
+
+package LT::Mode::Uninstall;
+our @ISA = qw(LT::Mode::Empty);
+sub help
+{
+	print <<"EOH";
+
+Usage: $0 --mode=uninstall RM [RM-OPTION]... FILE...
+has not been implemented
+It should remove libraries from an installation directory.
+EOH
+}
+
+package LT::Options;
+use LT::Util;
+our @ISA = qw(LT::Getopt);
+
+my @valid_modes = qw(compile clean execute finish install link uninstall);
+
+my @known_tags = qw(disable-shared disable-static CC CXX F77 FC GO GCJ RC);
+
+sub new
+{
+	my $class = shift;
+	my $o = bless {}, $class;
+	return $o;
+}
+
+sub add_tag
+{
+	my ($self, $value) = @_;
+	if ($value =~ m/[^\-\w,\/]/) {
+		shortdie "invalid tag name: $value"; 
+		exit 1;
+	} 
+	if (grep {$value eq $_} @known_tags) {
+		$self->{tags}{$value} = 1;
+	} else {
+		say STDERR "ignoring unknown tag: $value";
+	}
+}
+
+sub has_tag
+{
+	my ($self, $tag) = @_;
+	return defined $self->{tags}{$tag};
+}
+
+sub getoptions
+{
+	my $o = shift;
+	require Getopt::Long;
+	my $p = Getopt::Long::Parser->new;
+	$p->configure('no_ignore_case',
+	    'pass_through',
+	    'no_auto_abbrev',
+	    'permute');
+	$p->getoptions(@_);
+}
+
+sub is_abreviated_mode
+{
+	my ($self, $arg) = @_;
+	return undef if !$arg;
+	for my $m (@valid_modes) {
+		next if length $arg > length $m;
+		if ($arg eq substr($m, 0, length $arg)) {
+			return LT::Mode->factory($m, $arg);
+		}
+	}
+	return undef;
+}
+
+# XXX this should always fail if we are libtool2 !
+# try to guess libtool mode when it is not specified
+sub guess_implicit_mode
+{
+	my ($self, $ltprog) = @_;
+	my $m;
+	for my $a (@$ltprog) {
+	   if ($a =~ m/(install([.-]sh)?|cp)$/) {
+		$m = LT::Mode->factory('install', "implicit $a");
+	   } elsif ($a =~ m/cc|c\+\+/) {	# XXX improve test
+		if (grep { $_ eq '-c' } @ARGV) {
+			$m = LT::Mode->factory('compile', "implicit");
+		} else {
+			$m = LT::Mode->factory('link',  "implicit");
+		}
+	   }
+	}
+	return $m;
+}
+
+sub valid_modes
+{
+	my $self = shift;
+	return join(' ', @valid_modes);
+}
+
+package main;
+
+my $ltconfig = LT::OSConfig->new;
 my $cwd = getcwd();
-my $instlibdir = '/usr/local/lib';
-$instlibdir = $ENV{'LIBDIR'} if defined $ENV{'LIBDIR'};
-
 my $mode;
-our $D = 0;		# debug flag
 my $verbose = 1;
+my $help = 0;
 
-my %opts;		# options passed to libtool
-my @tags;		# list of --tag options passed to libtool
+
+# XXX compat game to satisfy both libtool 1 and libtool 2
+unless ($ARGV[0] eq 'install' && $ARGV[1] =~ m/^-[bcCdpSsBfgmo]/) {
+	if ($mode = LT::Options->is_abreviated_mode($ARGV[0])) {
+		shift @ARGV;
+	}
+}
 
 # just to be clear:
 # when building a library:
@@ -73,40 +299,56 @@ my @tags;		# list of --tag options passed to libtool
 # 	* both -R libdir and -rpath libdir add libdir to the run-time path
 # -Wl,-rpath,libdir will bypass libtool.
 
-# build static/shared objects?
-my $noshared = 0;
-if (grep { $_ eq $machine_arch } @no_shared_archs) {
-	$noshared = 1;
+my $gp = LT::Options->new;
+$gp->handle_options(
+    '-config' => \&config,
+    '-debug|x' => sub { 
+		    LT::Trace->set(1); 
+		    LT::Exec->verbose_run;
+		},
+    '-dry-run|-dryrun|n' => sub { LT::Exec->dry_run; },
+    '-features' => sub {
+		my $v = `uname -r`;
+		chomp $v;
+		say "host: $ltconfig->{gnu_arch}-unknown-openbsd$v";
+		say "enable shared libraries" unless $ltconfig->{noshared};
+		say "enable static libraries";
+		exit 0;
+	    },
+    '-finish' => sub { $mode = LT::Mode->factory('finish', '--finish'); },
+    '-help|?|h' => sub { $help = 1; },
+    '-help-all' => sub { basic_help(); LT::Mode->help_all; exit 0; },
+    '-mode=' => sub {
+		    $mode = LT::Mode->factory($_[2], "--mode=$_[2]");
+		},
+    '-quiet|-silent|-no-verbose' => sub { $verbose = 0; },
+    '-verbose|-no-silent|-no-quiet|v' => sub {$verbose = 1;},
+    '-tag=' => sub { $gp->add_tag($_[2]); },
+    '-version' => sub { 
+		    say "libtool (not (GNU libtool)) $ltconfig->{version}";
+		    exit 0;
+		},
+    '-no-warning|-no-warn' => sub {},
+    # ignored
+    '-preserve-dup-deps',
+    '-dlopen=|dlopen=@',
+);
+
+if ($help) {
+	basic_help();
+	if ($mode) {
+		$mode->help;
+	}
+	exit 0;
 }
-
-my $gp = new Getopt::Long::Parser;
-# require_order so we stop parsing at the first non-option or argument,
-# instead of parsing the whole ARGV.
-$gp->configure(	'no_ignore_case',
-		'pass_through',
-		'no_auto_abbrev',
-		'require_order'
-	);
-$gp->getoptions('config' => \&config,
-		'debug' => \$D,
-		'dry-run|n' => sub { LT::Exec->dry_run },
-		'features' => \&notyet,
-		'finish' => sub { $mode = 'finish'; },
-		'help' => \&help, # does not return
-		'mode=s{1}' => \$mode,
-		'quiet' => sub { $verbose = 0; },
-		'silent' => sub { $verbose = 0; },
-		'tag=s{1}' => \@tags,
-		'version' => sub { say "libtool (not (GNU libtool)) $version" ; exit(0); },
-	);
-
-if ($verbose || $D) {
+if ($verbose) {
 	LT::Exec->verbose_run;
 }
+
 # what are we going to run (cc, c++, ...)
 my $ltprog = [];
 # deal with multi-arg ltprog
-LT::Trace::debug {"ARGV = @ARGV\n"};
+tsay {"ARGV = \"@ARGV\""};
 while (@ARGV) {
 	# just read arguments until the next option...
 	if ($ARGV[0] =~ m/^\-/) { last; }
@@ -114,12 +356,19 @@ while (@ARGV) {
 	if ($ARGV[0] =~ m/^\S+\.la/) { last; }
 	my $arg = shift @ARGV;
 	push @$ltprog, $arg;
-	LT::Trace::debug {"arg = \"$arg\"\n"};
+	tsay {"arg = \"$arg\""};
 	# if the current argument is an install program, stop immediately
 	if ($arg =~ /cp$/) { last; }
 	if ($arg =~ /install([-.]sh)?$/) { last; }
 }
-LT::Trace::debug {"ltprog = \"@$ltprog\"\n"};
+tsay {"ltprog = \"@$ltprog\""};
+
+# XXX compat game to satisfy both libtool 1 and libtool 2
+# let libtool install work as both libtool 1 and libtool 2
+if (@$ltprog == 0 && defined $mode && $mode->{origin} eq 'install') {
+	$ltprog = [ 'install' ];
+}
+
 if (@$ltprog == 0) { die "No libtool command given.\n" .
 			 "Use `libtool --help' for more information.\n" };
 # make ltprog a list of elements without whitespace (prevent exec errors)
@@ -130,39 +379,24 @@ for my $el (@tmp_ltprog) {
 	push @$ltprog, @parts;
 }
 
-# check mode and guess it if needed
-if (!($mode && grep { $_ eq $mode } @valid_modes)) {
-	$mode = guess_implicit_mode($ltprog);
-	if ($mode) {
-		LT::Trace::debug {"implicit mode: $mode\n"};
-	} else {
-		die "MODE must be one of:\n@valid_modes\n";
+if (!defined $mode) {
+	$mode = $gp->guess_implicit_mode($ltprog);
+	tsay {"implicit mode: ", $mode->{origin}} if $mode;
+}
+
+if (!defined $mode) {
+	shortdie "no explicit mode, couldn't figure out implicit mode\n";
+}
+
+if (!$mode->isa("LT::Mode::Execute")) {
+	if ($gp->dlopen)  {
+		shortdie "Error: -dlopen FILE  in generic libtool options is an error in non execute mode";
 	}
 }
 
 # from here, options may be intermixed with arguments
-$gp->configure('permute');
 
-if ($mode eq 'compile') {
-	require LT::Mode::Compile;
-	LT::Mode::Compile->run($ltprog, $gp, \@tags, $noshared);
-} elsif ($mode eq 'install') {
-	require LT::Mode::Install;
-	LT::Mode::Install->run($ltprog);
-
-} elsif ($mode eq 'link') {
-	require LT::Mode::Link;
-	LT::Mode::Link->run($ltprog, $gp, \@tags, $noshared);
-} elsif ($mode eq 'finish' || $mode eq 'clean' || $mode eq 'uninstall') {
-	# don't do anything
-	exit 0;
-} elsif ($mode eq 'execute') {
-	# XXX check whether this is right
-	LT::Exec->silent_run;
-	LT::Exec->execute(@$ltprog, @ARGV);
-} else {
-	die "MODE=$mode not implemented yet.\n";
-}
+$mode->run($ltprog, $gp, $ltconfig->{noshared});
 
 if (LT::Exec->performed == 0) {
 	die "No commands to execute.\n"
@@ -170,7 +404,7 @@ if (LT::Exec->performed == 0) {
 
 ###########################################################################
 
-sub help
+sub basic_help
 {
 	print <<EOF
 Usage: $0 [options]
@@ -185,72 +419,11 @@ Usage: $0 [options]
 --version - print version of libtool
 EOF
 ;
-	exit 1;
 }
 
-sub notyet
-{
-	die "Option not implemented yet.\n";
-}
-
-# XXX incomplete
 sub config
 {
-	print "objdir=$ltdir\n";
-	print "arch=$machine_arch\n";
-	print "...\n";
+	$ltconfig->dump;
 	exit 0;
 }
 
-sub create_symlinks
-{
-	my ($dir, $libs) = @_;
-	if (! -d $dir) {
-		mkdir($dir) or die "Cannot mkdir($dir) : $!\n";
-	}
-
-	foreach my $l (values %$libs) {
-		my $f = $l->{fullpath};
-		next if !defined $f;
-		next if $f =~ m/\.a$/;
-		my $libnames = [];
-		if (defined $l->{lafile}) {
-			require LT::LaFile;
-			my $lainfo = LT::LaFile->parse($l->{lafile});
-			my $librarynames = $lainfo->stringize('library_names');
-			@$libnames = split /\s/, $librarynames;
-			$libnames = reverse_zap_duplicates_ref($libnames);
-		} else {
-			push @$libnames, basename($f);
-		}	
-		foreach my $libfile (@$libnames) {
-			my $link = "$dir/$libfile";
-			LT::Trace::debug {"ln -s $f $link\n"};
-			next if -f $link;
-			my $p = abs_path($f);
-			symlink($p, $link) or
-			    die "Cannot create symlink($p, $link): $!\n"
-			    	unless  $!{EEXIST};
-		}
-	}
-	return $dir;
-}
-
-# try to guess libtool mode when it is not specified
-sub guess_implicit_mode
-{
-	my $ltprog = shift;
-	my $m = 0;
-	for my $a (@$ltprog) {
-	   if ($a =~ m/(install([.-]sh)?|cp)$/) {
-		$m = 'install';
-	   } elsif ($a =~ m/cc|c\+\+/) {	# XXX improve test
-		if (grep { $_ eq '-c' } @ARGV) {
-			$m = 'compile';
-		} else {
-			$m = 'link';
-		}
-	   }
-	}
-	return $m;
-}

@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Compile.pm,v 1.1 2012/06/24 13:44:53 espie Exp $
+# $OpenBSD: Compile.pm,v 1.9 2012/07/09 21:59:18 espie Exp $
 #
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -17,45 +17,68 @@
 # OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 use strict;
 use warnings;
+
 package LT::Mode::Compile;
+our @ISA = qw(LT::Mode);
 
 use File::Basename;
 use LT::LoFile;
 use LT::Util;
+use LT::Trace;
+
+sub help
+{
+	print <<"EOH";
+
+Usage: $0 --mode=compile COMPILE-COMMAND [opts] SOURCE
+Compile source file into library object
+
+  -o OUTPUT-FILE
+EOH
+}
 
 my @valid_src = qw(asm c cc cpp cxx f s);
-my %opts;
 sub run
 {
-	my ($class, $ltprog, $gp, $tags, $noshared) = @_;
+	my ($class, $ltprog, $gp, $noshared) = @_;
 	my $lofile = LT::LoFile->new;
 
-	$gp->getoptions('o=s'		=> \$opts{'o'},
-			'prefer-pic'	=> \$opts{'prefer-pic'},
-			'prefer-non-pic'=> \$opts{'prefer-non-pic'},
-			'static'	=> \$opts{'static'},
-			);
+	$gp->handle_permuted_options('o:@',
+		qr{\-Wc\,(.*)}, 
+		    sub { 
+			$gp->keep_for_later(split(/\,/, shift));
+		    },
+		'Xcompiler:', 
+		    sub {
+			$gp->keep_for_later($_[2]);
+		    },
+		# recognize, don't do shit
+		'no-suppress',
+		'prefer-pic', 'prefer-non-pic', 'static', 'shared');
 	# XXX options ignored: -prefer-pic and -prefer-non-pic
 	my $pic = 0;
 	my $nonpic = 1;
 	# assume we need to build pic objects
 	$pic = 1 if (!$noshared);
-	$nonpic = 0 if ($pic && grep { $_ eq 'disable-static' } @$tags);
-	$pic = 0 if ($nonpic && grep { $_ eq 'disable-shared' } @$tags);
-	$nonpic = 1 if ($opts{'static'});
+	$nonpic = 0 if ($pic && $gp->has_tag('disable-static'));
+	$pic = 0 if ($nonpic && $gp->has_tag('disable-shared'));
+	$nonpic = 1 if $gp->static;
 
 	my ($outfile, $odir, $ofile, $srcfile, $srcext);
 	# XXX check whether -c flag is present and if not, die?
-	if ($opts{'o'}) {
+	if ($gp->o) {
+		if ($gp->o > 1) {
+			shortdie "Can't specify -o more than once\n";
+		}
 		# fix extension if needed
-		($outfile = $opts{'o'}) =~ s/\.o$/.lo/;
+		($outfile = ($gp->o)[0]) =~ s/\.o$/.lo/;
 		$odir = dirname($outfile);
 		$ofile = basename($outfile);
 	} else {
 		# XXX sometimes no -o flag is present and we need another way
 		my $srcre = join '|', @valid_src;
 		my $found = 0;
-		foreach my $a (@ARGV) {
+		foreach my $a (@main::ARGV) {
 			if ($a =~ m/\.($srcre)$/i) {
 				$srcfile = $a;
 				$srcext = $1;
@@ -66,11 +89,11 @@ sub run
 		$found or die "Cannot find source file in command\n";
 		# the output file ends up in the current directory
 		$odir = '.';
-		($ofile = basename $srcfile) =~ s/\.($srcext)$/.lo/i;
+		($ofile = basename($srcfile)) =~ s/\.($srcext)$/.lo/i;
 		$outfile = "$odir/$ofile";
 	}
-	LT::Trace::debug {"srcfile = $srcfile\n"} if $srcfile;
-	LT::Trace::debug {"outfile = $outfile\n"};
+	tsay {"srcfile = $srcfile"} if $srcfile;
+	tsay {"outfile = $outfile"};
 	(my $nonpicobj = $ofile) =~ s/\.lo$/.o/;
 	my $picobj = "$ltdir/$nonpicobj";
 

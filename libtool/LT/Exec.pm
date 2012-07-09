@@ -1,6 +1,7 @@
-# $OpenBSD: Exec.pm,v 1.1 2012/06/19 09:30:44 espie Exp $
+# $OpenBSD: Exec.pm,v 1.3 2012/07/06 11:30:41 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
+# Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -19,6 +20,7 @@ use warnings;
 use feature qw(say switch state);
 
 package LT::Exec;
+use LT::Trace;
 
 my $dry = 0;
 my $verbose = 0;
@@ -86,9 +88,9 @@ sub command_run
 	my ($self, @l) = @_;
 
 	if ($self->{dir}) {
-		LT::Trace::print {"cd $self->{dir} && "};
+		tprint {"cd $self->{dir} && "};
 	}
-	LT::Trace::print { "@l\n" };
+	tsay { "@l" };
 	my $pid = fork();
 	if ($pid == -1) {
 		die "Couldn't fork while running @l\n";
