@@ -1,4 +1,4 @@
-/* $OpenBSD: names.c,v 1.12 2012/03/09 21:11:28 nicm Exp $ */
+/* $OpenBSD: names.c,v 1.15 2012/04/11 07:45:30 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,7 +36,8 @@ queue_window_name(struct window *w)
 	tv.tv_sec = 0;
 	tv.tv_usec = NAME_INTERVAL * 1000L;
 
-	evtimer_del(&w->name_timer);
+	if (event_initialized(&w->name_timer))
+		evtimer_del(&w->name_timer);
 	evtimer_set(&w->name_timer, window_name_callback, w);
 	evtimer_add(&w->name_timer, &tv);
 }
@@ -48,9 +49,12 @@ window_name_callback(unused int fd, unused short events, void *data)
 	struct window	*w = data;
 	char		*name, *wname;
 
-	queue_window_name(w);	/* XXX even if the option is off? */
-	if (!options_get_number(&w->options, "automatic-rename"))
+	if (!options_get_number(&w->options, "automatic-rename")) {
+		if (event_initialized(&w->name_timer))
+			event_del(&w->name_timer);
 		return;
+	}
+	queue_window_name(w);
 
 	if (w->active->screen != &w->active->base)
 		name = NULL;

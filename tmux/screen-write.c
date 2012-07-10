@@ -1,4 +1,4 @@
-/* $OpenBSD: screen-write.c,v 1.53 2012/03/03 09:43:22 nicm Exp $ */
+/* $OpenBSD: screen-write.c,v 1.55 2012/03/17 17:36:03 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1075,7 +1075,7 @@ screen_write_cell(struct screen_write_ctx *ctx,
 	screen_write_initctx(ctx, &ttyctx, 1);
 
 	/* If in insert mode, make space for the cells. */
-	if (s->mode & MODE_INSERT && s->cx <= screen_size_x(s) - width) {
+	if ((s->mode & MODE_INSERT) && s->cx <= screen_size_x(s) - width) {
 		xx = screen_size_x(s) - s->cx - width;
 		grid_move_cells(s->grid, s->cx + width, s->cx, s->cy, xx);
 		insert = 1;

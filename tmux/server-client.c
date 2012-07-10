@@ -1,4 +1,4 @@
-/* $OpenBSD: server-client.c,v 1.68 2012/03/09 21:42:13 nicm Exp $ */
+/* $OpenBSD: server-client.c,v 1.76 2012/06/20 12:55:55 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -27,17 +27,13 @@
 
 #include "tmux.h"
 
-void	server_client_check_mouse(struct client *c,
-	    struct window_pane *wp, struct mouse_event *mouse);
-void	server_client_handle_key(int, struct mouse_event *, void *);
+void	server_client_check_mouse(struct client *, struct window_pane *,
+	    struct mouse_event *);
 void	server_client_repeat_timer(int, short, void *);
 void	server_client_check_exit(struct client *);
 void	server_client_check_redraw(struct client *);
 void	server_client_set_title(struct client *);
 void	server_client_reset_state(struct client *);
-void	server_client_in_callback(struct bufferevent *, short, void *);
-void	server_client_out_callback(struct bufferevent *, short, void *);
-void	server_client_err_callback(struct bufferevent *, short, void *);
 
 int	server_client_msg_dispatch(struct client *);
 void	server_client_msg_command(struct client *, struct msg_command_data *);
@@ -67,9 +63,9 @@ server_client_create(int fd)
 		fatal("gettimeofday failed");
 	memcpy(&c->activity_time, &c->creation_time, sizeof c->activity_time);
 
-	c->stdin_event = NULL;
-	c->stdout_event = NULL;
-	c->stderr_event = NULL;
+	c->stdin_data = evbuffer_new ();
+	c->stdout_data = evbuffer_new ();
+	c->stderr_data = evbuffer_new ();
 
 	c->tty.fd = -1;
 	c->title = NULL;
@@ -105,6 +101,28 @@ server_client_create(int fd)
 	log_debug("new client %d", fd);
 }
 
+/* Open client terminal if needed. */
+int
+server_client_open(struct client *c, struct session *s, char **cause)
+{
+	struct options	*oo = s != NULL ? &s->options : &global_s_options;
+	char		*overrides;
+
+	if (c->flags & CLIENT_CONTROL)
+		return (0);
+
+	if (!(c->flags & CLIENT_TERMINAL)) {
+		*cause = xstrdup ("not a terminal");
+		return (-1);
+	}
+
+	overrides = options_get_string(oo, "terminal-overrides");
+	if (tty_open(&c->tty, overrides, cause) != 0)
+		return (-1);
+
+	return (0);
+}
+
 /* Lost a client. */
 void
 server_client_lost(struct client *c)
@@ -125,24 +143,9 @@ server_client_lost(struct client *c)
 	if (c->flags & CLIENT_TERMINAL)
 		tty_free(&c->tty);
 
-	if (c->stdin_event != NULL)
-		bufferevent_free(c->stdin_event);
-	if (c->stdin_fd != -1) {
-		setblocking(c->stdin_fd, 1);
-		close(c->stdin_fd);
-	}
-	if (c->stdout_event != NULL)
-		bufferevent_free(c->stdout_event);
-	if (c->stdout_fd != -1) {
-		setblocking(c->stdout_fd, 1);
-		close(c->stdout_fd);
-	}
-	if (c->stderr_event != NULL)
-		bufferevent_free(c->stderr_event);
-	if (c->stderr_fd != -1) {
-		setblocking(c->stderr_fd, 1);
-		close(c->stderr_fd);
-	}
+	evbuffer_free (c->stdin_data);
+	evbuffer_free (c->stdout_data);
+	evbuffer_free (c->stderr_data);
 
 	status_free_jobs(&c->status_new);
 	status_free_jobs(&c->status_old);
@@ -153,11 +156,13 @@ server_client_lost(struct client *c)
 
 	evtimer_del(&c->repeat_timer);
 
-	evtimer_del(&c->identify_timer);
+	if (event_initialized(&c->identify_timer))
+		evtimer_del(&c->identify_timer);
 
 	if (c->message_string != NULL)
 		xfree(c->message_string);
-	evtimer_del(&c->message_timer);
+	if (event_initialized (&c->message_timer))
+		evtimer_del(&c->message_timer);
 	for (i = 0; i < ARRAY_LENGTH(&c->message_log); i++) {
 		msg = &ARRAY_ITEM(&c->message_log, i);
 		xfree(msg->msg);
@@ -176,7 +181,8 @@ server_client_lost(struct client *c)
 
 	close(c->ibuf.fd);
 	imsg_clear(&c->ibuf);
-	event_del(&c->event);
+	if (event_initialized(&c->event))
+		event_del(&c->event);
 
 	for (i = 0; i < ARRAY_LENGTH(&dead_clients); i++) {
 		if (ARRAY_ITEM(&dead_clients, i) == NULL) {
@@ -187,6 +193,8 @@ server_client_lost(struct client *c)
 	if (i == ARRAY_LENGTH(&dead_clients))
 		ARRAY_ADD(&dead_clients, c);
 	c->flags |= CLIENT_DEAD;
+
+	server_add_accept(0); /* may be more file descriptors now */
 
 	recalculate_sizes();
 	server_check_unattached();
@@ -215,6 +223,9 @@ server_client_callback(int fd, short events, void *data)
 		if (events & EV_READ && server_client_msg_dispatch(c) != 0)
 			goto client_lost;
 	}
+
+	server_push_stdout(c);
+	server_push_stderr(c);
 
 	server_update_event(c);
 	return;
@@ -279,16 +290,19 @@ server_client_check_mouse(
 	    options_get_number(oo, "mouse-select-window")) {
 		if (mouse->b == MOUSE_UP && c->last_mouse.b != MOUSE_UP) {
 			status_set_window_at(c, mouse->x);
+			recalculate_sizes();
 			return;
 		}
 		if (mouse->b & MOUSE_45) {
 			if ((mouse->b & MOUSE_BUTTON) == MOUSE_1) {
 				session_previous(c->session, 0);
 				server_redraw_session(s);
+				recalculate_sizes();
 			}
 			if ((mouse->b & MOUSE_BUTTON) == MOUSE_2) {
 				session_next(c->session, 0);
 				server_redraw_session(s);
+				recalculate_sizes();
 			}
 			return;
 		}
@@ -326,13 +340,11 @@ server_client_check_mouse(
 
 /* Handle data key input from client. */
 void
-server_client_handle_key(int key, struct mouse_event *mouse, void *data)
+server_client_handle_key(struct client *c, int key)
 {
-	struct client		*c = data;
 	struct session		*s;
 	struct window		*w;
 	struct window_pane	*wp;
-	struct options		*oo;
 	struct timeval		 tv;
 	struct key_binding	*bd;
 	int		      	 xtimeout, isprefix;
@@ -351,7 +363,6 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 
 	w = c->session->curw->window;
 	wp = w->active;
-	oo = &c->session->options;
 
 	/* Special case: number keys jump to pane in identify mode. */
 	if (c->flags & CLIENT_IDENTIFY && key >= '0' && key <= '9') {
@@ -379,7 +390,7 @@ server_client_handle_key(int key, struct mouse_event *mouse, void *data)
 	if (key == KEYC_MOUSE) {
 		if (c->flags & CLIENT_READONLY)
 			return;
-		server_client_check_mouse(c, wp, mouse);
+		server_client_check_mouse(c, wp, &c->tty.mouse);
 		return;
 	}
 
@@ -576,11 +587,11 @@ server_client_check_exit(struct client *c)
 	if (!(c->flags & CLIENT_EXIT))
 		return;
 
-	if (c->stdout_fd != -1 && c->stdout_event != NULL &&
-	    EVBUFFER_LENGTH(c->stdout_event->output) != 0)
+	if (EVBUFFER_LENGTH(c->stdin_data) != 0)
 		return;
-	if (c->stderr_fd != -1 && c->stderr_event != NULL &&
-	    EVBUFFER_LENGTH(c->stderr_event->output) != 0)
+	if (EVBUFFER_LENGTH(c->stdout_data) != 0)
+		return;
+	if (EVBUFFER_LENGTH(c->stderr_data) != 0)
 		return;
 
 	exitdata.retcode = c->retcode;
@@ -659,55 +670,6 @@ server_client_set_title(struct client *c)
 	xfree(title);
 }
 
-/*
- * Error callback for client stdin. Caller must increase reference count when
- * enabling event!
- */
-void
-server_client_in_callback(
-    unused struct bufferevent *bufev, unused short what, void *data)
-{
-	struct client	*c = data;
-
-	c->references--;
-	if (c->flags & CLIENT_DEAD)
-		return;
-
-	bufferevent_disable(c->stdin_event, EV_READ|EV_WRITE);
-	setblocking(c->stdin_fd, 1);
-	close(c->stdin_fd);
-	c->stdin_fd = -1;
-
-	if (c->stdin_callback != NULL)
-		c->stdin_callback(c, c->stdin_data);
-}
-
-/* Error callback for client stdout. */
-void
-server_client_out_callback(
-    unused struct bufferevent *bufev, unused short what, unused void *data)
-{
-	struct client	*c = data;
-
-	bufferevent_disable(c->stdout_event, EV_READ|EV_WRITE);
-	setblocking(c->stdout_fd, 1);
-	close(c->stdout_fd);
-	c->stdout_fd = -1;
-}
-
-/* Error callback for client stderr. */
-void
-server_client_err_callback(
-    unused struct bufferevent *bufev, unused short what, unused void *data)
-{
-	struct client	*c = data;
-
-	bufferevent_disable(c->stderr_event, EV_READ|EV_WRITE);
-	setblocking(c->stderr_fd, 1);
-	close(c->stderr_fd);
-	c->stderr_fd = -1;
-}
-
 /* Dispatch message from client. */
 int
 server_client_msg_dispatch(struct client *c)
@@ -716,6 +678,7 @@ server_client_msg_dispatch(struct client *c)
 	struct msg_command_data	 commanddata;
 	struct msg_identify_data identifydata;
 	struct msg_environ_data	 environdata;
+	struct msg_stdin_data	 stdindata;
 	ssize_t			 n, datalen;
 
 	if ((n = imsg_read(&c->ibuf)) == -1 || n == 0)
@@ -751,42 +714,23 @@ server_client_msg_dispatch(struct client *c)
 				fatalx("MSG_IDENTIFY missing fd");
 			memcpy(&identifydata, imsg.data, sizeof identifydata);
 
-			c->stdin_fd = imsg.fd;
-			c->stdin_event = bufferevent_new(c->stdin_fd,
-			    NULL, NULL, server_client_in_callback, c);
-			if (c->stdin_event == NULL)
-				fatalx("failed to create stdin event");
-			setblocking(c->stdin_fd, 0);
-
 			server_client_msg_identify(c, &identifydata, imsg.fd);
 			break;
-		case MSG_STDOUT:
-			if (datalen != 0)
-				fatalx("bad MSG_STDOUT size");
-			if (imsg.fd == -1)
-				fatalx("MSG_STDOUT missing fd");
+		case MSG_STDIN:
+			if (datalen != sizeof stdindata)
+				fatalx("bad MSG_STDIN size");
+			memcpy(&stdindata, imsg.data, sizeof stdindata);
 
-			c->stdout_fd = imsg.fd;
-			c->stdout_event = bufferevent_new(c->stdout_fd,
-			    NULL, NULL, server_client_out_callback, c);
-			if (c->stdout_event == NULL)
-				fatalx("failed to create stdout event");
-			setblocking(c->stdout_fd, 0);
-
-			break;
-		case MSG_STDERR:
-			if (datalen != 0)
-				fatalx("bad MSG_STDERR size");
-			if (imsg.fd == -1)
-				fatalx("MSG_STDERR missing fd");
-
-			c->stderr_fd = imsg.fd;
-			c->stderr_event = bufferevent_new(c->stderr_fd,
-			    NULL, NULL, server_client_err_callback, c);
-			if (c->stderr_event == NULL)
-				fatalx("failed to create stderr event");
-			setblocking(c->stderr_fd, 0);
-
+			if (c->stdin_callback == NULL)
+				break;
+			if (stdindata.size <= 0)
+				c->stdin_closed = 1;
+			else {
+				evbuffer_add(c->stdin_data, stdindata.data,
+				    stdindata.size);
+			}
+			c->stdin_callback(c, c->stdin_closed,
+			    c->stdin_callback_data);
 			break;
 		case MSG_RESIZE:
 			if (datalen != 0)
@@ -853,10 +797,11 @@ server_client_msg_error(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_list	ap;
 
 	va_start(ap, fmt);
-	evbuffer_add_vprintf(ctx->cmdclient->stderr_event->output, fmt, ap);
+	evbuffer_add_vprintf(ctx->cmdclient->stderr_data, fmt, ap);
 	va_end(ap);
 
-	bufferevent_write(ctx->cmdclient->stderr_event, "\n", 1);
+	evbuffer_add(ctx->cmdclient->stderr_data, "\n", 1);
+	server_push_stderr(ctx->cmdclient);
 	ctx->cmdclient->retcode = 1;
 }
 
@@ -867,10 +812,11 @@ server_client_msg_print(struct cmd_ctx *ctx, const char *fmt, ...)
 	va_list	ap;
 
 	va_start(ap, fmt);
-	evbuffer_add_vprintf(ctx->cmdclient->stdout_event->output, fmt, ap);
+	evbuffer_add_vprintf(ctx->cmdclient->stdout_data, fmt, ap);
 	va_end(ap);
 
-	bufferevent_write(ctx->cmdclient->stdout_event, "\n", 1);
+	evbuffer_add(ctx->cmdclient->stdout_data, "\n", 1);
+	server_push_stdout(ctx->cmdclient);
 }
 
 /* Callback to send print message to client, if not quiet. */
@@ -883,10 +829,11 @@ server_client_msg_info(struct cmd_ctx *ctx, const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	evbuffer_add_vprintf(ctx->cmdclient->stdout_event->output, fmt, ap);
+	evbuffer_add_vprintf(ctx->cmdclient->stdout_data, fmt, ap);
 	va_end(ap);
 
-	bufferevent_write(ctx->cmdclient->stdout_event, "\n", 1);
+	evbuffer_add(ctx->cmdclient->stdout_data, "\n", 1);
+	server_push_stdout(ctx->cmdclient);
 }
 
 /* Handle command message. */
@@ -943,27 +890,32 @@ void
 server_client_msg_identify(
     struct client *c, struct msg_identify_data *data, int fd)
 {
-	int	tty_fd;
-
 	c->cwd = NULL;
 	data->cwd[(sizeof data->cwd) - 1] = '\0';
 	if (*data->cwd != '\0')
 		c->cwd = xstrdup(data->cwd);
 
+	if (data->flags & IDENTIFY_CONTROL) {
+		c->stdin_callback = control_callback;
+		c->flags |= (CLIENT_CONTROL|CLIENT_SUSPENDED);
+
+		c->tty.fd = -1;
+		c->tty.log_fd = -1;
+
+		close(fd);
+		return;
+	}
+
 	if (!isatty(fd))
 	    return;
-	if ((tty_fd = dup(fd)) == -1)
-		fatal("dup failed");
 	data->term[(sizeof data->term) - 1] = '\0';
-	tty_init(&c->tty, tty_fd, data->term);
+	tty_init(&c->tty, c, fd, data->term);
 	if (data->flags & IDENTIFY_UTF8)
 		c->tty.flags |= TTY_UTF8;
 	if (data->flags & IDENTIFY_256COLOURS)
 		c->tty.term_flags |= TERM_256COLOURS;
 	else if (data->flags & IDENTIFY_88COLOURS)
 		c->tty.term_flags |= TERM_88COLOURS;
-	c->tty.key_callback = server_client_handle_key;
-	c->tty.key_data = c;
 
 	tty_resize(&c->tty);
 

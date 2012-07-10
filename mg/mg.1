@@ -1,7 +1,7 @@
-.\"	$OpenBSD: mg.1,v 1.58 2012/02/09 09:00:14 lum Exp $
+.\"	$OpenBSD: mg.1,v 1.67 2012/06/21 17:55:10 lum Exp $
 .\" This file is in the public domain.
 .\"
-.Dd $Mdocdate: February 9 2012 $
+.Dd $Mdocdate: June 21 2012 $
 .Dt MG 1
 .Os
 .Sh NAME
@@ -73,25 +73,66 @@ the mark at the point of deletion.
 Note: The point and mark are window-specific in
 .Nm ,
 not buffer-specific, as in other emacs flavours.
+.Sh BACKUP FILES
+Backup files have a
+.Sq ~
+character appended to the file name and
+are created in the current working directory by default.
+Whether to create backup files or not can be toggled with the
+make-backup-file command.
+The backup file location can either be in the current
+working directory, or all backups can be moved to a
+.Pa ~/.mg.d
+directory where files retain their path name to retain uniqueness.
+Use the backup-to-home-directory to alternate between these two locations.
+Further, if any application creates backup files in the
+.Ev TMPDIR ,
+these can be left with the leave-tmpdir-backups command.
 .Sh TAGS
 .Nm
 supports tag files created by
 .Xr ctags 1 ,
 allowing the user to quickly locate various object definitions.
 Note though that emacs uses etags, not ctags.
+.Sh CSCOPE
+.Nm
+supports navigating source code using cscope.
+However,
+.Nm
+requires cscope and cscope-indexer executables to be present in
+.Ev PATH
+for it to work.
 .Sh DEFAULT KEY BINDINGS
 Normal editing commands are very similar to GNU Emacs.
 In the following examples, C-x means Control-x, and M-x means Meta-x,
 where the Meta key may be either a special key on the keyboard
 or the ALT key; otherwise ESC followed by the key X works as well.
 .Pp
-.Bl -tag -width xxxxxxxxxx -compact
+.Bl -tag -width xxxxxxxxxxxx -offset indent -compact
 .It C-SPC
 set-mark-command
 .It C-a
 beginning-of-line
 .It C-b
 backward-char
+.It C-c s c
+cscope-find-functions-calling-this-function
+.It C-c s d
+cscope-find-global-definition
+.It C-c s e
+cscope-find-egrep-pattern
+.It C-c s f
+cscope-find-this-file
+.It C-c s i
+cscope-find-files-including-file
+.It C-c s n
+cscope-next-symbol
+.It C-c s p
+cscope-prev-symbol
+.It C-c s s
+cscope-find-this-symbol
+.It C-c s t
+cscope-find-this-text-string
 .It C-d
 delete-char
 .It C-e
@@ -196,6 +237,8 @@ call-last-kbd-macro
 set-fill-column
 .It C-x g
 goto-line
+.It C-x h
+mark-whole-buffer
 .It C-x i
 insert-file
 .It C-x k
@@ -260,6 +303,8 @@ copy-region-as-kill
 execute-extended-command
 .It M-{
 backward-paragraph
+.It M-|
+shell-command-on-region
 .It M-}
 forward-paragraph
 .It M-~
@@ -290,7 +335,7 @@ This parameter is set either by
 M-<n> (where
 .Va n
 is the numerical argument) before the command, or by
-one or more invocations of the universal argument, usually bound to C-U.
+one or more invocations of the universal argument, usually bound to C-u.
 When invoked in this manner, the value of the numeric parameter to
 be passed is displayed in the minibuffer before the M-x.
 One common use of the parameter is in mode toggles (e.g.\&
@@ -320,6 +365,11 @@ to a new line.
 Toggle indent mode, where indentation is preserved after a newline.
 .It back-to-indentation
 Move the dot to the first non-whitespace character on the current line.
+.It backup-to-home-directory
+Save backup copies to a
+.Pa ~/.mg.d
+directory instead of working directory.
+Requires make-backup-files to be on.
 .It backward-char
 Move cursor backwards one character.
 .It backward-kill-word
@@ -344,7 +394,7 @@ For delimeters other than
 parenthesis, brackets, and braces, the character itself
 is used as its own match.
 .It bsmap-mode
-Toggle bsmap mode, where DEL and c-H are swapped.
+Toggle bsmap mode, where DEL and C-h are swapped.
 .It c-mode
 Toggle a KNF-compliant mode for editing C program files.
 .It call-last-kbd-macro
@@ -365,6 +415,32 @@ This is a bit like a kill-region followed by a yank.
 Count the number of lines matching the supplied regular expression.
 .It count-non-matches
 Count the number of lines not matching the supplied regular expression.
+.It cscope-find-this-symbol
+List the matches for the given symbol.
+.It cscope-find-global-definition
+List global definitions for the given literal.
+.It cscope-find-called-functions
+List functions called from the given function.
+.It cscope-find-functions-calling-this-function
+List functions calling the given function.
+.It cscope-find-this-text-string
+List locations matching the given text string.
+.It cscope-find-egrep-pattern
+List locations matching the given extended regular expression pattern.
+.It cscope-find-this-file
+List filenames matching the given filename.
+.It cscope-find-files-including-file
+List files that #include the given filename.
+.It cscope-next-symbol
+Navigate to the next match.
+.It cscope-prev-symbol
+Navigate to the previous match.
+.It cscope-next-file
+Nagivate to the next file.
+.It cscope-prev-file
+Navigate to the previous file.
+.It cscope-create-list-of-files-to-index
+Create cscope's List and Index in the given directory.
 .It define-key
 Prompts the user for a named keymap (mode),
 a key, and an
@@ -559,6 +635,13 @@ Kill the currently defined region.
 Delete forward
 .Va n
 words.
+.It leave-tmpdir-backups
+Modifies the behaviour of backup-to-home-directory.
+Backup files that would normally reside in the system
+.Ev TMPDIR
+are left there and not moved to the
+.Pa ~/.mg.d
+directory.
 .It line-number-mode
 Toggle whether line and column numbers are displayed in the modeline.
 .It list-buffers
@@ -572,6 +655,9 @@ Bind a key mapping in the local (topmost) mode.
 Unbind a key mapping in the local (topmost) mode.
 .It make-backup-files
 Toggle generation of backup files.
+.It mark-whole-buffer
+Marks whole buffer as a region by putting dot at the beginning and mark
+at the end of buffer.
 .It meta-key-mode
 When disabled, the meta key can be used to insert extended-ascii (8-bit)
 characters.
@@ -734,6 +820,8 @@ Used by auto-fill-mode.
 Sets the mark in the current window to the current dot location.
 .It set-prefix-string
 Sets the prefix string to be used by the 'prefix-region' command.
+.It shell-command-on-region
+Provide the text in region to the shell command as input.
 .It shrink-window
 Shrink current window by one line.
 The window immediately below is expanded to pick up the slack.
@@ -815,12 +903,12 @@ It is not a ring.
 .El
 .Sh CONFIGURATION FILES
 There are two configuration files,
-.Pa .mg ,
+.Pa .mg
 and
 .Pa .mg-TERM .
 Here,
 .Ev TERM
-represents the name of the terminal type; e.g., if the terminal type
+represents the name of the terminal type; e.g. if the terminal type
 is set to
 .Dq vt100 ,
 .Nm
@@ -847,6 +935,8 @@ auto-execute *.c c-mode
 normal startup file
 .It Pa ~/.mg-TERM
 terminal-specific startup file
+.It Pa ~/.mg.d
+alternative backup file location
 .It Pa /usr/share/doc/mg/tutorial
 concise tutorial
 .El

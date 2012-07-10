@@ -1,4 +1,4 @@
-/*	$OpenBSD: pkill.c,v 1.24 2012/03/01 13:04:29 lum Exp $	*/
+/*	$OpenBSD: pkill.c,v 1.27 2012/04/21 03:14:50 guenther Exp $	*/
 /*	$NetBSD: pkill.c,v 1.5 2002/10/27 11:49:34 kleink Exp $	*/
 
 /*-
@@ -258,7 +258,8 @@ main(int argc, char **argv)
 		}
 
 		for (i = 0, kp = plist; i < nproc; i++, kp++) {
-			if ((kp->p_flag & P_SYSTEM) != 0 || kp->p_pid == mypid)
+			if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
+			     kp->p_pid == mypid)
 				continue;
 
 			if (matchargs) {
@@ -301,7 +302,8 @@ main(int argc, char **argv)
 	}
 
 	for (i = 0, kp = plist; i < nproc; i++, kp++) {
-		if ((kp->p_flag & P_SYSTEM) != 0 || kp->p_pid == mypid)
+		if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
+		     kp->p_pid == mypid)
 			continue;
 
 		SLIST_FOREACH(li, &ruidlist, li_chain)
@@ -411,7 +413,8 @@ main(int argc, char **argv)
 	 */
 	rv = STATUS_NOMATCH;
 	for (i = 0, j = 0, kp = plist; i < nproc; i++, kp++) {
-		if ((kp->p_flag & P_SYSTEM) != 0 || kp->p_pid == mypid)
+		if ((kp->p_flag & (P_SYSTEM | P_THREAD)) != 0 ||
+		     kp->p_pid == mypid)
 			continue;
 		if (selected[i]) {
 			if (longfmt && !pgrep)
