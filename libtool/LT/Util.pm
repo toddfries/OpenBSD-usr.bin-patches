@@ -1,6 +1,7 @@
-# $OpenBSD: Util.pm,v 1.1 2012/06/19 09:30:44 espie Exp $
+# $OpenBSD: Util.pm,v 1.3 2012/07/08 10:42:25 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
+# Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -20,7 +21,7 @@ package LT::Util;
 require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(reverse_zap_duplicates_ref abs_dir $ltdir $version
-    @picflags $sharedflag);
+    @picflags $sharedflag shortdie);
 use File::Basename;
 use Cwd;
 
@@ -48,6 +49,12 @@ sub abs_dir
 {
 	my $a = shift;
 	return dirname(Cwd::abs_path($a));
+}
+
+sub shortdie
+{
+	delete $SIG{__DIE__};
+	die @_;
 }
 
 1;

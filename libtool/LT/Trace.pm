@@ -1,6 +1,7 @@
-# $OpenBSD: Trace.pm,v 1.1 2012/06/19 09:30:44 espie Exp $
+# $OpenBSD: Trace.pm,v 1.4 2012/07/08 09:36:40 jasper Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
+# Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
 # Permission to use, copy, modify, and distribute this software for any
 # purpose with or without fee is hereby granted, provided that the above
@@ -16,17 +17,19 @@
 
 use strict;
 use warnings;
-use feature qw(say switch state);
+use feature qw(say state);
 
 package LT::Trace;
+use Exporter 'import';
+our @EXPORT = qw(tprint tsay);
 
 sub print(&)
 {
 	my $val = shift;
-	if (defined $ENV{'TRACE_LIBTOOL'}) {
+	if (defined $ENV{TRACE_LIBTOOL}) {
 		state $trace_file;
 		if (!defined $trace_file) {
-			open $trace_file, '>>', $ENV{'TRACE_LIBTOOL'};
+			open $trace_file, '>>', $ENV{TRACE_LIBTOOL};
 		}
 		if (defined $trace_file) {
 			print $trace_file (&$val);
@@ -34,14 +37,33 @@ sub print(&)
 	}
 }
 
-sub debug(&;$)
+my $trace_level = 0;
+
+sub set
+{
+	my $class = shift;
+	$trace_level = shift;
+}
+
+sub tprint(&;$)
 {
 	my ($args, $level) = @_;
 
 	$level = 1 if !defined $level;
 
-	if (defined $main::D && $main::D >= $level) {
+	if ($trace_level >= $level) {
 		print (&$args);
+	}
+}
+
+sub tsay(&;$)
+{
+	my ($args, $level) = @_;
+
+	$level = 1 if !defined $level;
+
+	if ($trace_level >= $level) {
+		say (&$args);
 	}
 }
 
