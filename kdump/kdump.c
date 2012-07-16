@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.64 2012/02/20 21:04:35 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.74 2012/07/09 17:51:08 claudio Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -73,7 +73,8 @@
 #include "kdump_subr.h"
 #include "extern.h"
 
-int timestamp, decimal, iohex, fancy = 1, tail, maxdata = INT_MAX, resolv;
+int timestamp, decimal, iohex, fancy = 1, maxdata = INT_MAX;
+int needtid, resolv, tail;
 char *tracefile = DEF_TRACEFILE;
 struct ktr_header ktr_header;
 pid_t pid = -1;
@@ -134,6 +135,7 @@ static char *ptrace_ops[] = {
 	"PT_WRITE_I",	"PT_WRITE_D",	"PT_WRITE_U",	"PT_CONTINUE",
 	"PT_KILL",	"PT_ATTACH",	"PT_DETACH",	"PT_IO",
 	"PT_SET_EVENT_MASK", "PT_GET_EVENT_MASK", "PT_GET_PROCESS_STATE",
+	"PT_GET_THREAD_FIRST", "PT_GET_THREAD_NEXT",
 };
 
 static int narg;
@@ -167,7 +169,7 @@ main(int argc, char *argv[])
 
 	def_emul = current = &emulations[0];	/* native */
 
-	while ((ch = getopt(argc, argv, "e:f:dlm:nrRp:Tt:xX")) != -1)
+	while ((ch = getopt(argc, argv, "e:f:dHlm:nrRp:Tt:xX")) != -1)
 		switch (ch) {
 		case 'e':
 			setemul(optarg);
@@ -178,6 +180,9 @@ main(int argc, char *argv[])
 			break;
 		case 'd':
 			decimal = 1;
+			break;
+		case 'H':
+			needtid = 1;
 			break;
 		case 'l':
 			tail = 1;
@@ -222,6 +227,9 @@ main(int argc, char *argv[])
 		err(1, NULL);
 	if (!freopen(tracefile, "r", stdin))
 		err(1, "%s", tracefile);
+	if (fread_tail(&ktr_header, sizeof(struct ktr_header), 1) == 0 ||
+	    ktr_header.ktr_type != htobe32(KTR_START))
+		errx(1, "%s: not a dump", tracefile);
 	while (fread_tail(&ktr_header, sizeof(struct ktr_header), 1)) {
 		silent = 0;
 		if (pe_size == 0)
@@ -238,7 +246,7 @@ main(int argc, char *argv[])
 				errx(1, "data too long");
 			newm = realloc(m, ktrlen+1);
 			if (newm == NULL)
-				err(1, NULL);
+				err(1, "realloc");
 			m = newm;
 			size = ktrlen;
 		}
@@ -329,9 +337,9 @@ fread_tail(void *buf, size_t size, size_t num)
 static void
 dumpheader(struct ktr_header *kth)
 {
-	static struct timeval prevtime;
+	static struct timespec prevtime;
 	char unknown[64], *type;
-	struct timeval temp;
+	struct timespec temp;
 
 	switch (kth->ktr_type) {
 	case KTR_SYSCALL:
@@ -364,15 +372,17 @@ dumpheader(struct ktr_header *kth)
 		type = unknown;
 	}
 
-	(void)printf("%6ld %-8.*s ", (long)kth->ktr_pid, MAXCOMLEN,
-	    kth->ktr_comm);
+	(void)printf("%6ld", (long)kth->ktr_pid);
+	if (needtid)
+		(void)printf("/%-7ld", (long)kth->ktr_tid);
+	(void)printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
 	if (timestamp) {
 		if (timestamp == 2) {
-			timersub(&kth->ktr_time, &prevtime, &temp);
+			timespecsub(&kth->ktr_time, &prevtime, &temp);
 			prevtime = kth->ktr_time;
 		} else
 			temp = kth->ktr_time;
-		(void)printf("%ld.%06ld ", temp.tv_sec, temp.tv_usec);
+		(void)printf("%ld.%06ld ", temp.tv_sec, temp.tv_nsec / 1000);
 	}
 	(void)printf("%s  ", type);
 }
@@ -995,7 +1005,6 @@ ktrsysret(struct ktr_sysret *ktr)
 		(void)printf("%s ", current->sysnames[code]);
 		if (ret > 0 && (strcmp(current->sysnames[code], "fork") == 0 ||
 		    strcmp(current->sysnames[code], "vfork") == 0 ||
-		    strcmp(current->sysnames[code], "rfork") == 0 ||
 		    strcmp(current->sysnames[code], "__tfork") == 0 ||
 		    strcmp(current->sysnames[code], "clone") == 0))
 			mappidtoemul(ret, current);
@@ -1005,6 +1014,7 @@ ktrsysret(struct ktr_sysret *ktr)
 		if (fancy) {
 			switch (current == &emulations[0] ? code : -1) {
 			case SYS_sigprocmask:
+			case SYS_sigpending:
 				sigset(ret);
 				break;
 			case SYS___thrsigdivert:
@@ -1364,6 +1374,101 @@ ktrstat(const struct stat *statp)
 }
 
 static void
+ktrtimespec(const struct timespec *tsp, int relative)
+{
+	printf("struct timespec { ");
+	print_timespec(tsp, relative);
+	printf(" }\n");
+}
+
+static void
+ktrtimeval(const struct timeval *tvp, int relative)
+{
+	printf("struct timeval { ");
+	print_time(tvp->tv_sec, relative);
+	if (tvp->tv_usec != 0)
+		printf(".%06ld", tvp->tv_usec);
+	printf(" }\n");
+}
+
+static void
+ktrsigaction(const struct sigaction *sa)
+{
+	/*
+	 * note: ktrstruct() has already verified that sa points to a
+	 * buffer exactly sizeof(struct sigaction) bytes long.
+	 */
+	printf("struct sigaction { ");
+	if (sa->sa_handler == SIG_DFL)
+		printf("handler=SIG_DFL");
+	else if (sa->sa_handler == SIG_IGN)
+		printf("handler=SIG_IGN");
+	else if (sa->sa_flags & SA_SIGINFO)
+		printf("sigaction=%p", (void *)sa->sa_sigaction);
+	else
+		printf("handler=%p", (void *)sa->sa_handler);
+	printf(", mask=");
+	sigset(sa->sa_mask);
+	printf(", flags=");
+	sigactionflagname(sa->sa_flags);
+	printf(" }\n");
+}
+
+static void
+print_rlim(rlim_t lim)
+{
+	if (lim == RLIM_INFINITY)
+		printf("infinite");
+	else
+		printf("%llu", (unsigned long long)lim);
+}
+
+static void
+ktrrlimit(const struct rlimit *limp)
+{
+	printf("struct rlimit { ");
+	printf("cur=");
+	print_rlim(limp->rlim_cur);
+	printf(", max=");
+	print_rlim(limp->rlim_max);
+	printf(" }\n");
+}
+
+static void
+ktrtfork(const struct __tfork *tf)
+{
+	printf("struct __tfork { tcb=%p, tid=%p, stack=%p }\n",
+	    tf->tf_tcb, (void *)tf->tf_tid, tf->tf_stack);
+}
+
+static void
+ktrfdset(const struct fd_set *fds, int len)
+{
+	int nfds, i, start = -1;
+	char sep = ' ';
+
+	nfds = len * NBBY;
+	printf("struct fd_set {");
+	for (i = 0; i <= nfds; i++)
+		if (i != nfds && FD_ISSET(i, fds)) {
+			if (start == -1)
+				start = i;
+		} else if (start != -1) {
+			putchar(sep);
+			if (start == i - 1)
+				printf("%d", start);
+			else if (start == i - 2)
+				printf("%d,%d", start, i - 1);
+			else
+				printf("%d-%d", start, i - 1);
+			sep = ',';
+			start = -1;
+		}
+
+	printf(" }\n");
+}
+
+static void
 ktrstruct(char *buf, size_t buflen)
 {
 	char *name, *data;
@@ -1402,6 +1507,50 @@ ktrstruct(char *buf, size_t buflen)
 		    datalen < sizeof(struct sockaddr)) || datalen != ss.ss_len)
 			goto invalid;
 		ktrsockaddr((struct sockaddr *)&ss);
+	} else if (strcmp(name, "abstimespec") == 0 ||
+	    strcmp(name, "reltimespec") == 0) {
+		struct timespec ts;
+
+		if (datalen != sizeof(ts))
+			goto invalid;
+		memcpy(&ts, data, datalen);
+		ktrtimespec(&ts, name[0] == 'r');
+	} else if (strcmp(name, "abstimeval") == 0 ||
+	    strcmp(name, "reltimeval") == 0) {
+		struct timeval tv;
+
+		if (datalen != sizeof(tv))
+			goto invalid;
+		memcpy(&tv, data, datalen);
+		ktrtimeval(&tv, name[0] == 'r');
+	} else if (strcmp(name, "sigaction") == 0) {
+		struct sigaction sa;
+
+		if (datalen != sizeof(sa))
+			goto invalid;
+		memcpy(&sa, data, datalen);
+		ktrsigaction(&sa);
+	} else if (strcmp(name, "rlimit") == 0) {
+		struct rlimit lim;
+
+		if (datalen != sizeof(lim))
+			goto invalid;
+		memcpy(&lim, data, datalen);
+		ktrrlimit(&lim);
+	} else if (strcmp(name, "tfork") == 0) {
+		struct __tfork tf;
+
+		if (datalen != sizeof(tf))
+			goto invalid;
+		memcpy(&tf, data, datalen);
+		ktrtfork(&tf);
+	} else if (strcmp(name, "fdset") == 0) {
+		struct fd_set *fds;
+		if ((fds = malloc(datalen)) == NULL)
+			err(1, "malloc");
+		memcpy(fds, data, datalen);
+		ktrfdset(fds, datalen);
+		free(fds);
 	} else {
 		printf("unknown structure %s\n", name);
 	}
@@ -1416,7 +1565,7 @@ usage(void)
 
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
-	    "[-dlnRrTXx] [-e emulation] [-f file] [-m maxdata] [-p pid]\n"
+	    "[-dHlnRrTXx] [-e emulation] [-f file] [-m maxdata] [-p pid]\n"
 	    "%*s[-t [ceinsw]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);

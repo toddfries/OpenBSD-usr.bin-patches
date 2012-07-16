@@ -1,4 +1,4 @@
-.\"	$OpenBSD: pkg-config.1,v 1.25 2011/09/25 17:53:40 jmc Exp $
+.\"	$OpenBSD: pkg-config.1,v 1.28 2012/07/08 17:32:58 espie Exp $
 .\"
 .\"	Copyright (c) 2006 Chris Kuethe <ckuethe@openbsd.org>
 .\"
@@ -14,7 +14,7 @@
 .\"	ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 .\"	OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: September 25 2011 $
+.Dd $Mdocdate: July 8 2012 $
 .Dt PKG-CONFIG 1
 .Os
 .Sh NAME
@@ -42,10 +42,14 @@ Libraries from base install their metadata in
 .Pa /usr/lib/pkgconfig ;
 packages controlled by the
 .Xr ports 7
-system store their metadata, if provided, in
-.Pa ${LOCALBASE}/lib/pkgconfig ;
+system store their metadata in
+.Pa ${LOCALBASE}/lib/pkgconfig
+and
+.Pa ${LOCALBASE}/share/pkgconfig ;
 the X Window System stores its metadata in
-.Pa ${X11BASE}/lib/pkgconfig .
+.Pa ${X11BASE}/lib/pkgconfig
+and
+.Pa ${X11BASE}/share/pkgconfig .
 The
 .Nm
 utility will search these locations by default.
@@ -215,15 +219,6 @@ The
 flag that can be encountered in Cflags is not treated differently from
 .Fl I
 in this implementation.
-.It Ev Variables
-Due to the way variables are retrieved and expanded, in this version of
-.Nm
-certain syntax that is valid in the original implementation is not
-allowed in this
-.Nm .
-For example storing requirements in a variable, and only using this
-variable in the Requires field, is not allowed.
-Otherwise all the variable values can be treated as a (valid) package.
 .It Ev Whitespace
 .Nm
 does not go to great lengths to try to fix whitespace abuse.

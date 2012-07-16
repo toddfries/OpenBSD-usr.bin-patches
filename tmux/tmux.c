@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.108 2012/01/21 08:40:09 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.111 2012/06/18 13:16:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -70,10 +70,9 @@ logfile(const char *name)
 {
 	char	*path;
 
-	log_close();
 	if (debug_level > 0) {
 		xasprintf(&path, "tmux-%s-%ld.log", name, (long) getpid());
-		log_open_file(debug_level, path);
+		log_open(debug_level, path);
 		xfree(path);
 	}
 }
@@ -242,7 +241,7 @@ main(int argc, char **argv)
 	quiet = flags = 0;
 	label = path = NULL;
 	login_shell = (**argv == '-');
-	while ((opt = getopt(argc, argv, "28c:df:lL:qS:uUv")) != -1) {
+	while ((opt = getopt(argc, argv, "28c:Cdf:lL:qS:uUv")) != -1) {
 		switch (opt) {
 		case '2':
 			flags |= IDENTIFY_256COLOURS;
@@ -256,6 +255,12 @@ main(int argc, char **argv)
 			if (shell_cmd != NULL)
 				xfree(shell_cmd);
 			shell_cmd = xstrdup(optarg);
+			break;
+		case 'C':
+			if (flags & IDENTIFY_CONTROL)
+				flags |= IDENTIFY_TERMIOS;
+			else
+				flags |= IDENTIFY_CONTROL;
 			break;
 		case 'f':
 			if (cfg_file != NULL)
@@ -293,8 +298,6 @@ main(int argc, char **argv)
 
 	if (shell_cmd != NULL && argc != 0)
 		usage();
-
-	log_open_tty(debug_level);
 
 	if (!(flags & IDENTIFY_UTF8)) {
 		/*
@@ -379,7 +382,7 @@ main(int argc, char **argv)
 		/* -L or default set. */
 		if (label != NULL) {
 			if ((path = makesocketpath(label)) == NULL) {
-				log_warn("can't create socket");
+				fprintf(stderr, "can't create socket\n");
 				exit(1);
 			}
 		}

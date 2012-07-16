@@ -1,4 +1,4 @@
-/*	$Id: man.c,v 1.65 2012/02/26 19:41:27 schwarze Exp $ */
+/*	$Id: man.c,v 1.67 2012/07/07 18:27:36 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -36,7 +36,7 @@ const	char *const __man_macronames[MAN_MAX] = {
 	"RI",		"na",		"sp",		"nf",
 	"fi",		"RE",		"RS",		"DT",
 	"UC",		"PD",		"AT",		"in",
-	"ft",		"OP"
+	"ft",		"OP",		"EX",		"EE"
 	};
 
 const	char * const *man_macronames = __man_macronames;
@@ -127,7 +127,7 @@ man_parseln(struct man *m, int ln, char *buf, int offs)
 
 	assert( ! (MAN_HALT & m->flags));
 
-	return (mandoc_getcontrol(buf, &offs) ?
+	return (roff_getcontrol(m->roff, buf, &offs) ?
 			man_pmacro(m, ln, buf, offs) : 
 			man_ptext(m, ln, buf, offs));
 }
