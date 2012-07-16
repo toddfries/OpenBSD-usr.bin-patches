@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.227 2012/06/19 18:25:27 markus Exp $ */
+/* $OpenBSD: servconf.c,v 1.229 2012/07/13 01:35:21 dtucker Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -271,7 +271,7 @@ fill_default_server_options(ServerOptions *options)
 		options->version_addendum = xstrdup("");
 	/* Turn privilege separation on by default */
 	if (use_privsep == -1)
-		use_privsep = PRIVSEP_ON;
+		use_privsep = PRIVSEP_NOSANDBOX;
 }
 
 /* Keyword tokens. */
@@ -731,8 +731,9 @@ static const struct multistate multistate_gatewayports[] = {
 	{ NULL, -1 }
 };
 static const struct multistate multistate_privsep[] = {
-	{ "sandbox",			PRIVSEP_SANDBOX },
-	{ "yes",			PRIVSEP_ON },
+	{ "yes",			PRIVSEP_NOSANDBOX },
+	{ "sandbox",			PRIVSEP_ON },
+	{ "nosandbox",			PRIVSEP_NOSANDBOX },
 	{ "no",				PRIVSEP_OFF },
 	{ NULL, -1 }
 };
@@ -1480,8 +1481,9 @@ process_server_config_line(ServerOptions *options, char *line,
 void
 load_server_config(const char *filename, Buffer *conf)
 {
-	char line[1024], *cp;
+	char line[4096], *cp;
 	FILE *f;
+	int lineno = 0;
 
 	debug2("%s: filename %s", __func__, filename);
 	if ((f = fopen(filename, "r")) == NULL) {
@@ -1490,6 +1492,9 @@ load_server_config(const char *filename, Buffer *conf)
 	}
 	buffer_clear(conf);
 	while (fgets(line, sizeof(line), f)) {
+		lineno++;
+		if (strlen(line) == sizeof(line) - 1)
+			fatal("%s line %d too long", filename, lineno);
 		/*
 		 * Trim out comments and strip whitespace
 		 * NB - preserve newlines, they are needed to reproduce
