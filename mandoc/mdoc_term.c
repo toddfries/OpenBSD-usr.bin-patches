@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.142 2012/07/08 22:48:38 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.145 2012/07/11 16:55:29 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012 Ingo Schwarze <schwarze@openbsd.org>
@@ -68,7 +68,7 @@ static	void	  termp_an_post(DECL_ARGS);
 static	void	  termp_bd_post(DECL_ARGS);
 static	void	  termp_bk_post(DECL_ARGS);
 static	void	  termp_bl_post(DECL_ARGS);
-static	void	  termp_d1_post(DECL_ARGS);
+static	void	  termp_fd_post(DECL_ARGS);
 static	void	  termp_fo_post(DECL_ARGS);
 static	void	  termp_in_post(DECL_ARGS);
 static	void	  termp_it_post(DECL_ARGS);
@@ -128,8 +128,8 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_sh_pre, termp_sh_post }, /* Sh */
 	{ termp_ss_pre, termp_ss_post }, /* Ss */ 
 	{ termp_sp_pre, NULL }, /* Pp */ 
-	{ termp_d1_pre, termp_d1_post }, /* D1 */
-	{ termp_d1_pre, termp_d1_post }, /* Dl */
+	{ termp_d1_pre, termp_bl_post }, /* D1 */
+	{ termp_d1_pre, termp_bl_post }, /* Dl */
 	{ termp_bd_pre, termp_bd_post }, /* Bd */
 	{ NULL, NULL }, /* Ed */
 	{ termp_bl_pre, termp_bl_post }, /* Bl */
@@ -145,7 +145,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ NULL, NULL }, /* Ev */ 
 	{ termp_ex_pre, NULL }, /* Ex */
 	{ termp_fa_pre, NULL }, /* Fa */ 
-	{ termp_fd_pre, NULL }, /* Fd */ 
+	{ termp_fd_pre, termp_fd_post }, /* Fd */ 
 	{ termp_fl_pre, NULL }, /* Fl */
 	{ termp_fn_pre, NULL }, /* Fn */ 
 	{ termp_ft_pre, NULL }, /* Ft */ 
@@ -241,7 +241,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ NULL, termp____post }, /* %Q */ 
 	{ termp_sp_pre, NULL }, /* br */
 	{ termp_sp_pre, NULL }, /* sp */ 
-	{ termp_under_pre, termp____post }, /* %U */ 
+	{ NULL, termp____post }, /* %U */ 
 	{ NULL, NULL }, /* Ta */ 
 };
 
@@ -726,12 +726,10 @@ termp_it_pre(DECL_ARGS)
 	case (LIST_dash):
 		/* FALLTHROUGH */
 	case (LIST_hyphen):
-		if (width < term_len(p, 4))
-			width = term_len(p, 4);
-		break;
+		/* FALLTHROUGH */
 	case (LIST_enum):
-		if (width < term_len(p, 5))
-			width = term_len(p, 5);
+		if (width < term_len(p, 2))
+			width = term_len(p, 2);
 		break;
 	case (LIST_hang):
 		if (0 == width)
@@ -786,11 +784,17 @@ termp_it_pre(DECL_ARGS)
 	 */
 
 	switch (type) {
+	case (LIST_enum):
+		/*
+		 * Weird special case.
+		 * Very narrow enum lists actually hang.
+		 */
+		if (width == term_len(p, 2))
+			p->flags |= TERMP_HANG;
+		/* FALLTHROUGH */
 	case (LIST_bullet):
 		/* FALLTHROUGH */
 	case (LIST_dash):
-		/* FALLTHROUGH */
-	case (LIST_enum):
 		/* FALLTHROUGH */
 	case (LIST_hyphen):
 		if (MDOC_HEAD == n->type)
@@ -1406,6 +1410,15 @@ termp_fd_pre(DECL_ARGS)
 
 
 /* ARGSUSED */
+static void
+termp_fd_post(DECL_ARGS)
+{
+
+	term_newln(p);
+}
+
+
+/* ARGSUSED */
 static int
 termp_sh_pre(DECL_ARGS)
 {
@@ -1495,17 +1508,6 @@ termp_d1_pre(DECL_ARGS)
 	term_newln(p);
 	p->offset += term_len(p, p->defindent + 1);
 	return(1);
-}
-
-
-/* ARGSUSED */
-static void
-termp_d1_post(DECL_ARGS)
-{
-
-	if (MDOC_BLOCK != n->type) 
-		return;
-	term_newln(p);
 }
 
 

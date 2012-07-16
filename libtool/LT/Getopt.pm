@@ -1,4 +1,4 @@
-# $OpenBSD: Getopt.pm,v 1.9 2012/07/09 21:59:18 espie Exp $
+# $OpenBSD: Getopt.pm,v 1.11 2012/07/12 12:20:06 espie Exp $
 
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
 #
@@ -26,6 +26,10 @@ sub factory
 		return Option::Short->new($1);
 	} elsif (m/^(.)\:$/) {
 		return Option::ShortArg->new($1);
+	} elsif (m/^(\-?.)(?:\:\!|\!\:)$/) {
+		return Option::LongArg0->new($1);
+	} elsif (m/^(\-?.)\!$/) {
+		return Option::Long->new($1);
 	} elsif (m/^(\-?.*)\=$/) {
 		return Option::LongArg->new($1);
 	} elsif (m/^(\-?.*)\:$/) {
@@ -55,12 +59,12 @@ sub match
 {
 	my ($self, $_, $opts, $canonical, $code) = @_;
 	if (m/^\-\Q$$self\E$/) {
-		&$code($opts, $canonical, 1);
+		&$code($opts, $canonical, 1, $_);
 		return 1;
 	}
-	if (m/^\-\Q$$self\E(.*)$/) {
-		unshift(@main::ARGV, "-$1");
-		&$code($opts, $canonical, 1);
+	if (m/^(\-\Q$$self\E)(.*)$/) {
+		unshift(@main::ARGV, "-$2");
+		&$code($opts, $canonical, 1, $1);
 		return 1;
 	}
 	return 0;
@@ -73,11 +77,11 @@ sub match
 {
 	my ($self, $_, $opts, $canonical, $code) = @_;
 	if (m/^\-\Q$$self\E$/) {
-		&$code($opts, $canonical, (shift @main::ARGV));
+		&$code($opts, $canonical, (shift @main::ARGV), $_);
 		return 1;
 	}
-	if (m/^\-\Q$$self\E(.*)$/) {
-		&$code($opts, $canonical, $1);
+	if (m/^(\-\Q$$self\E)(.*)$/) {
+		&$code($opts, $canonical, $2, $1);
 		return 1;
 	}
 	return 0;
@@ -90,7 +94,7 @@ sub match
 {
 	my ($self, $_, $opts, $canonical, $code) = @_;
 	if (m/^\-\Q$$self\E$/) {
-		&$code($opts, $canonical, 1);
+		&$code($opts, $canonical, 1, $_);
 		return 1;
 	}
 	return 0;
@@ -103,7 +107,7 @@ sub match
 	my ($self, $_, $opts, $canonical, $code) = @_;
 	if (m/^\-\Q$$self\E$/) {
 		if (@main::ARGV > 0) {
-			&$code($opts, $canonical, (shift @main::ARGV));
+			&$code($opts, $canonical, (shift @main::ARGV), $_);
 			return 1;
 		} else {
 			die "Missing argument  for option -$$self\n";
@@ -121,8 +125,8 @@ sub match
 	if ($self->SUPER::match($_, $opts, $canonical, $code)) {
 		return 1;
 	}
-	if (m/^-\Q$$self\E\=(.*)$/) {
-		&$code($opts, $canonical, $1);
+	if (m/^(-\Q$$self\E)\=(.*)$/) {
+		&$code($opts, $canonical, $2, $1);
 		return 1;
 	}
 	return 0;

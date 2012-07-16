@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-choose-tree.c,v 1.2 2012/07/09 07:08:03 nicm Exp $ */
+/* $OpenBSD: cmd-choose-tree.c,v 1.5 2012/07/12 13:03:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2012 Thomas Adam <thomas@xteddy.org>
@@ -19,6 +19,7 @@
 #include <sys/types.h>
 
 #include <ctype.h>
+#include <stdlib.h>
 
 #include <string.h>
 
@@ -69,13 +70,12 @@ const struct cmd_entry cmd_choose_window_entry = {
 	cmd_choose_tree_exec
 };
 
-int
+enum cmd_retval
 cmd_choose_tree_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct args			*args = self->args;
 	struct winlink			*wl, *wm;
 	struct session			*s, *s2;
-	struct tty			*tty;
 	struct window_choose_data	*wcd = NULL;
 	const char			*ses_template, *win_template;
 	char				*final_win_action, *final_win_template;
@@ -88,17 +88,16 @@ cmd_choose_tree_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	if (ctx->curclient == NULL) {
 		ctx->error(ctx, "must be run interactively");
-		return (-1);
+		return (CMD_RETURN_ERROR);
 	}
 
 	s = ctx->curclient->session;
-	tty = &ctx->curclient->tty;
 
 	if ((wl = cmd_find_window(ctx, args_get(args, 't'), NULL)) == NULL)
-		return (-1);
+		return (CMD_RETURN_ERROR);
 
 	if (window_pane_set_mode(wl->window->active, &window_choose_mode) != 0)
-		return (0);
+		return (CMD_RETURN_NORMAL);
 
 	/* Sort out which command this is. */
 	wflag = sflag = 0;
@@ -206,7 +205,7 @@ windows_only:
 				ctx, s2, wm, final_win_template,
 				final_win_action, idx_ses);
 
-			xfree(final_win_action);
+			free(final_win_action);
 		}
 		/*
 		 * If we're just drawing windows, don't consider moving on to
@@ -215,13 +214,12 @@ windows_only:
 		if (wflag && !sflag)
 			break;
 	}
-	if (final_win_template != NULL)
-		xfree(final_win_template);
+	free(final_win_template);
 
 	window_choose_ready(wl->window->active, cur_win,
 		cmd_choose_tree_callback, cmd_choose_tree_free);
 
-	return (0);
+	return (CMD_RETURN_NORMAL);
 }
 
 void
@@ -242,10 +240,9 @@ cmd_choose_tree_free(struct window_choose_data *cdata)
 	cdata->session->references--;
 	cdata->client->references--;
 
-	xfree(cdata->ft_template);
-	xfree(cdata->command);
+	free(cdata->ft_template);
+	free(cdata->command);
 	format_free(cdata->ft);
-	xfree(cdata);
+	free(cdata);
 
 }
-

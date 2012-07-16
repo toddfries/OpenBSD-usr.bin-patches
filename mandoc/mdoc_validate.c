@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.102 2012/05/24 23:33:23 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.105 2012/07/12 15:09:50 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
@@ -313,12 +313,12 @@ static	const enum mdoct rsord[RSORD_MAX] = {
 	MDOC__R,
 	MDOC__N,
 	MDOC__V,
+	MDOC__U,
 	MDOC__P,
 	MDOC__Q,
 	MDOC__D,
 	MDOC__O,
-	MDOC__C,
-	MDOC__U
+	MDOC__C
 };
 
 static	const char * const secnames[SEC__MAX] = {
@@ -732,14 +732,14 @@ pre_bl(PRE_ARGS)
 	/* 
 	 * Validate the width field.  Some list types don't need width
 	 * types and should be warned about them.  Others should have it
-	 * and must also be warned.
+	 * and must also be warned.  Yet others have a default and need
+	 * no warning.
 	 */
 
 	switch (n->norm->Bl.type) {
 	case (LIST_tag):
-		if (n->norm->Bl.width)
-			break;
-		mdoc_nmsg(mdoc, n, MANDOCERR_NOWIDTHARG);
+		if (NULL == n->norm->Bl.width)
+			mdoc_nmsg(mdoc, n, MANDOCERR_NOWIDTHARG);
 		break;
 	case (LIST_column):
 		/* FALLTHROUGH */
@@ -752,6 +752,18 @@ pre_bl(PRE_ARGS)
 	case (LIST_item):
 		if (n->norm->Bl.width)
 			mdoc_nmsg(mdoc, n, MANDOCERR_IGNARGV);
+		break;
+	case (LIST_bullet):
+		/* FALLTHROUGH */
+	case (LIST_dash):
+		/* FALLTHROUGH */
+	case (LIST_hyphen):
+		if (NULL == n->norm->Bl.width)
+			n->norm->Bl.width = "2n";
+		break;
+	case (LIST_enum):
+		if (NULL == n->norm->Bl.width)
+			n->norm->Bl.width = "3n";
 		break;
 	default:
 		break;
@@ -1110,24 +1122,29 @@ post_nm(POST_ARGS)
 	char		 buf[BUFSIZ];
 	int		 c;
 
-	/* If no child specified, make sure we have the meta name. */
-
-	if (NULL == mdoc->last->child && NULL == mdoc->meta.name) {
-		mdoc_nmsg(mdoc, mdoc->last, MANDOCERR_NONAME);
-		return(1);
-	} else if (mdoc->meta.name)
+	if (NULL != mdoc->meta.name)
 		return(1);
 
-	/* If no meta name, set it from the child. */
+	/* Try to use our children for setting the meta name. */
 
-	buf[0] = '\0';
-	if (-1 == (c = concat(buf, mdoc->last->child, BUFSIZ))) {
+	if (NULL != mdoc->last->child) {
+		buf[0] = '\0';
+		c = concat(buf, mdoc->last->child, BUFSIZ);
+	} else
+		c = 0;
+
+	switch (c) {
+	case (-1):
 		mdoc_nmsg(mdoc, mdoc->last->child, MANDOCERR_MEM);
 		return(0);
+	case (0):
+		mdoc_nmsg(mdoc, mdoc->last, MANDOCERR_NONAME);
+		mdoc->meta.name = mandoc_strdup("UNKNOWN");
+		break;
+	default:
+		mdoc->meta.name = mandoc_strdup(buf);
+		break;
 	}
-
-	assert(c);
-	mdoc->meta.name = mandoc_strdup(buf);
 	return(1);
 }
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-list-clients.c,v 1.10 2012/05/22 11:35:37 nicm Exp $ */
+/* $OpenBSD: cmd-list-clients.c,v 1.12 2012/07/11 07:10:15 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -18,6 +18,7 @@
 
 #include <sys/types.h>
 
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -40,7 +41,7 @@ const struct cmd_entry cmd_list_clients_entry = {
 };
 
 /* ARGSUSED */
-int
+enum cmd_retval
 cmd_list_clients_exec(struct cmd *self, struct cmd_ctx *ctx)
 {
 	struct args 		*args = self->args;
@@ -54,7 +55,7 @@ cmd_list_clients_exec(struct cmd *self, struct cmd_ctx *ctx)
 	if (args_has(args, 't')) {
 		s = cmd_find_session(ctx, args_get(args, 't'), 0);
 		if (s == NULL)
-			return (-1);
+			return (CMD_RETURN_ERROR);
 	} else
 		s = NULL;
 
@@ -76,10 +77,10 @@ cmd_list_clients_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 		line = format_expand(ft, template);
 		ctx->print(ctx, "%s", line);
-		xfree(line);
+		free(line);
 
 		format_free(ft);
 	}
 
-	return (0);
+	return (CMD_RETURN_NORMAL);
 }
