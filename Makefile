@@ -28,6 +28,7 @@ SUBDIR= apply apropos ar arch asa asn1_compile at aucat audioctl awk banner \
 	unvis users uudecode uuencode vacation vi vis vmstat w wall wc \
 	what whatis which who whois write x99token xargs xinstall \
 	xstr yacc yes
+SUBDIR+= aucatvol
 
 .if (${YP:L} == "yes")
 SUBDIR+=ypcat ypmatch ypwhich
