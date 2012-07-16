@@ -1,4 +1,4 @@
-# $OpenBSD: LaFile.pm,v 1.8 2012/07/08 12:29:21 jasper Exp $
+# $OpenBSD: LaFile.pm,v 1.16 2012/07/12 19:21:00 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -152,7 +152,7 @@ sub find
 sub link
 {
 	require LT::Linker;
-	return LT::Linker::LaFile->link(@_);
+	return LT::Linker::LaFile->new->link(@_);
 }
 
 sub install
@@ -214,13 +214,12 @@ use File::Basename;
 
 sub link
 {
-	my ($class, $self, $ltprog, $la, $fname, $odir, $shared, $objs, $dirs,
-	    $libs, $deplibs, $libdirs, $parser, $opts) = @_;
+	my ($linker, $self, $ltprog, $ltconfig, $la, $fname, $odir, $shared, 
+	    $objs, $dirs, $libs, $deplibs, $libdirs, $parser, $gp) = @_;
 
 	tsay {"creating link command for library (linked ",
 		($shared) ? "dynamically" : "statically", ")"};
 
-	my $what = ref($self);
 	my @libflags;
 	my @cmd;
 	my $dst = ($odir eq '.') ? "$ltdir/$fname" : "$odir/$ltdir/$fname";
@@ -232,20 +231,10 @@ sub link
 	if ($odir ne '.') {
 		$symlinkdir = "$odir/$ltdir";
 	}
-	mkdir $symlinkdir if (! -d $symlinkdir);
+	mkdir $symlinkdir if ! -d $symlinkdir;
 
-	tsay {"argvstring (pre resolve_la): @{$parser->{args}}"};
-	my $args = $parser->resolve_la($deplibs, $libdirs);
-	tsay {"argvstring (post resolve_la): @{$parser->{args}}"};
-	my $orderedlibs = [];
-	my $staticlibs = [];
-	$parser->{args} = $args;
-	$args = $parser->parse_linkargs2(\@main::Rresolved,
-			\@main::libsearchdirs, $orderedlibs, $staticlibs, $dirs, $libs);
-	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
-	tsay {"orderedlibs = @$orderedlibs"};
-	my $finalorderedlibs = reverse_zap_duplicates_ref($orderedlibs);
-	tsay {"final orderedlibs = @$finalorderedlibs"};
+	my ($staticlibs, $finalorderedlibs, $args) =
+	    $linker->common1($parser, $gp, $deplibs, $libdirs, $dirs, $libs);
 
 	# static linking
 	if (!$shared) {
@@ -269,7 +258,7 @@ sub link
 			next if !defined $l->{lafile};
 			my $lainfo = LT::LaFile->parse($l->{lafile});
 			next if ($lainfo->stringize('dlname') ne '');
-			$l->find($dirs, 0, 0, $what);
+			$l->resolve_library($dirs, 0, 0, ref($self));
 			my $a = $l->{fullpath};
 			if ($a =~ m/\.a$/ && $a !~ m/_pic\.a/) {
 				# extract objects from archive
@@ -281,8 +270,8 @@ sub link
 				push @libflags, @kobjs;
 			}
 		}
-		push @cmd, @libflags if (@libflags);
-		push @cmd, @$objs if (@$objs);
+		push @cmd, @libflags if @libflags;
+		push @cmd, @$objs if @$objs;
 		LT::Exec->link(@cmd);
 		LT::Exec->link('ranlib', $dst);
 		return;
@@ -290,16 +279,16 @@ sub link
 
 	# dynamic linking
 	my $symbolsfile;
-	if ($opts->{'export-symbols'}) {
-		$symbolsfile = $opts->{'export-symbols'};
-	} elsif ($opts->{'export-symbols-regex'}) {
+	if ($gp->export_symbols) {
+		$symbolsfile = $gp->export_symbols;
+	} elsif ($gp->export_symbols_regex) {
 		($symbolsfile = "$odir/$ltdir/$la") =~ s/\.la$/.exp/;
-		LT::Archive->get_symbollist($symbolsfile, $opts->{'export-symbols-regex'}, $objs);
+		LT::Archive->get_symbollist($symbolsfile, $gp->export_symbols_regex, $objs);
 	}
 	my $tmp = [];
 	while (my $k = shift @$finalorderedlibs) {
 		my $l = $libs->{$k};
-		$l->find($dirs, 1, $opts->{'static'}, $what);
+		$l->resolve_library($dirs, 1, $gp->static, ref($self));
 		if ($l->{dropped}) {
 			# remove library if dependency on it has been dropped
 			delete $libs->{$k};
@@ -314,7 +303,7 @@ sub link
 	tsay {"libfiles:\n", 
 	    join("\n", map { $_->{fullpath}//'UNDEF' } @libobjects) };
 
-	$class->create_symlinks($symlinkdir, $libs);
+	$linker->create_symlinks($symlinkdir, $libs);
 	my $prev_was_archive = 0;
 	my $libcounter = 0;
 	foreach my $k (@$finalorderedlibs) {
@@ -330,21 +319,15 @@ sub link
 		} else {
 			push @libflags, '-Wl,-no-whole-archive' if $prev_was_archive;
 			$prev_was_archive = 0;
-			my $lib = basename($a);
-			if ($lib =~ m/^lib(.*)\.so(\.\d+){2}/) {
-				$lib = $1;
-			} else {
-				say "warning: cannot derive -l flag from library filename $a, assuming hash key -l$k";
-				$lib = $k;
-			}
-			push @libflags, "-l$lib";
+			push @libflags, $linker->infer_libparameter($a, $k);
 		}
 		$libcounter++;
 	}
 
 	@cmd = @$ltprog;
-	push @cmd, $sharedflag, @picflags;
+	push @cmd, $ltconfig->sharedflag, @{$ltconfig->picflags};
 	push @cmd, '-o', $dst;
+	push @cmd, '-pthread' if $parser->{pthread};
 	push @cmd, @$args if $args;
 	push @cmd, @$objs if @$objs;
 	push @cmd, '-Wl,-whole-archive', @$staticlibs, '-Wl,-no-whole-archive'
