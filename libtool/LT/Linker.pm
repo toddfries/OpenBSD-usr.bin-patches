@@ -1,4 +1,4 @@
-# $OpenBSD: Linker.pm,v 1.1 2012/07/08 10:42:25 espie Exp $
+# $OpenBSD: Linker.pm,v 1.5 2012/07/12 19:21:00 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -24,6 +24,12 @@ use LT::Trace;
 use LT::Util;
 use File::Basename;
 use Cwd qw(abs_path);
+
+sub new
+{
+	my $class = shift;
+	bless {}, $class;
+}
 
 sub create_symlinks
 {
@@ -58,6 +64,38 @@ sub create_symlinks
 		}
 	}
 	return $dir;
+}
+
+sub common1
+{
+	my ($self, $parser, $gp, $deplibs, $libdirs, $dirs, $libs) = @_;
+
+	$parser->resolve_la($deplibs, $libdirs);
+	my $orderedlibs = [];
+	my $staticlibs = [];
+	my $args = $parser->parse_linkargs2($gp, $orderedlibs, $staticlibs, $dirs, 
+	    $libs);
+	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
+	tsay {"orderedlibs = @$orderedlibs"};
+	$orderedlibs = reverse_zap_duplicates_ref($orderedlibs);
+	tsay {"final orderedlibs = @$orderedlibs"};
+	return ($staticlibs, $orderedlibs, $args);
+}
+
+sub infer_libparameter
+{
+	my ($self, $a, $k) = @_;
+	my $lib = basename($a);
+	if ($lib =~ m/^lib(.*)\.so(\.\d+){2}$/) {
+		$lib = $1;
+	} elsif ($lib =~ m/^lib(.*)\.so$/) {
+		say "warning: library filename $a has no version number";
+		$lib = $1;
+	} else {
+		say "warning: cannot derive -l flag from library filename $a, assuming hash key -l$k";
+		$lib = $k;
+	}
+	return "-l$lib";
 }
 
 1;
