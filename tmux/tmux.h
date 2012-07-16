@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.346 2012/07/08 16:04:38 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.349 2012/07/13 06:27:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1331,6 +1331,13 @@ struct cmd_list {
 	TAILQ_HEAD(, cmd) 	 list;
 };
 
+enum cmd_retval {
+	CMD_RETURN_ERROR = -1,
+	CMD_RETURN_NORMAL = 0,
+	CMD_RETURN_YIELD,
+	CMD_RETURN_ATTACH
+};
+
 struct cmd_entry {
 	const char	*name;
 	const char	*alias;
@@ -1349,7 +1356,7 @@ struct cmd_entry {
 
 	void		 (*key_binding)(struct cmd *, int);
 	int		 (*check)(struct args *);
-	int		 (*exec)(struct cmd *, struct cmd_ctx *);
+	enum cmd_retval	 (*exec)(struct cmd *, struct cmd_ctx *);
 };
 
 /* Key binding. */
@@ -1477,6 +1484,8 @@ void	mode_key_init(struct mode_key_data *, struct mode_key_tree *);
 enum mode_key_cmd mode_key_lookup(struct mode_key_data *, int);
 
 /* notify.c */
+void	notify_enable(void);
+void	notify_disable(void);
 void	notify_window_layout_changed(struct window *);
 void	notify_window_unlinked(struct session *, struct window *);
 void	notify_window_linked(struct session *, struct window *);
@@ -1641,7 +1650,7 @@ int		 cmd_unpack_argv(char *, size_t, int, char ***);
 char	       **cmd_copy_argv(int, char *const *);
 void		 cmd_free_argv(int, char **);
 struct cmd	*cmd_parse(int, char **, char **);
-int		 cmd_exec(struct cmd *, struct cmd_ctx *);
+enum cmd_retval	 cmd_exec(struct cmd *, struct cmd_ctx *);
 void		 cmd_free(struct cmd *);
 size_t		 cmd_print(struct cmd *, char *, size_t);
 struct session	*cmd_current_session(struct cmd_ctx *, int);
@@ -1745,7 +1754,7 @@ extern const struct cmd_entry cmd_up_pane_entry;
 
 /* cmd-list.c */
 struct cmd_list	*cmd_list_parse(int, char **, char **);
-int		 cmd_list_exec(struct cmd_list *, struct cmd_ctx *);
+enum cmd_retval	 cmd_list_exec(struct cmd_list *, struct cmd_ctx *);
 void		 cmd_list_free(struct cmd_list *);
 size_t		 cmd_list_print(struct cmd_list *, char *, size_t);
 
@@ -2155,11 +2164,11 @@ void		 queue_window_name(struct window *);
 char		*default_window_name(struct window *);
 
 /* signal.c */
-void set_signals(void(*)(int, short, void *));
-void clear_signals(int);
+void	set_signals(void(*)(int, short, void *));
+void	clear_signals(int);
 
 /* control.c */
-void control_callback(struct client *, int, void*);
+void	control_callback(struct client *, int, void*);
 
 /* session.c */
 extern struct sessions sessions;
@@ -2224,7 +2233,6 @@ char		*xstrdup(const char *);
 void		*xcalloc(size_t, size_t);
 void		*xmalloc(size_t);
 void		*xrealloc(void *, size_t, size_t);
-void		 xfree(void *);
 int printflike2	 xasprintf(char **, const char *, ...);
 int		 xvasprintf(char **, const char *, va_list);
 int printflike3	 xsnprintf(char *, size_t, const char *, ...);
