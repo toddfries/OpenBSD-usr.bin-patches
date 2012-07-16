@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.342 2012/06/18 13:16:42 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.346 2012/07/08 16:04:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -846,6 +846,21 @@ struct window_mode {
 	void	(*timer)(struct window_pane *);
 };
 
+/* Structures for choose mode. */
+struct window_choose_data {
+	struct client		*client;
+	struct session		*session;
+	struct format_tree	*ft;
+	char		        *ft_template;
+	char			*command;
+	u_int			 idx;
+};
+
+struct window_choose_mode_item {
+    struct window_choose_data   *wcd;
+    char                        *name;
+};
+
 /* Child window structure. */
 struct window_pane {
 	u_int		 id;
@@ -1649,6 +1664,7 @@ extern const struct cmd_entry cmd_capture_pane_entry;
 extern const struct cmd_entry cmd_choose_buffer_entry;
 extern const struct cmd_entry cmd_choose_client_entry;
 extern const struct cmd_entry cmd_choose_session_entry;
+extern const struct cmd_entry cmd_choose_tree_entry;
 extern const struct cmd_entry cmd_choose_window_entry;
 extern const struct cmd_entry cmd_clear_history_entry;
 extern const struct cmd_entry cmd_clock_mode_entry;
@@ -2061,6 +2077,7 @@ struct window_pane *window_pane_find_down(struct window_pane *);
 struct window_pane *window_pane_find_left(struct window_pane *);
 struct window_pane *window_pane_find_right(struct window_pane *);
 void		 window_set_name(struct window *, const char *);
+void		 winlink_clear_flags(struct winlink *);
 
 /* layout.c */
 u_int		 layout_count_cells(struct layout_cell *);
@@ -2119,12 +2136,19 @@ void		 window_copy_pageup(struct window_pane *);
 
 /* window-choose.c */
 extern const struct window_mode window_choose_mode;
-void		 window_choose_vadd(
-		     struct window_pane *, int, const char *, va_list);
-void printflike3 window_choose_add(
-		     struct window_pane *, int, const char *, ...);
+void		 window_choose_add(struct window_pane *,
+			 struct window_choose_data *);
 void		 window_choose_ready(struct window_pane *,
-		     u_int, void (*)(void *, int), void (*)(void *), void *);
+		     u_int, void (*)(struct window_choose_data *),
+		     void (*)(struct window_choose_data *));
+struct window_choose_data	*window_choose_data_create(struct cmd_ctx *);
+void		 window_choose_ctx(struct window_choose_data *);
+struct window_choose_data	*window_choose_add_window(struct window_pane *,
+			struct cmd_ctx *, struct session *, struct winlink *,
+			const char *, char *, u_int);
+struct window_choose_data	*window_choose_add_session(struct window_pane *,
+			struct cmd_ctx *, struct session *, const char *,
+			char *, u_int);
 
 /* names.c */
 void		 queue_window_name(struct window *);
