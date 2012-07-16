@@ -1,4 +1,4 @@
-/*	$Id: mdoc_man.c,v 1.26 2012/07/09 22:36:04 schwarze Exp $ */
+/*	$Id: mdoc_man.c,v 1.33 2012/07/12 08:53:45 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -39,18 +39,22 @@ static	int	  cond_body(DECL_ARGS);
 static	int	  cond_head(DECL_ARGS);
 static  void	  font_push(char);
 static	void	  font_pop(void);
+static	void	  post__t(DECL_ARGS);
 static	void	  post_bd(DECL_ARGS);
 static	void	  post_bf(DECL_ARGS);
 static	void	  post_bk(DECL_ARGS);
+static	void	  post_bl(DECL_ARGS);
 static	void	  post_dl(DECL_ARGS);
 static	void	  post_enc(DECL_ARGS);
 static	void	  post_eo(DECL_ARGS);
 static	void	  post_fa(DECL_ARGS);
+static	void	  post_fd(DECL_ARGS);
 static	void	  post_fl(DECL_ARGS);
 static	void	  post_fn(DECL_ARGS);
 static	void	  post_fo(DECL_ARGS);
 static	void	  post_font(DECL_ARGS);
 static	void	  post_in(DECL_ARGS);
+static	void	  post_it(DECL_ARGS);
 static	void	  post_lb(DECL_ARGS);
 static	void	  post_nm(DECL_ARGS);
 static	void	  post_percent(DECL_ARGS);
@@ -58,17 +62,20 @@ static	void	  post_pf(DECL_ARGS);
 static	void	  post_sect(DECL_ARGS);
 static	void	  post_sp(DECL_ARGS);
 static	void	  post_vt(DECL_ARGS);
+static	int	  pre__t(DECL_ARGS);
 static	int	  pre_an(DECL_ARGS);
 static	int	  pre_ap(DECL_ARGS);
 static	int	  pre_bd(DECL_ARGS);
 static	int	  pre_bf(DECL_ARGS);
 static	int	  pre_bk(DECL_ARGS);
+static	int	  pre_bl(DECL_ARGS);
 static	int	  pre_br(DECL_ARGS);
 static	int	  pre_bx(DECL_ARGS);
 static	int	  pre_dl(DECL_ARGS);
 static	int	  pre_enc(DECL_ARGS);
 static	int	  pre_em(DECL_ARGS);
 static	int	  pre_fa(DECL_ARGS);
+static	int	  pre_fd(DECL_ARGS);
 static	int	  pre_fl(DECL_ARGS);
 static	int	  pre_fn(DECL_ARGS);
 static	int	  pre_fo(DECL_ARGS);
@@ -81,6 +88,7 @@ static	int	  pre_nm(DECL_ARGS);
 static	int	  pre_no(DECL_ARGS);
 static	int	  pre_ns(DECL_ARGS);
 static	int	  pre_pp(DECL_ARGS);
+static	int	  pre_rs(DECL_ARGS);
 static	int	  pre_sm(DECL_ARGS);
 static	int	  pre_sp(DECL_ARGS);
 static	int	  pre_sect(DECL_ARGS);
@@ -91,6 +99,9 @@ static	int	  pre_ux(DECL_ARGS);
 static	int	  pre_xr(DECL_ARGS);
 static	void	  print_word(const char *);
 static	void	  print_offs(const char *);
+static	void	  print_width(const char *,
+				const struct mdoc_node *, size_t);
+static	void	  print_count(int *);
 static	void	  print_node(DECL_ARGS);
 
 static	const struct manact manacts[MDOC_MAX + 1] = {
@@ -105,9 +116,9 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ cond_body, pre_dl, post_dl, NULL, NULL }, /* Dl */
 	{ cond_body, pre_bd, post_bd, NULL, NULL }, /* Bd */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Ed */
-	{ NULL, NULL, NULL, NULL, NULL }, /* Bl */
+	{ cond_body, pre_bl, post_bl, NULL, NULL }, /* Bl */
 	{ NULL, NULL, NULL, NULL, NULL }, /* El */
-	{ NULL, pre_it, NULL, NULL, NULL }, /* _It */
+	{ NULL, pre_it, post_it, NULL, NULL }, /* It */
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Ad */
 	{ NULL, pre_an, NULL, NULL, NULL }, /* An */
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Ar */
@@ -120,7 +131,7 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	    "\\fP\nutility exits 0 on success, and >0 if an error occurs."
 	    }, /* Ex */
 	{ NULL, pre_fa, post_fa, NULL, NULL }, /* Fa */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _Fd */
+	{ NULL, pre_fd, post_fd, NULL, NULL }, /* Fd */
 	{ NULL, pre_fl, post_fl, NULL, NULL }, /* Fl */
 	{ NULL, pre_fn, post_fn, NULL, NULL }, /* Fn */
 	{ NULL, pre_ft, post_font, NULL, NULL }, /* Ft */
@@ -141,17 +152,17 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, pre_em, post_font, NULL, NULL }, /* Va */
 	{ NULL, pre_vt, post_vt, NULL, NULL }, /* Vt */
 	{ NULL, pre_xr, NULL, NULL, NULL }, /* Xr */
-	{ NULL, NULL, post_percent, NULL, NULL }, /* _%A */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%B */
-	{ NULL, NULL, post_percent, NULL, NULL }, /* _%D */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%I */
-	{ NULL, pre_enc, post_percent, "\\fI", "\\fP" }, /* %J */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%N */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%O */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%P */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%R */
-	{ NULL, pre_enc, post_percent, "\"", "\"" }, /* %T */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%V */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %A */
+	{ NULL, pre_em, post_percent, NULL, NULL }, /* %B */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %D */
+	{ NULL, pre_em, post_percent, NULL, NULL }, /* %I */
+	{ NULL, pre_em, post_percent, NULL, NULL }, /* %J */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %N */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %O */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %P */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %R */
+	{ NULL, pre__t, post__t, NULL, NULL }, /* %T */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %V */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Ac */
 	{ cond_body, pre_enc, post_enc, "<", ">" }, /* Ao */
 	{ cond_body, pre_enc, post_enc, "<", ">" }, /* Aq */
@@ -185,7 +196,7 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ cond_body, pre_enc, post_enc, "\"", "\"" }, /* Qo */
 	{ cond_body, pre_enc, post_enc, "\"", "\"" }, /* Qq */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Re */
-	{ cond_body, pre_pp, NULL, NULL, NULL }, /* Rs */
+	{ cond_body, pre_rs, NULL, NULL, NULL }, /* Rs */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Sc */
 	{ cond_body, pre_enc, post_enc, "`", "'" }, /* So */
 	{ cond_body, pre_enc, post_enc, "`", "'" }, /* Sq */
@@ -194,8 +205,8 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ NULL, pre_sy, post_font, NULL, NULL }, /* Sy */
 	{ NULL, pre_li, post_font, NULL, NULL }, /* Tn */
 	{ NULL, pre_ux, NULL, "UNIX", NULL }, /* Ux */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _Xc */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _Xo */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Xc */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Xo */
 	{ NULL, pre_fo, post_fo, NULL, NULL }, /* Fo */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Fc */
 	{ cond_body, pre_enc, post_enc, "[", "]" }, /* Oo */
@@ -213,15 +224,15 @@ static	const struct manact manacts[MDOC_MAX + 1] = {
 	{ cond_body, pre_enc, post_enc, "{", "}" }, /* Brq */
 	{ cond_body, pre_enc, post_enc, "{", "}" }, /* Bro */
 	{ NULL, NULL, NULL, NULL, NULL }, /* Brc */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%C */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _Es */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _En */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %C */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Es */
+	{ NULL, NULL, NULL, NULL, NULL }, /* En */
 	{ NULL, pre_ux, NULL, "DragonFly", NULL }, /* Dx */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%Q */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %Q */
 	{ NULL, pre_br, NULL, NULL, NULL }, /* br */
 	{ NULL, pre_sp, post_sp, NULL, NULL }, /* sp */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _%U */
-	{ NULL, NULL, NULL, NULL, NULL }, /* _Ta */
+	{ NULL, NULL, post_percent, NULL, NULL }, /* %U */
+	{ NULL, NULL, NULL, NULL, NULL }, /* Ta */
 	{ NULL, NULL, NULL, NULL, NULL }, /* ROOT */
 };
 
@@ -345,6 +356,50 @@ print_offs(const char *v)
 		sz = strlen(v);
 
 	snprintf(buf, sizeof(buf), "%ldn", sz);
+	print_word(buf);
+}
+
+void
+print_width(const char *v, const struct mdoc_node *child, size_t defsz)
+{
+	char		  buf[24];
+	struct roffsu	  su;
+	size_t		  sz, chsz;
+
+	/* XXX Rough estimation, might have multiple parts. */
+	chsz = (NULL != child && MDOC_TEXT == child->type) ?
+			strlen(child->string) : 0;
+
+	if (NULL == v)
+		sz = defsz;
+	else if (a2roffsu(v, &su, SCALE_MAX)) {
+		if (SCALE_EN == su.unit)
+			sz = su.scale;
+		else {
+			if (chsz)
+				print_word(".HP");
+			else
+				print_word(".TP");
+			print_word(v);
+			return;
+		}
+	} else
+		sz = strlen(v);
+
+	if (chsz > sz)
+		print_word(".HP");
+	else
+		print_word(".TP");
+	snprintf(buf, sizeof(buf), "%ldn", sz + 2);
+	print_word(buf);
+}
+
+void
+print_count(int *count)
+{
+	char		  buf[12];
+
+	snprintf(buf, sizeof(buf), "%d.", ++*count);
 	print_word(buf);
 }
 
@@ -486,22 +541,47 @@ post_font(DECL_ARGS)
 	font_pop();
 }
 
-/*
- * Used in listings (percent = %A, e.g.).
- * FIXME: this is incomplete. 
- * It doesn't print a nice ", and" for lists.
- */
 static void
 post_percent(DECL_ARGS)
 {
 
-	post_enc(m, n);
-	if (n->next)
+	if (pre_em == manacts[n->tok].pre)
+		font_pop();
+	if (n->next) {
 		print_word(",");
-	else {
+		if (n->prev &&	n->prev->tok == n->tok &&
+				n->next->tok == n->tok)
+			print_word("and");
+	} else {
 		print_word(".");
 		outflags |= MMAN_nl;
 	}
+}
+
+static int
+pre__t(DECL_ARGS)
+{
+
+        if (n->parent && MDOC_Rs == n->parent->tok &&
+                        n->parent->norm->Rs.quote_T) {
+		print_word("\"");
+		outflags &= ~MMAN_spc;
+	} else
+		font_push('I');
+	return(1);
+}
+
+static void
+post__t(DECL_ARGS)
+{
+
+        if (n->parent && MDOC_Rs == n->parent->tok &&
+                        n->parent->norm->Rs.quote_T) {
+		outflags &= ~MMAN_spc;
+		print_word("\"");
+	} else
+		font_pop();
+	post_percent(m, n);
 }
 
 /*
@@ -699,6 +779,48 @@ post_bk(DECL_ARGS)
 }
 
 static int
+pre_bl(DECL_ARGS)
+{
+	size_t		 icol;
+
+	switch (n->norm->Bl.type) {
+	case (LIST_enum):
+		n->norm->Bl.count = 0;
+		return(1);
+	case (LIST_column):
+		break;
+	default:
+		return(1);
+	}
+
+	outflags |= MMAN_nl;
+	print_word(".TS");
+	outflags |= MMAN_nl;
+	for (icol = 0; icol < n->norm->Bl.ncols; icol++)
+		print_word("l");
+	print_word(".");
+	return(1);
+}
+
+static void
+post_bl(DECL_ARGS)
+{
+
+	switch (n->norm->Bl.type) {
+	case (LIST_enum):
+		n->norm->Bl.count = 0;
+		break;
+	case (LIST_column):
+		outflags |= MMAN_nl;
+		print_word(".TE");
+		break;
+	default:
+		break;
+	}
+	outflags |= MMAN_br;
+}
+
+static int
 pre_br(DECL_ARGS)
 {
 
@@ -787,6 +909,23 @@ post_fa(DECL_ARGS)
 }
 
 static int
+pre_fd(DECL_ARGS)
+{
+
+	pre_syn(n);
+	font_push('B');
+	return(1);
+}
+
+static void
+post_fd(DECL_ARGS)
+{
+
+	font_pop();
+	outflags |= MMAN_br;
+}
+
+static int
 pre_fl(DECL_ARGS)
 {
 
@@ -822,7 +961,11 @@ pre_fn(DECL_ARGS)
 	outflags &= ~MMAN_spc;
 	print_word("(");
 	outflags &= ~MMAN_spc;
-	return(pre_fa(m, n->next));
+
+	n = n->next;
+	if (NULL != n)
+		pre_fa(m, n);
+	return(0);
 }
 
 static void
@@ -921,24 +1064,98 @@ pre_it(DECL_ARGS)
 {
 	const struct mdoc_node *bln;
 
-	if (MDOC_HEAD == n->type) {
+	switch (n->type) {
+	case (MDOC_HEAD):
 		outflags |= MMAN_nl;
-		print_word(".TP");
-		bln = n->parent->parent->prev;
+		bln = n->parent->parent;
 		switch (bln->norm->Bl.type) {
+		case (LIST_item):
+			if (bln->norm->Bl.comp)
+				outflags |= MMAN_br;
+			else
+				outflags |= MMAN_sp;
+			return(0);
+		case (LIST_inset):
+			/* FALLTHROUGH */
+		case (LIST_diag):
+			/* FALLTHROUGH */
+		case (LIST_ohang):
+			if (bln->norm->Bl.comp)
+				outflags |= MMAN_br;
+			else
+				outflags |= MMAN_sp;
+			if (bln->norm->Bl.type == LIST_diag)
+				print_word(".B \"");
+			else
+				print_word(".R \"");
+			outflags &= ~MMAN_spc;
+			return(1);
 		case (LIST_bullet):
-			print_word("4n");
+			/* FALLTHROUGH */
+		case (LIST_dash):
+			/* FALLTHROUGH */
+		case (LIST_hyphen):
+			print_width(bln->norm->Bl.width, NULL, 0);
 			outflags |= MMAN_nl;
-			print_word("\\fBo\\fP");
+			font_push('B');
+			if (LIST_bullet == bln->norm->Bl.type)
+				print_word("o");
+			else
+				print_word("-");
+			font_pop();
+			break;
+		case (LIST_enum):
+			print_width(bln->norm->Bl.width, NULL, 0);
+			outflags |= MMAN_nl;
+			print_count(&bln->norm->Bl.count);
+			break;
+		case (LIST_hang):
+			print_width(bln->norm->Bl.width, n->child, 6);
+			break;
+		case (LIST_tag):
+			print_width(bln->norm->Bl.width, NULL, 8);
 			break;
 		default:
-			if (bln->norm->Bl.width)
-				print_word(bln->norm->Bl.width);
-			break;
+			return(1);
 		}
 		outflags |= MMAN_nl;
+	default:
+		break;
 	}
 	return(1);
+}
+
+static void
+post_it(DECL_ARGS)
+{
+	const struct mdoc_node *bln;
+
+	bln = n->parent->parent;
+
+	switch (n->type) {
+	case (MDOC_HEAD):
+		switch (bln->norm->Bl.type) {
+		case (LIST_diag):
+			outflags &= ~MMAN_spc;
+			print_word("\\ ");
+			break;
+		case (LIST_ohang):
+			outflags |= MMAN_br;
+			break;
+		default:
+			break;
+		}
+		break;
+	case (MDOC_BODY):
+		if (LIST_column == bln->norm->Bl.type &&
+		    NULL != n->next) {
+			putchar('\t');
+			outflags &= ~MMAN_spc;
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 static void
@@ -1039,7 +1256,19 @@ pre_pp(DECL_ARGS)
 	else
 		print_word(".PP");
 	outflags |= MMAN_nl;
-	return(MDOC_Rs == n->tok);
+	return(0);
+}
+
+static int
+pre_rs(DECL_ARGS)
+{
+
+	if (SEC_SEE_ALSO == n->sec) {
+		outflags |= MMAN_nl;
+		print_word(".PP");
+		outflags |= MMAN_nl;
+	}
+	return(1);
 }
 
 static int
