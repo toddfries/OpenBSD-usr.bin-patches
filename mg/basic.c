@@ -1,4 +1,4 @@
-/*	$OpenBSD: basic.c,v 1.30 2009/06/04 02:23:37 kjell Exp $	*/
+/*	$OpenBSD: basic.c,v 1.37 2012/06/18 09:26:03 lum Exp $	*/
 
 /* This file is in the public domain */
 
@@ -115,17 +115,30 @@ gotobob(int f, int n)
 }
 
 /*
- * Go to the end of the buffer.
- * Setting WFFULL is conservative, but
- * almost always the case.
+ * Go to the end of the buffer. Leave dot 3 lines from the bottom of the
+ * window if buffer length is longer than window length; same as emacs.
+ * Setting WFFULL is conservative, but almost always the case.
  */
 int
 gotoeob(int f, int n)
 {
+	struct line	*lp;
+	
 	(void) setmark(f, n);
 	curwp->w_dotp = blastlp(curbp);
 	curwp->w_doto = llength(curwp->w_dotp);
 	curwp->w_dotline = curwp->w_bufp->b_lines;
+
+	lp = curwp->w_dotp;
+	n = curwp->w_ntrows - 3;
+
+	if (n < curwp->w_bufp->b_lines && n >= 3) {
+		while (n--)
+			curwp->w_dotp = lback(curwp->w_dotp);
+
+		curwp->w_linep = curwp->w_dotp;
+		curwp->w_dotp = lp;
+	}
 	curwp->w_rflag |= WFFULL;
 	return (TRUE);
 }
@@ -266,16 +279,23 @@ forwpage(int f, int n)
 			n = 1;			/* if tiny window.	 */
 	} else if (n < 0)
 		return (backpage(f | FFRAND, -n));
+
 	lp = curwp->w_linep;
-	while (n-- && lforw(lp) != curbp->b_headp) {
-		lp = lforw(lp);
-	}
+	while (n--)
+		if ((lp = lforw(lp)) == curbp->b_headp) {
+			ttbeep();
+			ewprintf("End of buffer");
+			return(TRUE);
+		}
+
 	curwp->w_linep = lp;
 	curwp->w_rflag |= WFFULL;
+
 	/* if in current window, don't move dot */
 	for (n = curwp->w_ntrows; n-- && lp != curbp->b_headp; lp = lforw(lp))
 		if (lp == curwp->w_dotp)
 			return (TRUE);
+
 	/* Advance the dot the slow way, for line nos */
 	while (curwp->w_dotp != curwp->w_linep) {
 		curwp->w_dotp = lforw(curwp->w_dotp);
@@ -297,26 +317,38 @@ forwpage(int f, int n)
 int
 backpage(int f, int n)
 {
-	struct line  *lp;
+	struct line  *lp, *lp2;
 
 	if (!(f & FFARG)) {
 		n = curwp->w_ntrows - 2;	/* Default scroll.	 */
 		if (n <= 0)			/* Don't blow up if the  */
-			n = 1;			/* window is tiny.	 */
+			return (backline(f, 1));/* window is tiny.	 */
 	} else if (n < 0)
 		return (forwpage(f | FFRAND, -n));
-	lp = curwp->w_linep;
+
+	lp = lp2 = curwp->w_linep;
+
 	while (n-- && lback(lp) != curbp->b_headp) {
 		lp = lback(lp);
 	}
+	if (lp == curwp->w_linep) {
+		ttbeep();
+		ewprintf("Beginning of buffer");
+	}
 	curwp->w_linep = lp;
 	curwp->w_rflag |= WFFULL;
+
 	/* if in current window, don't move dot */
 	for (n = curwp->w_ntrows; n-- && lp != curbp->b_headp; lp = lforw(lp))
 		if (lp == curwp->w_dotp)
 			return (TRUE);
+
+        lp2 = lforw(lp2);
+
 	/* Move the dot the slow way, for line nos */
-	while (curwp->w_dotp != curwp->w_linep) {
+	while (curwp->w_dotp != lp2) {
+                if (curwp->w_dotline <= curwp->w_ntrows)
+                        return (TRUE);
 		curwp->w_dotp = lback(curwp->w_dotp);
 		curwp->w_dotline--;
 	}

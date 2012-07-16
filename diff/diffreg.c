@@ -1,4 +1,4 @@
-/*	$OpenBSD: diffreg.c,v 1.80 2011/04/01 17:25:26 nicm Exp $	*/
+/*	$OpenBSD: diffreg.c,v 1.82 2012/07/08 15:48:56 stsp Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -536,12 +536,16 @@ char *
 splice(char *dir, char *file)
 {
 	char *tail, *buf;
+	size_t dirlen;
 
+	dirlen = strlen(dir);
+	while (dirlen != 0 && dir[dirlen - 1] == '/')
+	    dirlen--;
 	if ((tail = strrchr(file, '/')) == NULL)
 		tail = file;
 	else
 		tail++;
-	xasprintf(&buf, "%s/%s", dir, tail);
+	xasprintf(&buf, "%.*s/%s", (int)dirlen, dir, tail);
 	return (buf);
 }
 
@@ -1284,17 +1288,14 @@ static int
 asciifile(FILE *f)
 {
 	unsigned char buf[BUFSIZ];
-	size_t i, cnt;
+	size_t cnt;
 
 	if (f == NULL)
 		return (1);
 
 	rewind(f);
 	cnt = fread(buf, 1, sizeof(buf), f);
-	for (i = 0; i < cnt; i++)
-		if (!isprint(buf[i]) && !isspace(buf[i]))
-			return (0);
-	return (1);
+	return (memchr(buf, '\0', cnt) == NULL);
 }
 
 #define begins_with(s, pre) (strncmp(s, pre, sizeof(pre)-1) == 0)

@@ -1,6 +1,7 @@
-/*	$Id: man_macro.c,v 1.34 2012/02/26 19:41:27 schwarze Exp $ */
+/*	$Id: man_macro.c,v 1.37 2012/07/07 17:39:05 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2012 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -73,7 +74,7 @@ const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, MAN_BSCOPE }, /* nf */
 	{ in_line_eoln, MAN_BSCOPE }, /* fi */
 	{ blk_close, 0 }, /* RE */
-	{ blk_exp, MAN_EXPLICIT }, /* RS */
+	{ blk_exp, MAN_BSCOPE | MAN_EXPLICIT }, /* RS */
 	{ in_line_eoln, 0 }, /* DT */
 	{ in_line_eoln, 0 }, /* UC */
 	{ in_line_eoln, 0 }, /* PD */
@@ -81,6 +82,8 @@ const	struct man_macro __man_macros[MAN_MAX] = {
 	{ in_line_eoln, 0 }, /* in */
 	{ in_line_eoln, 0 }, /* ft */
 	{ in_line_eoln, 0 }, /* OP */
+	{ in_line_eoln, MAN_BSCOPE }, /* EX */
+	{ in_line_eoln, MAN_BSCOPE }, /* EE */
 };
 
 const	struct man_macro * const man_macros = __man_macros;
@@ -179,8 +182,12 @@ rew_dohalt(enum mant tok, enum man_type type, const struct man_node *n)
 		return(REW_NOHALT);
 
 	/* First: rewind to ourselves. */
-	if (type == n->type && tok == n->tok)
-		return(REW_REWIND);
+	if (type == n->type && tok == n->tok) {
+		if (MAN_EXPLICIT & man_macros[n->tok].flags)
+			return(REW_HALT);
+		else
+			return(REW_REWIND);
+	}
 
 	/* 
 	 * Next follow the implicit scope-smashings as defined by man.7:
@@ -196,6 +203,10 @@ rew_dohalt(enum mant tok, enum man_type type, const struct man_node *n)
 			return(c);
 		break;
 	case (MAN_RS):
+		/* Preserve empty paragraphs before RS. */
+		if (0 == n->nchild && (MAN_P == n->tok ||
+		    MAN_PP == n->tok || MAN_LP == n->tok))
+			return(REW_HALT);
 		/* Rewind to a subsection, if a block. */
 		if (REW_NOHALT != (c = rew_block(MAN_SS, type, n)))
 			return(c);
@@ -275,16 +286,13 @@ blk_close(MACRO_PROT_ARGS)
 	}
 
 	for (nn = m->last->parent; nn; nn = nn->parent)
-		if (ntok == nn->tok)
+		if (ntok == nn->tok && MAN_BLOCK == nn->type)
 			break;
 
-	if (NULL == nn)
+	if (NULL != nn)
+		man_unscope(m, nn, MANDOCERR_MAX);
+	else
 		man_pmsg(m, line, ppos, MANDOCERR_NOSCOPE);
-
-	if ( ! rew_scope(MAN_BODY, m, ntok))
-		return(0);
-	if ( ! rew_scope(MAN_BLOCK, m, ntok))
-		return(0);
 
 	return(1);
 }
@@ -294,14 +302,14 @@ blk_close(MACRO_PROT_ARGS)
 int
 blk_exp(MACRO_PROT_ARGS)
 {
+	struct man_node	*n;
 	int		 la;
 	char		*p;
 
-	/* 
-	 * Close out prior scopes.  "Regular" explicit macros cannot be
-	 * nested, but we allow roff macros to be placed just about
-	 * anywhere.
-	 */
+	/* Close out prior implicit scopes. */
+
+	if ( ! rew_scope(MAN_BLOCK, m, tok))
+		return(0);
 
 	if ( ! man_block_alloc(m, line, ppos, tok))
 		return(0);
@@ -319,8 +327,14 @@ blk_exp(MACRO_PROT_ARGS)
 	assert(m);
 	assert(tok != MAN_MAX);
 
-	if ( ! rew_scope(MAN_HEAD, m, tok))
-		return(0);
+	for (n = m->last; n; n = n->parent) {
+		if (n->tok != tok)
+			continue;
+		assert(MAN_HEAD == n->type);
+		man_unscope(m, n, MANDOCERR_MAX);
+		break;
+	}
+
 	return(man_body_alloc(m, line, ppos, tok));
 }
 

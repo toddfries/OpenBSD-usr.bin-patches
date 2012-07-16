@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.62 2012/02/06 17:29:29 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.67 2012/07/08 16:04:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -36,6 +36,7 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_choose_buffer_entry,
 	&cmd_choose_client_entry,
 	&cmd_choose_session_entry,
+	&cmd_choose_tree_entry,
 	&cmd_choose_window_entry,
 	&cmd_clear_history_entry,
 	&cmd_clock_mode_entry,
@@ -68,6 +69,7 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_lock_client_entry,
 	&cmd_lock_server_entry,
 	&cmd_lock_session_entry,
+	&cmd_move_pane_entry,
 	&cmd_move_window_entry,
 	&cmd_new_session_entry,
 	&cmd_new_window_entry,
@@ -303,11 +305,10 @@ cmd_print(struct cmd *cmd, char *buf, size_t len)
 	if (off < len) {
 		used = args_print(cmd->args, buf + off, len - off);
 		if (used == 0)
-			buf[off - 1] = '\0';
-		else {
+			off--;
+		else
 			off += used;
-			buf[off] = '\0';
-		}
+		buf[off] = '\0';
 	}
 	return (off);
 }
@@ -1290,7 +1291,7 @@ cmd_get_default_path(struct cmd_ctx *ctx, const char *cwd)
 		/* Session working directory. */
 		root = s->cwd;
 		goto complete_path;
-	} else if (cwd[0] == '.' && (cwd[1] == '\0' || cwd[1] == '/')){
+	} else if (cwd[0] == '.' && (cwd[1] == '\0' || cwd[1] == '/')) {
 		/* Server working directory. */
 		if (getcwd(tmp, sizeof tmp) != NULL) {
 			root = tmp;
@@ -1304,7 +1305,7 @@ cmd_get_default_path(struct cmd_ctx *ctx, const char *cwd)
 		/* Empty or relative path. */
 		if (ctx->cmdclient != NULL && ctx->cmdclient->cwd != NULL)
 			root = ctx->cmdclient->cwd;
-		else if (ctx->curclient != NULL)
+		else if (ctx->curclient != NULL && s->curw != NULL)
 			root = get_proc_cwd(s->curw->window->active->pid);
 		else
 			return (s->cwd);
@@ -1325,8 +1326,10 @@ find_home:
 		return (s->cwd);
 
 complete_path:
-	if (root[skip] == '\0')
-		return (root);
+	if (root[skip] == '\0') {
+		strlcpy(path, root, sizeof path);
+		return (path);
+	}
 	n = snprintf(path, sizeof path, "%s/%s", root, cwd + skip);
 	if (n > 0 && (size_t)n < sizeof path)
 		return (path);
