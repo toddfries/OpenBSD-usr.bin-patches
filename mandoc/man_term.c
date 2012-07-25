@@ -1,4 +1,4 @@
-/*	$Id: man_term.c,v 1.84 2012/07/10 19:53:11 schwarze Exp $ */
+/*	$Id: man_term.c,v 1.87 2012/07/16 21:58:39 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
@@ -436,28 +436,54 @@ pre_in(DECL_ARGS)
 static int
 pre_sp(DECL_ARGS)
 {
+	char		*s;
 	size_t		 i, len;
+	int		 neg;
 
 	if ((NULL == n->prev && n->parent)) {
-		if (MAN_SS == n->parent->tok)
+		switch (n->parent->tok) {
+		case (MAN_SH):
+			/* FALLTHROUGH */
+		case (MAN_SS):
+			/* FALLTHROUGH */
+		case (MAN_PP):
+			/* FALLTHROUGH */
+		case (MAN_LP):
+			/* FALLTHROUGH */
+		case (MAN_P):
+			/* FALLTHROUGH */
 			return(0);
-		if (MAN_SH == n->parent->tok)
-			return(0);
+		default:
+			break;
+		}
 	}
 
+	neg = 0;
 	switch (n->tok) {
 	case (MAN_br):
 		len = 0;
 		break;
 	default:
-		len = n->child ? a2height(p, n->child->string) : 1;
+		if (NULL == n->child) {
+			len = 1;
+			break;
+		}
+		s = n->child->string;
+		if ('-' == *s) {
+			neg = 1;
+			s++;
+		}
+		len = a2height(p, s);
 		break;
 	}
 
 	if (0 == len)
 		term_newln(p);
-	for (i = 0; i < len; i++)
-		term_vspace(p);
+	else if (neg)
+		p->skipvsp += len;
+	else
+		for (i = 0; i < len; i++)
+			term_vspace(p);
 
 	return(0);
 }
@@ -741,7 +767,7 @@ pre_SS(DECL_ARGS)
 		break;
 	case (MAN_HEAD):
 		term_fontrepl(p, TERMFONT_BOLD);
-		p->offset = term_len(p, p->defindent/2);
+		p->offset = term_len(p, 3);
 		break;
 	case (MAN_BODY):
 		p->offset = mt->offset;
