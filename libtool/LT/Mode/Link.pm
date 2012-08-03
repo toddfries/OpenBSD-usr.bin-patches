@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Link.pm,v 1.17 2012/07/12 17:07:12 espie Exp $
+# $OpenBSD: Link.pm,v 1.20 2012/07/18 09:33:16 espie Exp $
 #
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -93,6 +93,7 @@ our @ISA = qw(LT::Mode);
 
 use LT::Util;
 use LT::Trace;
+use LT::Library;
 use File::Basename;
 
 use constant {
@@ -120,7 +121,7 @@ sub run
 	my $noshared  = $ltconfig->noshared;
 	my $cmd;
 	my $libdirs = [];	# list of libdirs
-	my $libs = {};		# libraries
+	my $libs = LT::Library::Stash->new;		# libraries
 	my $dirs = {};		# paths to find libraries
 	# put a priority in the dir hash
 	# always look here
@@ -206,7 +207,7 @@ sub run
 	my $parser = LT::Parser->new(\@ARGV);
 
 	if ($linkmode == PROGRAM) {
-		require LT::Program;
+		require LT::Mode::Link::Program;
 		my $program = LT::Program->new;
 		$program->{outfilepath} = $outfile;
 		# XXX give higher priority to dirs of not installed libs
@@ -235,7 +236,7 @@ sub run
 		$program->link($ltprog, $ltconfig, $dirs, $libs, $deplibs, $libdirs, $parser, $gp);
 	} elsif ($linkmode == LIBRARY) {
 		my $convenience = 0;
-		require LT::LaFile;
+		require LT::Mode::Link::Library;
 		my $lainfo = LT::LaFile->new;
 
 		$shared = 1 if ($gp->version_info ||
@@ -304,20 +305,20 @@ sub run
 
 		tsay {"SHARED: $shared\nSTATIC: $static"};
 
-		$lainfo->{'libname'} = $libname;
+		$lainfo->{libname} = $libname;
 		if ($shared) {
-			$lainfo->{'dlname'} = $sharedlib;
-			$lainfo->{'library_names'} = $sharedlib;
-			$lainfo->{'library_names'} .= " $sharedlib_symlink"
+			$lainfo->{dlname} = $sharedlib;
+			$lainfo->{library_names} = $sharedlib;
+			$lainfo->{library_names} .= " $sharedlib_symlink"
 				if defined $gp->release;
 			$lainfo->link($ltprog, $ltconfig, $ofile, $sharedlib, $odir, 1, \@sobjs, $dirs, $libs, $deplibs, $libdirs, $parser, $gp);
 			tsay {"sharedlib: $sharedlib"};
-			$lainfo->{'current'} = $current;
-			$lainfo->{'revision'} = $revision;
-			$lainfo->{'age'} = $age;
+			$lainfo->{current} = $current;
+			$lainfo->{revision} = $revision;
+			$lainfo->{age} = $age;
 		}
 		if ($static) {
-			$lainfo->{'old_library'} = $staticlib;
+			$lainfo->{old_library} = $staticlib;
 			$lainfo->link($ltprog, $ltconfig, $ofile, $staticlib, $odir, 0, ($convenience && @sobjs > 0) ? \@sobjs : \@objs, $dirs, $libs, $deplibs, $libdirs, $parser, $gp);
 			tsay {($convenience ? "convenience" : "static"),
 			    " lib: $staticlib"};
@@ -335,7 +336,7 @@ sub run
 				tsay {"more than 1 -rpath option given, ",
 				    "taking the first: ", $RPopts[0]};
 			}
-			$lainfo->{'libdir'} = $RPopts[0];
+			$lainfo->{libdir} = $RPopts[0];
 		}
 		if (!($convenience && $ofile =~ m/\.a$/)) {
 			$lainfo->write($outfile, $ofile);
@@ -445,7 +446,6 @@ package LT::Parser;
 use File::Basename;
 use Cwd qw(abs_path);
 use LT::Util;
-use LT::Library;
 use LT::Trace;
 
 my $calls = 0;
@@ -565,7 +565,7 @@ sub internal_parse_linkargs1
 			my @largs = ();
 			my $key = $1;
 			if (!exists $libs->{$key}) {
-				$libs->{$key} = LT::Library->new($key);
+				$libs->create($key);
 				require LT::LaFile;
 				my $lafile = LT::LaFile->find($key, $dirs);
 				if ($lafile) {
@@ -595,11 +595,8 @@ sub internal_parse_linkargs1
 			    $libs, \@largs, $level+1) if @largs;
 		} elsif (m/(\S+\/)*(\S+)\.a$/) {
 			(my $key = $2) =~ s/^lib//;
-			if (!exists $libs->{$key}) {
-				$libs->{$key} = LT::Library->new($key);
-			}
 			$dirs->{abs_dir($_)} = 1;
-			$libs->{$key}->{fullpath} = $_;
+			$libs->create($key)->{fullpath} = $_;
 			push(@$result, $_);
 		} elsif (m/(\S+\/)*(\S+)\.la$/) {
 			(my $key = $2) =~ s/^lib//;
@@ -607,13 +604,12 @@ sub internal_parse_linkargs1
 			my $fulla = abs_path($_);
 			require LT::LaFile;
 			my $lainfo = LT::LaFile->parse($fulla);
-			my $dlname = $lainfo->{'dlname'};
-			my $oldlib = $lainfo->{'old_library'};
-			my $libdir = $lainfo->{'libdir'};
+			my $dlname = $lainfo->{dlname};
+			my $oldlib = $lainfo->{old_library};
+			my $libdir = $lainfo->{libdir};
 			if ($dlname ne '') {
 				if (!exists $libs->{$key}) {
-					$libs->{$key} = LT::Library->new($key);
-					$libs->{$key}->{lafile} = $fulla;
+					$libs->create($key)->{lafile} = $fulla;
 				}
 			}
 			push(@$result, $_);
@@ -621,9 +617,7 @@ sub internal_parse_linkargs1
 		} elsif (m/(\S+\/)*(\S+)\.so(\.\d+){2}/) {
 			(my $key = $2) =~ s/^lib//;
 			$dirs->{abs_dir($_)} = 1;
-			if (!exists $libs->{$key}) {
-				$libs->{$key} = LT::Library->new($key);
-			}
+			$libs->create($key);
 			# not really normal argument
 			# -lfoo should be used instead, so convert it
 			push(@$result, "-l$key");
@@ -660,8 +654,7 @@ sub parse_linkargs2
 	my ($self, $gp, $orderedlibs, $staticlibs, $dirs, $libs) = @_;
 	tsay {"parse_linkargs2"};
 	tsay {"  args: @{$self->{args}}"};
-	$self->{result} = [];
-	my $result = $self->{result};
+	my $result = [];
 
 	foreach my $_ (@{$self->{args}}) {
 		tsay {"  processing $_"};
@@ -682,16 +675,11 @@ sub parse_linkargs2
 		} elsif (m/^-l(.*)/) {
 			my @largs = ();
 			my $key = $1;
-			if (!exists $libs->{$key}) {
-				$libs->{$key} = LT::Library->new($key);
-			}
+			$libs->create($key);
 			push @$orderedlibs, $key;
 		} elsif (m/(\S+\/)*(\S+)\.a$/) {
 			(my $key = $2) =~ s/^lib//;
-			if (!exists $libs->{$key}) {
-				$libs->{$key} = LT::Library->new($key);
-			}
-			$libs->{$key}->{fullpath} = $_;
+			$libs->create($key)->{fullpath} = $_;
 			push(@$staticlibs, $_);
 		} elsif (m/(\S+\/)*(\S+)\.la$/) {
 			(my $key = $2) =~ s/^lib//;
@@ -711,8 +699,7 @@ sub parse_linkargs2
 				push @$staticlibs, "$d/$ltdir/$oldlib";
 			} else {
 				if (!exists $libs->{$key}) {
-					$libs->{$key} = LT::Library->new($key);
-					$libs->{$key}->{lafile} = $fulla;
+					$libs->create($key)->{lafile} = $fulla;
 				}
 				push @$orderedlibs, $key;
 			}
@@ -729,13 +716,92 @@ sub parse_linkargs2
 		}
 	}
 	tsay {"end parse_linkargs2"};
-	return $self->{result};
+	return $result;
 }
 
 sub new
 {
 	my ($class, $args) = @_;
 	bless { args => $args, pthread => 0 }, $class;
+}
+
+package LT::Linker;
+use LT::Trace;
+use LT::Util;
+use File::Basename;
+use Cwd qw(abs_path);
+
+sub new
+{
+	my $class = shift;
+	bless {}, $class;
+}
+
+sub create_symlinks
+{
+	my ($self, $dir, $libs) = @_;
+	if (! -d $dir) {
+		mkdir($dir) or die "Cannot mkdir($dir) : $!\n";
+	}
+
+	foreach my $l (values %$libs) {
+		my $f = $l->{fullpath};
+		next if !defined $f;
+		next if $f =~ m/\.a$/;
+		my $libnames = [];
+		if (defined $l->{lafile}) {
+			require LT::LaFile;
+			my $lainfo = LT::LaFile->parse($l->{lafile});
+			my $librarynames = $lainfo->stringize('library_names');
+			@$libnames = split /\s/, $librarynames;
+			$libnames = reverse_zap_duplicates_ref($libnames);
+		} else {
+			push @$libnames, basename($f);
+		}	
+		foreach my $libfile (@$libnames) {
+			my $link = "$dir/$libfile";
+			tsay {"ln -s $f $link"};
+			next if -f $link;
+			my $p = abs_path($f);
+			if (!symlink($p, $link)) {
+				die "Cannot create symlink($p, $link): $!\n"
+				    unless  $!{EEXIST};
+			}
+		}
+	}
+	return $dir;
+}
+
+sub common1
+{
+	my ($self, $parser, $gp, $deplibs, $libdirs, $dirs, $libs) = @_;
+
+	$parser->resolve_la($deplibs, $libdirs);
+	my $orderedlibs = [];
+	my $staticlibs = [];
+	my $args = $parser->parse_linkargs2($gp, $orderedlibs, $staticlibs, $dirs, 
+	    $libs);
+	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
+	tsay {"orderedlibs = @$orderedlibs"};
+	$orderedlibs = reverse_zap_duplicates_ref($orderedlibs);
+	tsay {"final orderedlibs = @$orderedlibs"};
+	return ($staticlibs, $orderedlibs, $args);
+}
+
+sub infer_libparameter
+{
+	my ($self, $a, $k) = @_;
+	my $lib = basename($a);
+	if ($lib =~ m/^lib(.*)\.so(\.\d+){2}$/) {
+		$lib = $1;
+	} elsif ($lib =~ m/^lib(.*)\.so$/) {
+		say "warning: library filename $a has no version number";
+		$lib = $1;
+	} else {
+		say "warning: cannot derive -l flag from library filename $a, assuming hash key -l$k";
+		$lib = $k;
+	}
+	return "-l$lib";
 }
 
 1;

@@ -1,4 +1,4 @@
-# $OpenBSD: LaFile.pm,v 1.16 2012/07/12 19:21:00 espie Exp $
+# $OpenBSD: LaFile.pm,v 1.19 2012/07/13 13:45:34 espie Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -106,21 +106,19 @@ EOF
 sub write_shared_libs_log
 {
 	my ($self, $origv) = @_;
-	my $libname = $self->stringize('libname');
-	my $v = $self->stringize('current') .'.'. $self->stringize('revision');
 	if (!defined $ENV{SHARED_LIBS_LOG}) {
 	       return;
 	}
 	my $logfile = $ENV{SHARED_LIBS_LOG};
-	my $fh;
-	if (! -f $logfile) {
-		open ($fh, '>', $logfile);
-		print $fh "# SHARED_LIBS+= <libname>      <obsd version> # <orig version>\n";
-		close $fh;
-	}
-	open ($fh, '>>', $logfile);
+	my $wantheader = ! -f $logfile;
+	open (my $fh, '>>', $logfile) or return;
+	my $v = join('.', $self->stringize('current'),
+	    $self->stringize('revision'));
+
 	# Remove first leading 'lib', we don't want that in SHARED_LIBS_LOG.
+	my $libname = $self->stringize('libname');
 	$libname =~ s/^lib//;
+	print $fh "# SHARED_LIBS+= <libname>      <obsd version> # <orig version>\n" if $wantheader;
 	printf $fh "SHARED_LIBS +=\t%-20s %-8s # %s\n", $libname, $v, $origv;
 }
 
@@ -147,12 +145,6 @@ sub find
 	}
 	tsay {".la for $l not found!"};
 	return 0;
-}
-
-sub link
-{
-	require LT::Linker;
-	return LT::Linker::LaFile->new->link(@_);
 }
 
 sub install
@@ -196,145 +188,12 @@ sub install
 		LT::Exec->install(@$instprog, @realinstopts, $s, $d);
 	}
 	# for libraries with a -release in their name
-	my @libnames = split /\s+/, $lainfo->{'library_names'};
+	my @libnames = split /\s+/, $lainfo->{library_names};
 	foreach my $n (@libnames) {
 		next if $n eq $sharedlib;
 		unlink("$dstdir/$n");
 		symlink($sharedlib, "$dstdir/$n");
 	}
-}
-
-
-package LT::Linker::LaFile;
-our @ISA = qw(LT::Linker);
-
-use LT::Util;
-use LT::Trace;
-use File::Basename;
-
-sub link
-{
-	my ($linker, $self, $ltprog, $ltconfig, $la, $fname, $odir, $shared, 
-	    $objs, $dirs, $libs, $deplibs, $libdirs, $parser, $gp) = @_;
-
-	tsay {"creating link command for library (linked ",
-		($shared) ? "dynamically" : "statically", ")"};
-
-	my @libflags;
-	my @cmd;
-	my $dst = ($odir eq '.') ? "$ltdir/$fname" : "$odir/$ltdir/$fname";
-	if ($la =~ m/\.a$/) {
-		# probably just a convenience library
-		$dst = ($odir eq '.') ? "$fname" : "$odir/$fname";
-	}
-	my $symlinkdir = $ltdir;
-	if ($odir ne '.') {
-		$symlinkdir = "$odir/$ltdir";
-	}
-	mkdir $symlinkdir if ! -d $symlinkdir;
-
-	my ($staticlibs, $finalorderedlibs, $args) =
-	    $linker->common1($parser, $gp, $deplibs, $libdirs, $dirs, $libs);
-
-	# static linking
-	if (!$shared) {
-		@cmd = ('ar', 'cru', $dst);
-		foreach my $a (@$staticlibs) {
-			if ($a =~ m/\.a$/ && $a !~ m/_pic\.a/) {
-				# extract objects from archive
-				my $libfile = basename($a);
-				my $xdir = "$odir/$ltdir/${la}x/$libfile";
-				LT::Archive->extract($xdir, $a);
-				my @kobjs = LT::Archive->get_objlist($a);
-				map { $_ = "$xdir/$_"; } @kobjs;
-				push @libflags, @kobjs;
-			}
-		}
-		foreach my $k (@$finalorderedlibs) {
-			my $l = $libs->{$k};
-			# XXX improve test
-			# this has to be done probably only with
-			# convenience libraries
-			next if !defined $l->{lafile};
-			my $lainfo = LT::LaFile->parse($l->{lafile});
-			next if ($lainfo->stringize('dlname') ne '');
-			$l->resolve_library($dirs, 0, 0, ref($self));
-			my $a = $l->{fullpath};
-			if ($a =~ m/\.a$/ && $a !~ m/_pic\.a/) {
-				# extract objects from archive
-				my $libfile = basename $a;
-				my $xdir = "$odir/$ltdir/${la}x/$libfile";
-				LT::Archive->extract($xdir, $a);
-				my @kobjs = LT::Archive->get_objlist($a);
-				map { $_ = "$xdir/$_"; } @kobjs;
-				push @libflags, @kobjs;
-			}
-		}
-		push @cmd, @libflags if @libflags;
-		push @cmd, @$objs if @$objs;
-		LT::Exec->link(@cmd);
-		LT::Exec->link('ranlib', $dst);
-		return;
-	}
-
-	# dynamic linking
-	my $symbolsfile;
-	if ($gp->export_symbols) {
-		$symbolsfile = $gp->export_symbols;
-	} elsif ($gp->export_symbols_regex) {
-		($symbolsfile = "$odir/$ltdir/$la") =~ s/\.la$/.exp/;
-		LT::Archive->get_symbollist($symbolsfile, $gp->export_symbols_regex, $objs);
-	}
-	my $tmp = [];
-	while (my $k = shift @$finalorderedlibs) {
-		my $l = $libs->{$k};
-		$l->resolve_library($dirs, 1, $gp->static, ref($self));
-		if ($l->{dropped}) {
-			# remove library if dependency on it has been dropped
-			delete $libs->{$k};
-		} else {
-			push(@$tmp, $k);
-		}
-	}
-	$finalorderedlibs = $tmp;
-
-	my @libobjects = values %$libs;
-	tsay {"libs:\n", join("\n", (keys %$libs))};
-	tsay {"libfiles:\n", 
-	    join("\n", map { $_->{fullpath}//'UNDEF' } @libobjects) };
-
-	$linker->create_symlinks($symlinkdir, $libs);
-	my $prev_was_archive = 0;
-	my $libcounter = 0;
-	foreach my $k (@$finalorderedlibs) {
-		my $a = $libs->{$k}->{fullpath} || die "Link error: $k not found in \$libs\n";
-		if ($a =~ m/\.a$/) {
-			# don't make a -lfoo out of a static library
-			push @libflags, '-Wl,-whole-archive' unless $prev_was_archive;
-			push @libflags, $a;
-			if ($libcounter == @$finalorderedlibs - 1) {
-				push @libflags, '-Wl,-no-whole-archive';
-			}
-			$prev_was_archive = 1;
-		} else {
-			push @libflags, '-Wl,-no-whole-archive' if $prev_was_archive;
-			$prev_was_archive = 0;
-			push @libflags, $linker->infer_libparameter($a, $k);
-		}
-		$libcounter++;
-	}
-
-	@cmd = @$ltprog;
-	push @cmd, $ltconfig->sharedflag, @{$ltconfig->picflags};
-	push @cmd, '-o', $dst;
-	push @cmd, '-pthread' if $parser->{pthread};
-	push @cmd, @$args if $args;
-	push @cmd, @$objs if @$objs;
-	push @cmd, '-Wl,-whole-archive', @$staticlibs, '-Wl,-no-whole-archive'
-       		if @$staticlibs;
-	push @cmd, "-L$symlinkdir", @libflags if @libflags;
-	push @cmd, "-Wl,-retain-symbols-file,$symbolsfile" if $symbolsfile;
-	LT::Exec->link(@cmd);
 }
 
 1;
