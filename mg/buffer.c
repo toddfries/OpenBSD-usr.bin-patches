@@ -1,4 +1,4 @@
-/*	$OpenBSD: buffer.c,v 1.78 2012/03/14 13:56:35 lum Exp $	*/
+/*	$OpenBSD: buffer.c,v 1.81 2012/08/31 18:06:42 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -449,7 +449,7 @@ int
 anycb(int f)
 {
 	struct buffer	*bp;
-	int		 s = FALSE, save = FALSE, ret;
+	int		 s = FALSE, save = FALSE, save2 = FALSE, ret;
 	char		 pbuf[NFILEN + 11];
 
 	for (bp = bheadp; bp != NULL; bp = bp->b_bufp) {
@@ -459,14 +459,17 @@ anycb(int f)
 			    bp->b_fname);
 			if (ret < 0 || ret >= sizeof(pbuf)) {
 				ewprintf("Error: filename too long!");
-				return (ABORT);
+				return (UERROR);
 			}
 			if ((f == TRUE || (save = eyorn(pbuf)) == TRUE) &&
-			    buffsave(bp) == TRUE) {
+			    (save2 = buffsave(bp)) == TRUE) {
 				bp->b_flag &= ~BFCHG;
 				upmodes(bp);
-			} else
+			} else {
+				if (save2 == FIOERR)
+					return (save2);
 				s = TRUE;
+			}
 			if (save == ABORT)
 				return (save);
 			save = TRUE;
@@ -611,8 +614,6 @@ showbuffer(struct buffer *bp, struct mgwin *wp, int flags)
 
 	if (wp->w_bufp == bp) {	/* Easy case! */
 		wp->w_rflag |= flags;
-		wp->w_dotp = bp->b_dotp;
-		wp->w_doto = bp->b_doto;
 		return (TRUE);
 	}
 	/* First, detach the old buffer from the window */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.81 2012/06/18 09:19:21 lum Exp $	*/
+/*	$OpenBSD: file.c,v 1.84 2012/08/30 21:36:48 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -207,8 +207,10 @@ int
 readin(char *fname)
 {
 	struct mgwin	*wp;
+	struct stat	 statbuf;
 	int	 status, i, ro = FALSE;
 	PF	*ael;
+	char	*dp;
 
 	/* might be old */
 	if (bclear(curbp) != TRUE)
@@ -242,13 +244,29 @@ readin(char *fname)
 	curbp->b_flag &= ~BFCHG;
 
 	/*
-	 * We need to set the READONLY flag after we insert the file,
-	 * unless the file is a directory.
+	 * Set the buffer READONLY flag if any of following are true:
+	 *   1. file is a directory.
+	 *   2. file is read-only.
+	 *   3. file doesn't exist and directory is read-only.
 	 */
-	if (access(fname, W_OK) && errno != ENOENT)
+	if (fisdir(fname) == TRUE) {
 		ro = TRUE;
-	if (fisdir(fname) == TRUE)
-		ro = TRUE;
+	} else if (access(fname, W_OK) == -1) {
+		if (errno != ENOENT)
+			ro = TRUE;
+		else if (errno == ENOENT) {
+			dp = dirname(fname);
+			if (stat(dp, &statbuf) == -1 && errno == ENOENT) {
+				/* no read-only; like emacs */
+				ewprintf("Parent directory missing");
+			} else if (access(dp, W_OK) == -1 && 
+			    errno == EACCES) {
+				ewprintf("File not found and directory"
+				    " write-protected");
+				ro = TRUE;
+			} 
+		}
+	}
 	if (ro == TRUE)
 		curbp->b_flag |= BFREADONLY;
 
@@ -644,8 +662,24 @@ makebkfile(int f, int n)
 int
 writeout(FILE ** ffp, struct buffer *bp, char *fn)
 {
+	struct stat	statbuf;
 	int	 s;
+	char    *dp;
 
+	dp = dirname(fn);
+
+	if (stat(fn, &statbuf) == -1 && errno == ENOENT) {
+		errno = 0;
+		if (access(dp, W_OK) && errno == EACCES) {
+			ewprintf("Directory %s%s write-protected", dp,
+			    (dp[0] == '/' && dp[1] == '\0') ? "" : "/");
+			return (FIOERR);
+		} else if (errno == ENOENT) {
+                        ewprintf("%s%s: no such directory", dp,
+                            (dp[0] == '/' && dp[1] == '\0') ? "" : "/");
+			return (FIOERR);
+		}
+        }
 	/* open writes message */
 	if ((s = ffwopen(ffp, fn, bp)) != FIOSUC)
 		return (FALSE);
