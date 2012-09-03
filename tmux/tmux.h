@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.352 2012/08/21 10:00:33 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.355 2012/09/03 12:20:17 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -897,6 +897,7 @@ struct window_choose_data {
 	char		        *ft_template;
 	char			*command;
 	u_int			 idx;
+	int			 pane_id;
 };
 
 struct window_choose_mode_item {
@@ -1716,6 +1717,7 @@ extern const struct cmd_entry cmd_break_pane_entry;
 extern const struct cmd_entry cmd_capture_pane_entry;
 extern const struct cmd_entry cmd_choose_buffer_entry;
 extern const struct cmd_entry cmd_choose_client_entry;
+extern const struct cmd_entry cmd_choose_list_entry;
 extern const struct cmd_entry cmd_choose_session_entry;
 extern const struct cmd_entry cmd_choose_tree_entry;
 extern const struct cmd_entry cmd_choose_window_entry;
@@ -2204,6 +2206,9 @@ struct window_choose_data	*window_choose_add_window(struct window_pane *,
 struct window_choose_data	*window_choose_add_session(struct window_pane *,
 			struct cmd_ctx *, struct session *, const char *,
 			char *, u_int);
+struct window_choose_data	*window_choose_add_item(struct window_pane *,
+			struct cmd_ctx *, struct winlink *, const char *,
+			char *, u_int);
 
 /* names.c */
 void		 queue_window_name(struct window *);
@@ -2215,6 +2220,17 @@ void	clear_signals(int);
 
 /* control.c */
 void	control_callback(struct client *, int, void*);
+void printflike2 control_write(struct client *, const char *, ...);
+
+/* control-notify.c */
+void	control_notify_window_layout_changed(struct window *);
+void	control_notify_window_unlinked(struct session *, struct window *);
+void	control_notify_window_linked(struct session *, struct window *);
+void	control_notify_window_renamed(struct window *);
+void	control_notify_attached_session_changed(struct client *);
+void	control_notify_session_renamed(struct session *);
+void	control_notify_session_created(struct session *);
+void	control_notify_session_close(struct session *);
 
 /* session.c */
 extern struct sessions sessions;
