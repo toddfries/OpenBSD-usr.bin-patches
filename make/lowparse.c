@@ -1,4 +1,4 @@
-/*	$OpenBSD: lowparse.c,v 1.28 2012/08/25 08:12:56 espie Exp $ */
+/*	$OpenBSD: lowparse.c,v 1.30 2012/10/02 10:29:31 espie Exp $ */
 
 /* low-level parsing functions. */
 
@@ -42,6 +42,7 @@
 #include "error.h"
 #include "lst.h"
 #include "memory.h"
+#include "pathnames.h"
 #ifndef LOCATION_TYPE
 #include "location.h"
 #endif
@@ -116,6 +117,39 @@ static void read_logical_line(Buffer, int);
  *	(e.g., not a backslash or a space. */
 static int skip_empty_lines_and_read_char(Buffer);
 
+const char *curdir;
+size_t curdir_len;
+
+void
+Parse_setcurdir(const char *dir)
+{
+	curdir = dir;
+	curdir_len = strlen(dir);
+}
+
+static bool
+startswith(const char *f, const char *s, size_t len)
+{
+	return strncmp(f, s, len) == 0 && f[len] == '/';
+}
+
+static const char *
+simplify(const char *filename)
+{
+	if (startswith(filename, curdir, curdir_len))
+		return filename + curdir_len + 1;
+	else if (startswith(filename, _PATH_DEFSYSPATH, 
+	    sizeof(_PATH_DEFSYSPATH)-1)) {
+	    	size_t sz;
+		char *buf;
+		sz = strlen(filename) - sizeof(_PATH_DEFSYSPATH)+3;
+		buf = emalloc(sz);
+		snprintf(buf, sz, "<%s>", filename+sizeof(_PATH_DEFSYSPATH));
+		return buf;
+	} else
+		return filename;
+}
+
 static struct input_stream *
 new_input_file(const char *name, FILE *stream)
 {
@@ -125,7 +159,7 @@ new_input_file(const char *name, FILE *stream)
 #endif
 
 	istream = emalloc(sizeof(*istream));
-	istream->origin.fname = name;
+	istream->origin.fname = simplify(name);
 	istream->str = NULL;
 	/* Naturally enough, we start reading at line 0. */
 	istream->origin.lineno = 0;
@@ -452,33 +486,10 @@ Parse_FillLocation(Location *origin)
 	}
 }
 
-#ifdef CLEANUP
-void
-LowParse_Init(void)
-{
-	Static_Lst_Init(&input_stack);
-	current = NULL;
-}
-
-void
-LowParse_End(void)
-{
-	Lst_Destroy(&input_stack, NOFREE);	/* Should be empty now */
-#if 0
-	Lst_Destroy(&fileNames, (SimpleProc)free);
-#endif
-}
-#endif
-
-
 void
 Parse_ReportErrors(void)
 {
 	if (fatal_errors) {
-#ifdef CLEANUP
-		while (Parse_NextFile())
-			;
-#endif
 		fprintf(stderr,
 		    "Fatal errors encountered -- cannot continue\n");
 		exit(1);

@@ -1,4 +1,30 @@
-/*	$OpenBSD: engine.c,v 1.30 2012/08/25 08:12:56 espie Exp $ */
+/*	$OpenBSD: engine.c,v 1.35 2012/10/04 13:20:46 espie Exp $ */
+/*
+ * Copyright (c) 2012 Marc Espie.
+ *
+ * Extensive code modifications for the OpenBSD project.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE OPENBSD PROJECT AND CONTRIBUTORS
+ * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE OPENBSD
+ * PROJECT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+ * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+ * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+ * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+ * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
 /*
  * Copyright (c) 1988, 1989, 1990 The Regents of the University of California.
  * Copyright (c) 1988, 1989 by Adam de Boor
@@ -34,6 +60,7 @@
  */
 
 #include <sys/types.h>
+#include <sys/time.h>
 #include <sys/wait.h>
 #include <assert.h>
 #include <limits.h>
@@ -63,20 +90,17 @@
 #include "memory.h"
 #include "buf.h"
 #include "job.h"
+#include "lowparse.h"
 
 static void MakeTimeStamp(void *, void *);
 static int rewrite_time(const char *);
-static void setup_signal(int, psighandler);
 static void setup_meta(void);
+static void setup_engine(void);
 static char **recheck_command_for_shell(char **);
-
-static int setup_and_run_command(char *, GNode *, int);
-static void run_command(const char *, bool);
-static int run_prepared_gnode(GNode *);
-static void handle_compat_interrupts(GNode *);
+static void list_parents(GNode *, FILE *);
 
 bool
-Job_CheckCommands(GNode *gn)
+node_find_valid_commands(GNode *gn)
 {
 	/* Alter our type to tell if errors should be ignored or things
 	 * should not be printed so setup_and_run_command knows what to do.
@@ -86,8 +110,14 @@ Job_CheckCommands(GNode *gn)
 	if (Targ_Silent(gn))
 		gn->type |= OP_SILENT;
 
-	if (OP_NOP(gn->type) && Lst_IsEmpty(&gn->commands) &&
-	    (gn->type & OP_LIB) == 0) {
+	if (OP_NOP(gn->type) && Lst_IsEmpty(&gn->commands)) {
+		/* XXX */
+		if ((gn->type & OP_LIB)) {
+			printf("Warning: target %s", gn->name);
+			list_parents(gn, stdout);
+			printf(" does not have any command\n");
+			return true;
+		}
 		/*
 		 * No commands. Look for .DEFAULT rule from which we might infer
 		 * commands
@@ -119,30 +149,58 @@ Job_CheckCommands(GNode *gn)
 	return true;
 }
 
+static void
+list_parents(GNode *gn, FILE *out)
+{
+	LstNode ln;
+	bool first = true;
+
+	for (ln = Lst_First(&gn->parents); ln != NULL; ln = Lst_Adv(ln)) {
+		GNode *p = Lst_Datum(ln);
+		if (!p->must_make)
+			continue;
+		if (first) {
+			fprintf(out, " (prerequisite of:");
+			first = false;
+		}
+		fprintf(out, " %s", p->name);
+	}
+	if (!first)
+		fprintf(out, ")");
+}
+
 void
-job_failure(GNode *gn, void (*abortProc)(char *, ...))
+node_failure(GNode *gn)
 {
 	/*
 	 If the -k flag wasn't given, we stop in
 	 * our tracks, otherwise we just don't update this
 	 * node's parents so they never get examined.
 	 */
-	static const char msg[] =
-	    "make: don't know how to make";
+	const char *diag;
+	FILE *out;
 
 	if (gn->type & OP_OPTIONAL) {
-		(void)fprintf(stdout, "%s %s(ignored)\n", msg,
-		    gn->name);
-		(void)fflush(stdout);
+		out = stdout;
+		diag = "(ignored)";
 	} else if (keepgoing) {
-		(void)fprintf(stdout, "%s %s(continuing)\n",
-		    msg, gn->name);
-		(void)fflush(stdout);
+		out = stdout;
+		diag = "(continuing)";
 	} else {
-		(*abortProc)("%s %s. Stop in %s.", msg,
-		    gn->name, Var_Value(".CURDIR"));
+		out = stderr;
+		diag = "";
+	}
+	fprintf(out, "make: don't know how to make %s", gn->name);
+	list_parents(gn, out);
+	fprintf(out, "%s\n", diag);
+	if (out == stdout)
+		fflush(stdout);
+	else {
+		print_errors();
+		Punt(NULL);
 	}
 }
+
 /* touch files the hard way, by writing stuff to them */
 static int
 rewrite_time(const char *name)
@@ -169,6 +227,7 @@ rewrite_time(const char *name)
 void
 Job_Touch(GNode *gn)
 {
+	handle_all_signals();
 	if (gn->type & (OP_JOIN|OP_USE|OP_EXEC|OP_OPTIONAL|OP_PHONY)) {
 		/*
 		 * .JOIN, .USE, and .OPTIONAL targets are "virtual" targets
@@ -189,8 +248,6 @@ Job_Touch(GNode *gn)
 
 	if (gn->type & OP_ARCHV) {
 		Arch_Touch(gn);
-	} else if (gn->type & OP_LIB) {
-		Arch_TouchLib(gn);
 	} else {
 		const char *file = gn->path != NULL ? gn->path : gn->name;
 
@@ -249,12 +306,6 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 	 */
 	if (cgn->type & OP_USE)
 		pgn->unmade--;
-
-	/* if the parent node doesn't have any location, then inherit the
-	 * use stuff, since that gives us better error messages.
-	 */
-	if (!pgn->origin.lineno)
-		pgn->origin = cgn->origin;
 }
 
 void
@@ -378,8 +429,6 @@ Make_OODate(GNode *gn)
 	 * - it has no children, was on the lhs of an operator and doesn't
 	 *   exist already.
 	 *
-	 * Libraries are only considered out-of-date if the archive module says
-	 * they are.
 	 */
 	if (gn->type & OP_USE) {
 		/*
@@ -389,13 +438,6 @@ Make_OODate(GNode *gn)
 		if (DEBUG(MAKE))
 			printf(".USE node...");
 		oodate = false;
-	} else if ((gn->type & OP_LIB) && Arch_IsLib(gn)) {
-		if (DEBUG(MAKE))
-		    printf("library...");
-
-		/* always out of date if no children and :: target */
-		oodate = Arch_LibOODate(gn) ||
-		    (is_out_of_date(gn->cmtime) && (gn->type & OP_DOUBLEDEP));
 	} else if (gn->type & OP_JOIN) {
 		/*
 		 * A target with the .JOIN attribute is only considered
@@ -453,59 +495,6 @@ Make_OODate(GNode *gn)
 	return oodate;
 }
 
-volatile sig_atomic_t got_signal;
-
-volatile sig_atomic_t got_SIGINT, got_SIGHUP, got_SIGQUIT, got_SIGTERM;
-
-static void
-setup_signal(int sig, psighandler h)
-{
-	if (signal(sig, SIG_IGN) != SIG_IGN)
-		(void)signal(sig, h);
-}
-
-void
-setup_all_signals(psighandler interrupt, psighandler jc)
-{
-	/*
-	 * Catch the four signals that POSIX specifies if they aren't ignored.
-	 * handle_signal will take care of calling JobInterrupt if appropriate.
-	 */
-	setup_signal(SIGINT, interrupt);
-	setup_signal(SIGHUP, interrupt);
-	setup_signal(SIGQUIT, interrupt);
-	setup_signal(SIGTERM, interrupt);
-	setup_signal(SIGTSTP, jc);
-	setup_signal(SIGTTOU, jc);
-	setup_signal(SIGTTIN, jc);
-	setup_signal(SIGWINCH, jc);
-	setup_signal(SIGCONT, jc);
-	got_signal = 0;
-}
-
-void
-SigHandler(int sig)
-{
-	switch(sig) {
-	case SIGINT:
-		got_SIGINT++;
-		got_signal = 1;
-		break;
-	case SIGHUP:
-		got_SIGHUP++;
-		got_signal = 1;
-		break;
-	case SIGQUIT:
-		got_SIGQUIT++;
-		got_signal = 1;
-		break;
-	case SIGTERM:
-		got_SIGTERM++;
-		got_signal = 1;
-		break;
-	}
-}
-
 /* The following array is used to make a fast determination of which
  * characters are interpreted specially by the shell.  If a command
  * contains any of these characters, it is executed by the shell, not
@@ -527,7 +516,7 @@ static char **
 recheck_command_for_shell(char **av)
 {
 	char *runsh[] = {
-		"alias", "cd", "eval", "exit", "read", "set", "ulimit",
+		"!", "alias", "cd", "eval", "exit", "read", "set", "ulimit",
 		"unalias", "unset", "wait", "umask", NULL
 	};
 
@@ -544,7 +533,7 @@ recheck_command_for_shell(char **av)
 	return av;
 }
 
-static void
+void
 run_command(const char *cmd, bool errCheck)
 {
 	const char *p;
@@ -586,39 +575,125 @@ run_command(const char *cmd, bool errCheck)
 	_exit(1);
 }
 
-/*-
- *-----------------------------------------------------------------------
- * setup_and_run_command --
- *	Execute the next command for a target. If the command returns an
- *	error, the node's built_status field is set to ERROR and creation stops.
- *
- * Results:
- *	0 in case of error, 1 if ok.
- *
- * Side Effects:
- *	The node's 'built_status' field may be set to ERROR.
- *-----------------------------------------------------------------------
- */
-static int
-setup_and_run_command(char *cmd, GNode *gn, int dont_fork)
+static Job myjob;
+
+void
+job_attach_node(Job *job, GNode *node)
+{
+	job->node = node;
+	job->node->built_status = BUILDING;
+	job->next_cmd = Lst_First(&node->commands);
+	job->exit_type = JOB_EXIT_OKAY;
+	job->location = NULL;
+	job->flags = 0;
+}
+
+void
+job_handle_status(Job *job, int status)
+{
+	debug_job_printf("Process %ld (%s) exited with status %d.\n",
+	    (long)job->pid, job->node->name, status);
+
+	/* classify status */
+	if (WIFEXITED(status)) {
+		job->code = WEXITSTATUS(status);/* exited */
+		if (status != 0) {
+			printf("*** Error code %d", job->code);
+			job->exit_type = JOB_EXIT_BAD;
+		} else 
+			job->exit_type = JOB_EXIT_OKAY;
+	} else {
+		job->exit_type = JOB_SIGNALED;
+		job->code = WTERMSIG(status);	/* signaled */
+		printf("*** Signal %d", job->code);
+	}
+
+	/* if there is a problem, what's going on ? */
+	if (job->exit_type != JOB_EXIT_OKAY) {
+		printf(" in target %s", job->node->name);
+		if (job->flags & JOB_ERRCHECK) {
+			job->node->built_status = ERROR;
+			/* compute expensive status if we really want it */
+			if ((job->flags & JOB_SILENT) && job == &myjob)
+				determine_expensive_job(job);
+			if (!keepgoing) {
+				printf("\n");
+				job->next = errorJobs;
+				errorJobs = job;
+				/* XXX don't free the command */
+				return;
+			}
+			printf(", line %lu of %s", job->location->lineno, 
+			    job->location->fname);
+			if ((job->flags & (JOB_SILENT | JOB_IS_EXPENSIVE)) 
+			    == JOB_SILENT)
+				printf(": %s", job->cmd);
+			/* Abort the current target,
+			 * but let others continue.  */
+			printf(" (continuing)\n");
+		} else {
+			/* Continue executing commands for
+			 * this target.  If we return 0,
+			 * this will happen...  */
+			printf(" (ignored)\n");
+			job->exit_type = JOB_EXIT_OKAY;
+		}
+	}
+	free(job->cmd);
+}
+
+int
+run_gnode(GNode *gn)
+{
+	if (!gn || (gn->type & OP_DUMMY))
+		return NOSUCHNODE;
+
+	gn->built_status = MADE;
+
+	job_attach_node(&myjob, gn);
+	while (myjob.exit_type == JOB_EXIT_OKAY) {
+		bool finished = job_run_next(&myjob);
+		if (finished)
+			break;
+		handle_one_job(&myjob);
+	}
+
+	return gn->built_status;
+}
+
+
+static void
+setup_engine(void)
+{
+	static int already_setup = 0;
+
+	if (!already_setup) {
+		setup_meta();
+		already_setup = 1;
+	}
+}
+
+static bool
+do_run_command(Job *job)
 {
 	bool silent;	/* Don't print command */
 	bool doExecute;	/* Execute the command */
 	bool errCheck;	/* Check errors */
-	int reason;	/* Reason for child's death */
-	int status;	/* Description of child's death */
-	pid_t cpid; 	/* Child actually found */
-	pid_t stat;	/* Status of fork */
+	pid_t cpid; 	/* Child pid */
 
-	silent = gn->type & OP_SILENT;
-	errCheck = !(gn->type & OP_IGNORE);
-	doExecute = !noExecute;
+	const char *cmd = job->cmd;
+	silent = job->node->type & OP_SILENT;
+	errCheck = !(job->node->type & OP_IGNORE);
+	if (job->node->type & OP_MAKE)
+		doExecute = true;
+	else
+		doExecute = !noExecute;
 
 	/* How can we execute a null command ? we warn the user that the
 	 * command expanded to nothing (is this the right thing to do?).  */
 	if (*cmd == '\0') {
 		Error("%s expands to empty string", cmd);
-		return 1;
+		return false;
 	}
 
 	for (;; cmd++) {
@@ -633,186 +708,74 @@ setup_and_run_command(char *cmd, GNode *gn, int dont_fork)
 	}
 	while (isspace(*cmd))
 		cmd++;
-	/* Print the command before echoing if we're not supposed to be quiet
-	 * for this one. We also print the command if -n given.  */
-	if (!silent || noExecute) {
+	/* Print the command before fork if make -n or !silent*/
+	if ( noExecute || !silent)
 		printf("%s\n", cmd);
-		fflush(stdout);
-	}
+	
+	if (silent)
+		job->flags |= JOB_SILENT;
+	else
+		job->flags &= ~JOB_SILENT;
+
 	/* If we're not supposed to execute any commands, this is as far as
 	 * we go...  */
 	if (!doExecute)
-		return 1;
-
-	/* if we're running in parallel mode, we try not to fork the last
-	 * command, since it's exit status will be just fine... unless
-	 * errCheck is not set, in which case we must deal with the
-	 * status ourselves.
-	 */
-	if (dont_fork && errCheck)
-		run_command(cmd, errCheck);
-		/*NOTREACHED*/
+		return false;
+	/* always flush for other stuff */
+	fflush(stdout);
 
 	/* Fork and execute the single command. If the fork fails, we abort.  */
 	switch (cpid = fork()) {
 	case -1:
-		Fatal("Could not fork");
+		Punt("Could not fork");
 		/*NOTREACHED*/
 	case 0:
+		/* put a random delay unless we're the only job running
+		 * and there's nothing left to do.
+		 */
+		if (random_delay)
+			if (!(runningJobs == NULL && no_jobs_left()))
+				usleep(random() % random_delay);
 		run_command(cmd, errCheck);
 		/*NOTREACHED*/
 	default:
-		break;
-	}
-
-	/* The child is off and running. Now all we can do is wait...  */
-	while (1) {
-
-		while ((stat = waitpid(cpid, &reason, 0)) != cpid) {
-			if (stat == -1 && errno != EINTR)
-				break;
-		}
-
-		if (got_signal)
-			break;
-
-		if (stat != -1) {
-			if (WIFEXITED(reason)) {
-				status = WEXITSTATUS(reason);	/* exited */
-				if (status != 0)
-					printf("*** Error code %d", status);
-			} else {
-				status = WTERMSIG(reason);	/* signaled */
-				printf("*** Signal %d", status);
-			}
-
-
-			if (!WIFEXITED(reason) || status != 0) {
-				if (errCheck) {
-					gn->built_status = ERROR;
-					if (keepgoing)
-						/* Abort the current target,
-						 * but let others continue.  */
-						printf(" (continuing)\n");
-				} else {
-					/* Continue executing commands for
-					 * this target.  If we return 0,
-					 * this will happen...  */
-					printf(" (ignored)\n");
-					status = 0;
-				}
-			}
-			return !status;
-		} else
-			Fatal("error in wait: %s", strerror(errno));
-			/*NOTREACHED*/
-	}
-	return 0;
-}
-
-static void
-handle_compat_interrupts(GNode *gn)
-{
-	if (!Targ_Precious(gn)) {
-		char *file = Var(TARGET_INDEX, gn);
-
-		if (!noExecute && eunlink(file) != -1)
-			Error("*** %s removed\n", file);
-	}
-	if (got_SIGINT) {
-		signal(SIGINT, SIG_IGN);
-		signal(SIGTERM, SIG_IGN);
-		signal(SIGHUP, SIG_IGN);
-		signal(SIGQUIT, SIG_IGN);
-		got_signal = 0;
-		got_SIGINT = 0;
-		run_gnode(interrupt_node);
-		exit(255);
-	}
-	exit(255);
-}
-
-void
-expand_commands(GNode *gn)
-{
-	LstNode ln;
-	char *cmd;
-
-	Parse_SetLocation(&gn->origin);
-	for (ln = Lst_First(&gn->commands); ln != NULL; ln = Lst_Adv(ln)) {
-		cmd = Var_Subst(Lst_Datum(ln), &gn->context, false);
-		Lst_AtEnd(&gn->expanded, cmd);
-	}
-}
-
-int
-run_gnode(GNode *gn)
-{
-	if (gn != NULL && (gn->type & OP_DUMMY) == 0) {
-		expand_commands(gn);
-		if (fatal_errors)
-			exit(1);
-		return run_prepared_gnode(gn);
-	} else {
-		return NOSUCHNODE;
-	}
-}
-
-static int
-run_prepared_gnode(GNode *gn)
-{
-	char *cmd;
-
-	gn->built_status = MADE;
-	while ((cmd = Lst_DeQueue(&gn->expanded)) != NULL) {
-		if (setup_and_run_command(cmd, gn, 0) == 0)
-			break;
-		free(cmd);
-	}
-	free(cmd);
-	if (got_signal)
-		handle_compat_interrupts(gn);
-	return gn->built_status;
-}
-
-void
-run_gnode_parallel(GNode *gn)
-{
-	char *cmd;
-
-	gn->built_status = MADE;
-	/* XXX don't bother freeing cmd, we're dead anyways ! */
-	while ((cmd = Lst_DeQueue(&gn->expanded)) != NULL) {
-		if (setup_and_run_command(cmd, gn,
-		    Lst_IsEmpty(&gn->expanded)) == 0)
-			break;
-	}
-	/* Normally, we don't reach this point, unless the last command
-	 * ignores error, in which case we interpret the status ourselves.
-	 */
-	switch(gn->built_status) {
-	case MADE:
-		exit(0);
-	case ERROR:
-		exit(1);
-	default:
-		fprintf(stderr, "Could not run gnode, returned %d\n",
-		    gn->built_status);
-		exit(1);
-	}
-}
-
-void
-setup_engine(int parallel)
-{
-	static int already_setup = 0;
-
-	if (!already_setup) {
-		setup_meta();
-		if (parallel)
-			setup_all_signals(parallel_handler, parallel_handler);
+		job->pid = cpid;
+		job->next = runningJobs;
+		runningJobs = job;
+		if (errCheck)
+			job->flags |= JOB_ERRCHECK;
 		else
-			setup_all_signals(SigHandler, SIG_DFL);
-		already_setup = 1;
+			job->flags &= ~JOB_ERRCHECK;
+		debug_job_printf("Running %ld (%s) %s\n", (long)job->pid, 
+		    job->node->name, (noExecute || !silent) ? "" : cmd);
+		return true;
 	}
 }
+
+bool
+job_run_next(Job *job)
+{
+	bool started;
+	GNode *gn = job->node;
+
+	setup_engine();
+	while (job->next_cmd != NULL) {
+		struct command *command = Lst_Datum(job->next_cmd);
+
+		handle_all_signals();
+		job->location = &command->location;
+		Parse_SetLocation(job->location);
+		job->cmd = Var_Subst(command->string, &gn->context, false);
+		job->next_cmd = Lst_Adv(job->next_cmd);
+		if (fatal_errors)
+			Punt(NULL);
+		started = do_run_command(job);
+		if (started)
+			return false;
+		else
+			free(job->cmd);
+	}
+	job->exit_type = JOB_EXIT_OKAY;
+	return true;
+}
+

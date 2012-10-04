@@ -1,4 +1,4 @@
-/*	$OpenBSD: error.c,v 1.21 2012/03/22 13:50:30 espie Exp $ */
+/*	$OpenBSD: error.c,v 1.23 2012/10/02 10:29:30 espie Exp $ */
 
 /*
  * Copyright (c) 2001 Marc Espie.
@@ -42,9 +42,9 @@
 #endif
 
 #include "lowparse.h"
+#include "dump.h"
 
 int fatal_errors = 0;
-bool supervise_jobs = false;
 
 static void ParseVErrorInternal(const Location *, int, const char *, va_list);
 /*-
@@ -77,8 +77,7 @@ Fatal(char *fmt, ...)
 {
 	va_list ap;
 
-	if (supervise_jobs)
-		Job_Wait();
+	Job_Wait();
 
 	va_start(ap, fmt);
 	(void)vfprintf(stderr, fmt, ap);
@@ -86,7 +85,7 @@ Fatal(char *fmt, ...)
 	(void)fprintf(stderr, "\n");
 
 	if (DEBUG(GRAPH2))
-		Targ_PrintGraph(2);
+		post_mortem();
 	exit(2);		/* Not 1 so -q can distinguish error */
 }
 
@@ -102,38 +101,36 @@ Fatal(char *fmt, ...)
 void
 Punt(char *fmt, ...)
 {
-	va_list ap;
+	if (fmt) {
+		va_list ap;
 
-	va_start(ap, fmt);
-	(void)fprintf(stderr, "make: ");
-	(void)vfprintf(stderr, fmt, ap);
-	va_end(ap);
-	(void)fprintf(stderr, "\n");
+		va_start(ap, fmt);
+		(void)fprintf(stderr, "make: ");
+		(void)vfprintf(stderr, fmt, ap);
+		va_end(ap);
+		(void)fprintf(stderr, "\n");
+	}
 
 	Job_AbortAll();
 	if (DEBUG(GRAPH2))
-		Targ_PrintGraph(2);
+		post_mortem();
 	exit(2);		/* Not 1, so -q can distinguish error */
 }
 
 /*
  * Finish --
- *	Called when aborting due to errors in child shell to signal
- *	abnormal exit.
+ *	Called when aborting due to errors in command or fatal signal
  *
  * Side Effects:
  *	The program exits
  */
 void
-Finish(int errors) /* number of errors encountered in Make_Make */
+Finish()
 {
 	Job_Wait();
-	if (errors != 0) {
-		Error("Stop in %s:", Var_Value(".CURDIR"));
-	}
 	print_errors();
 	if (DEBUG(GRAPH2))
-		Targ_PrintGraph(2);
+		post_mortem();
 	exit(2);		/* Not 1 so -q can distinguish error */
 }
 

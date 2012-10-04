@@ -1,7 +1,9 @@
-/*	$OpenBSD: init.c,v 1.7 2012/10/02 10:29:30 espie Exp $ */
+/* $OpenBSD: dump.h,v 1.2 2012/10/02 10:29:30 espie Exp $ */
+#ifndef _DUMP_H_
+#define _DUMP_H_
 
 /*
- * Copyright (c) 2001 Marc Espie.
+ * Copyright (c) 2012 Marc Espie.
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -24,32 +26,26 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#include <stdio.h>
-#include "defines.h"
-#include "config.h"
-#include "init.h"
-#include "timestamp.h"
-#include "stats.h"
-#include "dir.h"
-#include "parse.h"
-#include "var.h"
-#include "arch.h"
-#include "targ.h"
-#include "suff.h"
-#include "job.h"
+/* implementation of -p option */
+extern void dump_data(void);
 
-void
-Init(void)
-{
-	Init_Timestamp();
-	Init_Stats();
-	Targ_Init();
-	Dir_Init();		/* Initialize directory structures so -I flags
-				 * can be processed correctly */
-	Parse_Init();		/* Need to initialize the paths of #include
-				 * directories */
-	Var_Init();		/* As well as the lists of variables for
-				 * parsing arguments */
-	Arch_Init();
-	Suff_Init();
-}
+/* and of graph debugging options */
+extern void post_mortem(void);
+
+struct ohash;
+/* utility functions for both var and targ */
+
+
+/* t = sort_ohash_by_name(h): 
+ *	returns a NULL terminated array holding hash entries, sorted by name.
+ *	free(t) when done with it.
+ */
+extern void *sort_ohash_by_name(struct ohash *);
+/* t = sort_ohash(h, cmp_f);
+ *	returns a NULL terminated array holding hash entries, pass comparison
+ *	function.
+ *	free(t) when done with it.
+ */
+extern void * sort_ohash(struct ohash *, int (*)(const void *, const void *));
+
+#endif

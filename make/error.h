@@ -1,6 +1,6 @@
 #ifndef ERROR_H
 #define ERROR_H
-/*	$OpenBSD: error.h,v 1.11 2010/07/19 19:46:44 espie Exp $ */
+/*	$OpenBSD: error.h,v 1.12 2012/09/21 07:55:20 espie Exp $ */
 
 /*
  * Copyright (c) 2001 Marc Espie.
@@ -44,7 +44,7 @@
 extern void Error(char *, ...);
 extern void Fatal(char *, ...);
 extern void Punt(char *, ...);
-extern void Finish(int);
+extern void Finish(void);
 
 /*
  * Error levels for parsing. PARSE_FATAL means the process cannot continue

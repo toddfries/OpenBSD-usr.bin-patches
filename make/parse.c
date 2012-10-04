@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.c,v 1.104 2012/04/20 13:28:11 espie Exp $	*/
+/*	$OpenBSD: parse.c,v 1.106 2012/10/02 10:29:31 espie Exp $	*/
 /*	$NetBSD: parse.c,v 1.29 1997/03/10 21:20:04 christos Exp $	*/
 
 /*
@@ -106,10 +106,6 @@ static LIST	theSysIncPath;	/* list of directories for <...> includes */
 Lst systemIncludePath = &theSysIncPath;
 Lst userIncludePath = &theUserIncPath;
 
-#ifdef CLEANUP
-static LIST	    targCmds;	/* command lines for targets */
-#endif
-
 static GNode	    *mainNode;	/* The main target to create. This is the
 				 * first target on the first dependency
 				 * line in the first makefile */
@@ -169,34 +165,6 @@ static bool found_delimiter(const char *);
 static unsigned int handle_special_targets(Lst);
 static void dump_targets(void);
 
-#define	SPECIAL_EXEC		4U
-#define SPECIAL_IGNORE		5U
-#define SPECIAL_INCLUDES	6U
-#define	SPECIAL_INVISIBLE	8U
-#define SPECIAL_JOIN		9U
-#define SPECIAL_LIBS		10U
-#define SPECIAL_MADE		11U
-#define SPECIAL_MAIN		12U
-#define SPECIAL_MAKE		13U
-#define SPECIAL_MFLAGS		14U
-#define	SPECIAL_NOTMAIN		15U
-#define	SPECIAL_NOTPARALLEL	16U
-#define	SPECIAL_NULL		17U
-#define	SPECIAL_OPTIONAL	18U
-#define SPECIAL_ORDER		19U
-#define SPECIAL_PARALLEL	20U
-#define SPECIAL_PHONY		22U
-#define SPECIAL_PRECIOUS	23U
-#define SPECIAL_SILENT		25U
-#define SPECIAL_SINGLESHELL	26U
-#define SPECIAL_SUFFIXES	27U
-#define	SPECIAL_USE		28U
-#define SPECIAL_WAIT		29U
-#define SPECIAL_NOPATH		30U
-#define SPECIAL_ERROR		31U
-#define SPECIAL_CHEAP		32U
-#define SPECIAL_EXPENSIVE	33U
-
 
 #define P(k) k, sizeof(k), K_##k
 
@@ -209,10 +177,10 @@ static struct {
 } specials[] = {
     { P(NODE_EXEC),	SPECIAL_EXEC | SPECIAL_TARGETSOURCE,	OP_EXEC, },
     { P(NODE_IGNORE),	SPECIAL_IGNORE | SPECIAL_TARGETSOURCE, 	OP_IGNORE, },
-    { P(NODE_INCLUDES),	SPECIAL_INCLUDES | SPECIAL_TARGET,	0, },
+    { P(NODE_INCLUDES),	SPECIAL_DEPRECATED | SPECIAL_TARGET,	0, },
     { P(NODE_INVISIBLE),SPECIAL_INVISIBLE | SPECIAL_TARGETSOURCE,OP_INVISIBLE, },
     { P(NODE_JOIN),	SPECIAL_JOIN | SPECIAL_TARGETSOURCE,	OP_JOIN, },
-    { P(NODE_LIBS),	SPECIAL_LIBS | SPECIAL_TARGET,		0, },
+    { P(NODE_LIBS),	SPECIAL_DEPRECATED | SPECIAL_TARGET,	0, },
     { P(NODE_MADE),	SPECIAL_MADE | SPECIAL_TARGETSOURCE,	OP_MADE, },
     { P(NODE_MAIN),	SPECIAL_MAIN | SPECIAL_TARGET,		0, },
     { P(NODE_MAKE),	SPECIAL_MAKE | SPECIAL_TARGETSOURCE,	OP_MAKE, },
@@ -221,7 +189,7 @@ static struct {
     { P(NODE_NOTMAIN),	SPECIAL_NOTMAIN | SPECIAL_TARGETSOURCE,	OP_NOTMAIN, },
     { P(NODE_NOTPARALLEL),SPECIAL_NOTPARALLEL | SPECIAL_TARGET,	0, },
     { P(NODE_NO_PARALLEL),SPECIAL_NOTPARALLEL | SPECIAL_TARGET,	0, },
-    { P(NODE_NULL),	SPECIAL_NULL | SPECIAL_TARGET,		0, },
+    { P(NODE_NULL),	SPECIAL_DEPRECATED | SPECIAL_TARGET,	0, },
     { P(NODE_OPTIONAL),	SPECIAL_OPTIONAL | SPECIAL_TARGETSOURCE,OP_OPTIONAL, },
     { P(NODE_ORDER),	SPECIAL_ORDER | SPECIAL_TARGET,		0, },
     { P(NODE_PARALLEL),	SPECIAL_PARALLEL | SPECIAL_TARGET,	0, },
@@ -547,8 +515,7 @@ add_target_node(const char *line, const char *end)
 		gn->type &= ~OP_DUMMY;
 	}
 
-	if (gn != NULL)
-		Array_AtEnd(&gtargets, gn);
+	Array_AtEnd(&gtargets, gn);
 }
 
 static void
@@ -731,8 +698,7 @@ handle_special_targets(Lst paths)
 	if (seen_normal != 0) {
 		specType = SPECIAL_NONE;
 		return 0;
-	}
-	else if (seen_path != 0) {
+	} else if (seen_path != 0) {
 		specType = SPECIAL_PATH;
 		return 0;
 	} else if (seen_special == 0) {
@@ -904,8 +870,7 @@ ParseDoDependency(const char *line)	/* the line to parse */
 	 * NOW GO FOR THE SOURCES
 	 */
 	if (specType == SPECIAL_SUFFIXES || specType == SPECIAL_PATH ||
-	    specType == SPECIAL_INCLUDES || specType == SPECIAL_LIBS ||
-	    specType == SPECIAL_NULL) {
+	    specType == SPECIAL_DEPRECATED) {
 		while (*line) {
 		    /*
 		     * If the target was one that doesn't take files as its
@@ -946,15 +911,6 @@ ParseDoDependency(const char *line)	/* the line to parse */
 				    Dir_AddDiri((Lst)Lst_Datum(ln), line, cp);
 			    break;
 			    }
-		    case SPECIAL_INCLUDES:
-			    Suff_AddIncludei(line, cp);
-			    break;
-		    case SPECIAL_LIBS:
-			    Suff_AddLibi(line, cp);
-			    break;
-		    case SPECIAL_NULL:
-			    Suff_SetNulli(line, cp);
-			    break;
 		    default:
 			    break;
 		    }
@@ -1040,11 +996,8 @@ ParseAddCmd(void *gnp, void *cmd)
 {
 	GNode *gn = (GNode *)gnp;
 	/* if target already supplied, ignore commands */
-	if (!(gn->type & OP_HAS_COMMANDS)) {
+	if (!(gn->type & OP_HAS_COMMANDS))
 		Lst_AtEnd(&gn->commands, cmd);
-		if (!gn->origin.lineno)
-			Parse_FillLocation(&gn->origin);
-	}
 }
 
 /*-
@@ -1441,12 +1394,16 @@ parse_commands(struct growableArray *targets, const char *line)
 {
 	/* add the command to the list of
 	 * commands of all targets in the dependency spec */
-	char *cmd = estrdup(line);
+
+	struct command *cmd;
+	size_t len = strlen(line);
+
+	cmd = emalloc(sizeof(struct command) + len);
+	memcpy(&cmd->string, line, len+1);
+	Parse_FillLocation(&cmd->location);
+
 
 	Array_ForEach(targets, ParseAddCmd, cmd);
-#ifdef CLEANUP
-	Lst_AtEnd(&targCmds, cmd);
-#endif
 }
 
 static bool
@@ -1486,13 +1443,13 @@ parse_target_line(struct growableArray *targets, const char *line,
 	size_t pos;
 	char *end;
 	char *cp;
-	char *dep;
+	char *cmd;
 
 	/* let's start a new set of commands */
 	Array_Reset(targets);
 
 	/* XXX this is a dirty heuristic to handle target: dep ; commands */
-	dep = NULL;
+	cmd = NULL;
 	/* First we need to find eventual dependencies */
 	pos = strcspn(stripped, ":!");
 	/* go over :!, and find ;  */
@@ -1501,9 +1458,9 @@ parse_target_line(struct growableArray *targets, const char *line,
 		if (line != stripped)
 			/* find matching ; in original... The
 			 * original might be slightly longer.  */
-			dep = strchr(line+(end-stripped), ';');
+			cmd = strchr(line+(end-stripped), ';');
 		else
-			dep = end;
+			cmd = end;
 		/* kill end of line. */
 		*end = '\0';
 	}
@@ -1514,13 +1471,13 @@ parse_target_line(struct growableArray *targets, const char *line,
 	ParseDoDependency(cp);
 	free(cp);
 
-	/* Parse dependency if it's not empty. */
-	if (dep != NULL) {
+	/* Parse command if it's not empty. */
+	if (cmd != NULL) {
 		do {
-			dep++;
-		} while (isspace(*dep));
-		if (*dep != '\0')
-			parse_commands(targets, dep);
+			cmd++;
+		} while (isspace(*cmd));
+		if (*cmd != '\0')
+			parse_commands(targets, cmd);
 	}
 }
 
@@ -1585,24 +1542,7 @@ Parse_Init(void)
 	Array_Init(&gtargets, TARGETS_SIZE);
     	Array_Init(&gsources, SOURCES_SIZE);
 	create_special_nodes();
-
-	LowParse_Init();
-#ifdef CLEANUP
-	Static_Lst_Init(&targCmds);
-#endif
 }
-
-#ifdef CLEANUP
-void
-Parse_End(void)
-{
-	Lst_Destroy(&targCmds, (SimpleProc)free);
-	Lst_Destroy(systemIncludePath, Dir_Destroy);
-	Lst_Destroy(userIncludePath, Dir_Destroy);
-	LowParse_End();
-}
-#endif
-
 
 void
 Parse_MainName(Lst listmain)	/* result list */

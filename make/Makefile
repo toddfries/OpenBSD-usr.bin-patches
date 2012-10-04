@@ -1,10 +1,10 @@
-#	$OpenBSD: Makefile,v 1.52 2010/10/17 22:54:37 schwarze Exp $
+#	$OpenBSD: Makefile,v 1.55 2012/10/02 10:29:30 espie Exp $
 
 PROG=	make
 CFLAGS+= -I${.OBJDIR} -I${.CURDIR}
 HOSTCFLAGS+= -I${.OBJDIR} -I${.CURDIR}
 CDIAGFLAGS=-Wall -W -Wno-char-subscripts -Wstrict-prototypes -pedantic \
-	-Wmissing-prototypes
+	-Wmissing-prototypes -Wdeclaration-after-statement
 
 CDEFS+=-DUSE_TIMESPEC
 CDEFS+=-DHAS_BOOL_H
@@ -15,7 +15,8 @@ CDEFS+=-DHAS_EXTENDED_GETCWD
 CFLAGS+=${CDEFS}
 HOSTCFLAGS+=${CDEFS}
 
-SRCS=	arch.c buf.c cmd_exec.c compat.c cond.c dir.c direxpand.c engine.c \
+SRCS=	arch.c buf.c cmd_exec.c compat.c cond.c dir.c direxpand.c dump.c \
+	engine.c \
 	error.c for.c init.c job.c lowparse.c main.c make.c memory.c parse.c \
 	parsevar.c str.c stats.c suff.c targ.c targequiv.c timestamp.c \
 	var.c varmodifiers.c varname.c
@@ -56,9 +57,6 @@ regress: check
 var.o: varhashconsts.h
 cond.o: condhashconsts.h
 targ.o parse.o: nodehashconsts.h
-var.ln: varhashconsts.h
-cond.ln: condhashconsts.h
-targ.ln parse.ln: nodehashconsts.h
 
 .PHONY:		regress
 
