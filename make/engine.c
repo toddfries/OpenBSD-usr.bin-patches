@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.35 2012/10/04 13:20:46 espie Exp $ */
+/*	$OpenBSD: engine.c,v 1.38 2012/10/18 17:54:43 espie Exp $ */
 /*
  * Copyright (c) 2012 Marc Espie.
  *
@@ -99,6 +99,24 @@ static void setup_engine(void);
 static char **recheck_command_for_shell(char **);
 static void list_parents(GNode *, FILE *);
 
+/* XXX due to a bug in make's logic, targets looking like *.a or -l*
+ * have been silently dropped when make couldn't figure them out.
+ * Now, we warn about them until all Makefile bugs have been fixed.
+ */
+static bool
+drop_silently(const char *s)
+{
+	size_t len;
+
+	if (s[0] == '-' && s[1] == 'l')
+		return true;
+
+	len = strlen(s);
+	if (len >=2 && s[len-2] == '.' && s[len-1] == 'a')
+		return true;
+	return false;
+}
+
 bool
 node_find_valid_commands(GNode *gn)
 {
@@ -110,12 +128,14 @@ node_find_valid_commands(GNode *gn)
 	if (Targ_Silent(gn))
 		gn->type |= OP_SILENT;
 
+	if (DEBUG(DOUBLE) && (gn->type & OP_DOUBLE))
+		fprintf(stderr, "Warning: target %s had >1 lists of "
+		    "shell commands (ignoring later ones)\n", gn->name);
 	if (OP_NOP(gn->type) && Lst_IsEmpty(&gn->commands)) {
-		/* XXX */
-		if ((gn->type & OP_LIB)) {
+		if (drop_silently(gn->name)) {
 			printf("Warning: target %s", gn->name);
 			list_parents(gn, stdout);
-			printf(" does not have any command\n");
+			printf(" does not have any command (BUG)\n");
 			return true;
 		}
 		/*
@@ -295,7 +315,12 @@ Make_HandleUse(GNode	*cgn,	/* The .USE node */
 		}
 	}
 
-	pgn->type |= cgn->type & ~(OP_OPMASK|OP_USE|OP_TRANSFORM);
+	if (DEBUG(DOUBLE) && (cgn->type & OP_DOUBLE))
+		fprintf(stderr, 
+		    "Warning: .USE %s expanded in %s had >1 lists of "
+		    "shell commands (ignoring later ones)\n", 
+		    cgn->name, pgn->name);
+	pgn->type |= cgn->type & ~(OP_OPMASK|OP_USE|OP_TRANSFORM|OP_DOUBLE);
 
 	/*
 	 * This child node is now "made", so we decrement the count of
@@ -591,33 +616,59 @@ job_attach_node(Job *job, GNode *node)
 void
 job_handle_status(Job *job, int status)
 {
+	bool silent;
+	int dying;
+
+	/* if there's one job running and we don't keep going, no need 
+	 * to report right now.
+	 */
+	if ((job->flags & JOB_ERRCHECK) && !keepgoing && runningJobs == NULL) 
+		silent = !DEBUG(JOB);
+	else
+		silent = false;
+
 	debug_job_printf("Process %ld (%s) exited with status %d.\n",
 	    (long)job->pid, job->node->name, status);
 
 	/* classify status */
 	if (WIFEXITED(status)) {
 		job->code = WEXITSTATUS(status);/* exited */
-		if (status != 0) {
-			printf("*** Error code %d", job->code);
+		if (job->code != 0) {
+			/* if we're already dying from that signal, be silent */
+			if (!silent && job->code > 128 
+			    && job->code <= 128 + _NSIG) {
+				dying = check_dying_signal();
+				silent = dying && job->code == dying + 128;
+			}
+			if (!silent)
+				printf("*** Error %d", job->code);
 			job->exit_type = JOB_EXIT_BAD;
 		} else 
 			job->exit_type = JOB_EXIT_OKAY;
 	} else {
 		job->exit_type = JOB_SIGNALED;
 		job->code = WTERMSIG(status);	/* signaled */
-		printf("*** Signal %d", job->code);
+		/* if we're already dying from that signal, be silent */
+		if (!silent) {
+			dying = check_dying_signal();
+			silent = dying && job->code == dying;
+		}
+		if (!silent)
+			printf("*** Signal %d", job->code);
 	}
 
 	/* if there is a problem, what's going on ? */
 	if (job->exit_type != JOB_EXIT_OKAY) {
-		printf(" in target %s", job->node->name);
+		if (!silent)
+			printf(" in target '%s'", job->node->name);
 		if (job->flags & JOB_ERRCHECK) {
 			job->node->built_status = ERROR;
 			/* compute expensive status if we really want it */
 			if ((job->flags & JOB_SILENT) && job == &myjob)
 				determine_expensive_job(job);
 			if (!keepgoing) {
-				printf("\n");
+				if (!silent)
+					printf("\n");
 				job->next = errorJobs;
 				errorJobs = job;
 				/* XXX don't free the command */

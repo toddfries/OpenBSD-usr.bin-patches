@@ -1,4 +1,4 @@
-/*	$OpenBSD: job.c,v 1.127 2012/10/04 13:20:46 espie Exp $	*/
+/*	$OpenBSD: job.c,v 1.132 2012/10/23 20:32:21 espie Exp $	*/
 /*	$NetBSD: job.c,v 1.16 1996/11/06 17:59:08 christos Exp $	*/
 
 /*
@@ -131,16 +131,14 @@ Job *errorJobs;			/* Jobs in error at end */
 static Job *heldJobs;		/* Jobs not running yet because of expensive */
 static pid_t mypid;
 
-static volatile sig_atomic_t got_fatal, got_other;
+static volatile sig_atomic_t got_fatal;
 
 static volatile sig_atomic_t got_SIGINT, got_SIGHUP, got_SIGQUIT, got_SIGTERM, 
-    got_SIGINFO, got_SIGTSTP, got_SIGTTOU, got_SIGTTIN, got_SIGCONT, 
-    got_SIGWINCH;
+    got_SIGINFO;
 
 static sigset_t sigset, emptyset;
 
 static void handle_fatal_signal(int);
-static void pass_job_control_signal(int);
 static void handle_siginfo(void);
 static void postprocess_job(Job *, bool);
 static Job *prepare_job(GNode *);
@@ -157,72 +155,225 @@ static bool expensive_command(const char *);
 static void setup_signal(int);
 static void notice_signal(int);
 static void setup_all_signals(void);
-static void setup_job_control_interrupts(void);
-static void killcheck(pid_t, int);
+static const char *really_kill(Job *, int);
+static void kill_with_sudo_maybe(pid_t, int, const char *);
+static void debug_kill_printf(const char *, ...);
+static void debug_vprintf(const char *, va_list);
+static void may_remove_target(Job *);
+static const char *really_kill(Job *, int);
+static void print_error(Job *);
+static void internal_print_errors(void);
+
+static int dying_signal = 0;
+
+const char *	basedirectory = NULL;
+
+static void 
+kill_with_sudo_maybe(pid_t pid, int signo, const char *p)
+{
+	char buf[32]; /* largely enough */
+
+	for (;*p != '\0'; p++) {
+		if (*p != 's')
+			continue;
+		if (p[1] != 'u')
+			continue;
+		p++;
+		if (p[1] != 'd')
+			continue;
+		p++;
+		if (p[1] != 'o')
+			continue;
+		snprintf(buf, sizeof buf, "sudo -n /bin/kill -%d %ld", 
+		    signo, (long)pid);
+		debug_kill_printf("trying to kill with %s", buf);
+		system(buf);
+		return;
+	}
+
+}
+
+static const char *
+really_kill(Job *job, int signo)
+{
+	pid_t pid = job->pid;
+	if (getpgid(pid) != getpgrp()) {
+		if (killpg(pid, signo) == 0)
+			return "group got signal";
+		pid = -pid;
+	} else {
+		if (kill(pid, signo) == 0)
+			return "process got signal";
+	}
+	if (errno == ESRCH) {
+		job->flags |= JOB_LOST;
+		return "not found";
+	} else if (errno == EPERM) {
+		kill_with_sudo_maybe(pid, signo, job->cmd);
+		return "";
+	} else
+		return "should not happen";
+}
 
 static void
-killcheck(pid_t pid, int signo)
+may_remove_target(Job *j)
 {
-	if (kill(pid, signo) == 0)
-		return;
-	if (errno == ESRCH) {
-		fprintf(stderr, 
-		    "Can't send signal %d to %ld: pid not found\n",
-		    signo, (long)pid);
-	} else if (errno == EPERM) {
-		fprintf(stderr, 
-		    "Can't send signal %d to %ld: not permitted\n",
-		    signo, (long)pid);
+	int dying = check_dying_signal();
+
+	if (dying && !noExecute && !Targ_Precious(j->node)) {
+		const char *file = Var(TARGET_INDEX, j->node);
+		int r = eunlink(file);
+
+		if (DEBUG(JOB) && r == -1)
+			fprintf(stderr, " *** would unlink %s\n", file);
+		if (r != -1)
+			fprintf(stderr, " *** %s removed\n", file);
 	}
 }
 
-static void 
-print_error(Job *j, Job *k)
+static void
+buf_addcurdir(BUFFER *buf)
 {
-	const char *type;
+	const char *v = Var_Value(".CURDIR");
+	if (basedirectory != NULL) {
+		size_t len = strlen(basedirectory);
+		if (strncmp(basedirectory, v, len) == 0 &&
+		    v[len] == '/') {
+			v += len+1;
+		} else if (strcmp(basedirectory, v) == 0) {
+			Buf_AddString(buf, ".");
+			return;
+		}
+	}
+	Buf_AddString(buf, v);
+}
 
-	if (j->exit_type == JOB_EXIT_BAD)
-		type = "Exit status";
-	else if (j->exit_type == JOB_SIGNALED)
-		type = "Received signal";
-	else
-		type = "Should not happen";
-	fprintf(stderr, " %s %d (", type, j->code);
-	fprintf(stderr, "line %lu",
-	    j->location->lineno);
-	if (j == k)
-		fprintf(stderr, " of %s,", j->location->fname);
-	else
-		fputs(",", stderr);
-	if ((j->flags & (JOB_SILENT | JOB_IS_EXPENSIVE)) == JOB_SILENT)
-		fprintf(stderr, "\n     target %s: %s", j->node->name, j->cmd);
-	else
-		fprintf(stderr, " target %s", j->node->name);
-	fputs(")\n", stderr);
+static const char *
+shortened_curdir(void)
+{
+	static BUFFER buf;
+	bool first = true;
+	if (first) {
+		Buf_Init(&buf, 0);
+		buf_addcurdir(&buf);
+		first = false;
+	}
+	return Buf_Retrieve(&buf);
+}
+
+static void 
+quick_error(Job *j, int signo, bool first)
+{
+	if (first) {
+		fprintf(stderr, "*** Signal SIG%s", sys_signame[signo]);
+		fprintf(stderr, " in %s (", shortened_curdir());
+	} else
+		fprintf(stderr, " ");
+
+	fprintf(stderr, "%s", j->node->name);
 	free(j->cmd);
 }
 
-void
-print_errors(void)
+static void 
+print_error(Job *j)
+{
+	static bool first = true;
+	BUFFER buf;
+
+	Buf_Init(&buf, 0);
+
+	if (j->exit_type == JOB_EXIT_BAD)
+		Buf_printf(&buf, "*** Error %d", j->code);
+	else if (j->exit_type == JOB_SIGNALED) {
+		if (j->code < NSIG)
+			Buf_printf(&buf, "*** Signal SIG%s", 
+			    sys_signame[j->code]);
+		else
+			Buf_printf(&buf, "*** unknown signal %d", j->code);
+	} else
+		Buf_printf(&buf, "*** Should not happen %d/%d", 
+		    j->exit_type, j->code);
+	if (DEBUG(KILL) && (j->flags & JOB_LOST))
+		Buf_AddChar(&buf, '!');
+	if (first) {
+		Buf_AddString(&buf, " in ");
+		buf_addcurdir(&buf);
+		first = false;
+	}
+	Buf_printf(&buf, " (%s:%lu", j->location->fname, j->location->lineno);
+	Buf_printf(&buf, " '%s'", j->node->name);
+	if ((j->flags & (JOB_SILENT | JOB_IS_EXPENSIVE)) == JOB_SILENT
+	    && Buf_Size(&buf) < 140-2) {
+		size_t len = strlen(j->cmd);
+		Buf_AddString(&buf, ": ");
+		if (len + Buf_Size(&buf) < 140)
+			Buf_AddString(&buf, j->cmd);
+		else {
+			Buf_AddChars(&buf, 140 - Buf_Size(&buf), j->cmd);
+			Buf_AddString(&buf, "...");
+		}
+	}
+	fprintf(stderr, "%s)\n", Buf_Retrieve(&buf));
+	Buf_Destroy(&buf);
+	free(j->cmd);
+}
+static void
+quick_summary(int signo)
 {
 	Job *j, *k, *jnext;
+	bool first = true;
 
-	fprintf(stderr, "\nStop in %s%c\n", Var_Value(".CURDIR"),
-	    errorJobs ? ':' : '.');
+	k = errorJobs;
+	errorJobs = NULL;
+	for (j = k; j != NULL; j = jnext) {
+		jnext = j->next;
+		if ((j->exit_type == JOB_EXIT_BAD && j->code == signo+128) ||
+		    (j->exit_type == JOB_SIGNALED && j->code == signo)) {
+			quick_error(j, signo, first);
+			first = false;
+		} else {
+			j->next = errorJobs;
+			errorJobs = j;
+		}
+	}
+	if (!first)
+		fprintf(stderr, ")\n");
+}
 
+static void
+internal_print_errors()
+{
+	Job *j, *k, *jnext;
+	int dying;
+
+	if (!errorJobs)
+		fprintf(stderr, "Stop in %s.\n", shortened_curdir());
+
+	for (j = errorJobs; j != NULL; j = j->next)
+		may_remove_target(j);
+	dying = check_dying_signal();
+	if (dying)
+		quick_summary(dying);
 	while (errorJobs != NULL) {
 		k = errorJobs;
 		errorJobs = NULL;
 		for (j = k; j != NULL; j = jnext) {
 			jnext = j->next;
 			if (j->location->fname == k->location->fname)
-				print_error(j, k);
+				print_error(j);
 			else {
 				j->next = errorJobs;
 				errorJobs = j;
 			}
 		}
 	}
+}
+
+void
+print_errors(void)
+{
+	handle_all_signals();
+	internal_print_errors();
 }
 
 static void
@@ -260,35 +411,7 @@ notice_signal(int sig)
 		break;
 	case SIGCHLD:
 		break;
-	case SIGTSTP:
-		got_SIGTSTP++;
-		got_other = 1;
-		break;
-	case SIGTTOU:
-		got_SIGTTOU++;
-		got_other = 1;
-		break;
-	case SIGTTIN:
-		got_SIGTTIN++;
-		got_other = 1;
-		break;
-	case SIGCONT:
-		got_SIGCONT++;
-		got_other = 1;
-		break;
-	case SIGWINCH:
-		got_SIGWINCH++;
-		got_other = 1;
-		break;
 	}
-}
-
-static void
-setup_job_control_interrupts(void)
-{
-	setup_signal(SIGTSTP);
-	setup_signal(SIGTTOU);
-	setup_signal(SIGTTIN);
 }
 
 void
@@ -309,7 +432,6 @@ setup_all_signals(void)
 	/* Have to see SIGCHLD */
 	setup_signal(SIGCHLD);
 	got_fatal = 0;
-	got_other = 0;
 }
 
 static void 
@@ -328,7 +450,9 @@ handle_siginfo(void)
 
 	if (length == 0) {
 		Buf_Init(&buf, 0);
-		Buf_printf(&buf, "%s in %s: ", Var_Value("MAKE"), Var_Value(".CURDIR"));
+		Buf_printf(&buf, "%s in ", Var_Value("MAKE"));
+		buf_addcurdir(&buf);
+		Buf_AddString(&buf, ": ");
 		length = Buf_Size(&buf);
 	} else
 		Buf_Truncate(&buf, length);
@@ -344,34 +468,29 @@ handle_siginfo(void)
 	fputs(Buf_Retrieve(&buf), stderr);
 }
 
+int
+check_dying_signal(void)
+{
+	sigset_t set;
+	if (dying_signal)
+		return dying_signal;
+	sigpending(&set);
+	if (got_SIGINT || sigismember(&set, SIGINT))
+		return dying_signal = SIGINT;
+	if (got_SIGHUP || sigismember(&set, SIGHUP))
+		return dying_signal = SIGHUP;
+	if (got_SIGQUIT || sigismember(&set, SIGQUIT))
+		return dying_signal = SIGQUIT;
+	if (got_SIGTERM || sigismember(&set, SIGTERM))
+		return dying_signal = SIGTERM;
+	return 0;
+}
+
 void
 handle_all_signals(void)
 {
 	if (got_SIGINFO)
 		handle_siginfo();
-	while (got_other) {
-		got_other = 0;
-		if (got_SIGWINCH) {
-			got_SIGWINCH=0;
-			pass_job_control_signal(SIGWINCH);
-		}
-		if (got_SIGTTIN) {
-			got_SIGTTIN=0;
-			pass_job_control_signal(SIGTTIN);
-		}
-		if (got_SIGTTOU) {
-			got_SIGTTOU=0;
-			pass_job_control_signal(SIGTTOU);
-		}
-		if (got_SIGTSTP) {
-			got_SIGTSTP=0;
-			pass_job_control_signal(SIGTSTP);
-		}
-		if (got_SIGCONT) {
-			got_SIGCONT=0;
-			pass_job_control_signal(SIGCONT);
-		}
-	}
 	while (got_fatal) {
 		got_fatal = 0;
 		aborting = ABORT_INTERRUPT;
@@ -395,15 +514,32 @@ handle_all_signals(void)
 	}
 }
 
+static void
+debug_vprintf(const char *fmt, va_list va)
+{
+	(void)printf("[%ld] ", (long)mypid);
+	(void)vprintf(fmt, va);
+	fflush(stdout);
+}
+
 void
 debug_job_printf(const char *fmt, ...)
 {
 	if (DEBUG(JOB)) {
 		va_list va;
-		(void)printf("[%ld] ", (long)mypid);
 		va_start(va, fmt);
-		(void)vprintf(fmt, va);
-		fflush(stdout);
+		debug_vprintf(fmt, va);
+		va_end(va);
+	}
+}
+
+static void
+debug_kill_printf(const char *fmt, ...)
+{
+	if (DEBUG(KILL)) {
+		va_list va;
+		va_start(va, fmt);
+		debug_vprintf(fmt, va);
 		va_end(va);
 	}
 }
@@ -707,7 +843,6 @@ void
 handle_running_jobs(void)
 {
 	sigset_t old;
-
 	/* reaping children in the presence of caught signals */
 
 	/* first, we make sure to hold on new signals, to synchronize
@@ -787,33 +922,6 @@ Job_Empty(void)
 	return runningJobs == NULL;
 }
 
-static void
-pass_job_control_signal(int signo)
-{
-	Job *job;
-
-	debug_job_printf("pass_job_control_signal(%d) called.\n", signo);
-
-
-	for (job = runningJobs; job != NULL; job = job->next) {
-		debug_job_printf("pass_job_control_signal to "
-		    "child %ld running %s.\n", (long)job->pid,
-		    job->node->name);
-		killcheck(job->pid, signo);
-	}
-	/* after forwarding the signal, those should interrupt us */
-	if (signo == SIGTSTP || signo == SIGTTOU || signo == SIGTTIN) {
-		sigprocmask(SIG_BLOCK, &sigset, NULL);
-		signal(signo, SIG_DFL);
-		kill(getpid(), signo);
-		sigprocmask(SIG_SETMASK, &emptyset, NULL);
-	}
-	/* SIGWINCH is irrelevant for us, SIGCONT must put back normal
-	 * handling for other job control signals */
-	if (signo == SIGCONT)
-		setup_job_control_interrupts();
-}
-
 /*-
  *-----------------------------------------------------------------------
  * handle_fatal_signal --
@@ -829,20 +937,14 @@ handle_fatal_signal(int signo)
 {
 	Job *job;
 
-	debug_job_printf("handle_fatal_signal(%d) called.\n", signo);
+	debug_kill_printf("handle_fatal_signal(%d) called.\n", signo);
 
-
+	dying_signal = signo;
 	for (job = runningJobs; job != NULL; job = job->next) {
-		if (!Targ_Precious(job->node)) {
-			const char *file = Var(TARGET_INDEX, job->node);
-
-			if (!noExecute && eunlink(file) != -1)
-				Error("*** %s removed", file);
-		}
-		debug_job_printf("handle_fatal_signal: passing to "
-		    "child %ld running %s.\n", (long)job->pid,
-		    job->node->name);
-		killcheck(job->pid, signo);
+		debug_kill_printf("passing to "
+		    "child %ld running %s: %s\n", (long)job->pid,
+		    job->node->name, really_kill(job, signo));
+		may_remove_target(job);
 	}
 
 	if (signo == SIGINT && !touchFlag) {
@@ -853,7 +955,7 @@ handle_fatal_signal(int signo)
 		}
 	}
 	loop_handle_running_jobs();
-	print_errors();
+	internal_print_errors();
 
 	/* die by that signal */
 	sigprocmask(SIG_BLOCK, &sigset, NULL);
@@ -861,6 +963,8 @@ handle_fatal_signal(int signo)
 	kill(getpid(), signo);
 	sigprocmask(SIG_SETMASK, &emptyset, NULL);
 	/*NOTREACHED*/
+	fprintf(stderr, "This should never happen\n");
+	exit(1);
 }
 
 /*

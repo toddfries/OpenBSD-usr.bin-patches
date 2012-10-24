@@ -1,4 +1,4 @@
-/*	$OpenBSD: cond.c,v 1.44 2012/03/22 13:47:12 espie Exp $	*/
+/*	$OpenBSD: cond.c,v 1.47 2012/10/18 17:54:43 espie Exp $	*/
 /*	$NetBSD: cond.c,v 1.7 1996/11/06 17:59:02 christos Exp $	*/
 
 /*
@@ -70,12 +70,14 @@
  *	T -> exists(file)
  *	T -> empty(varspec)
  *	T -> target(name)
+ *	T -> commands(name)
  *	T -> symbol
  *	T -> $(varspec) op value
  *	T -> $(varspec) == "string"
  *	T -> $(varspec) != "string"
  *	T -> "string" == "string"
  *	T -> "string" != "string"
+ *	T -> number op number
  *	T -> ( E )
  *	T -> ! T
  *	op -> == | != | > | < | >= | <=
@@ -104,6 +106,7 @@ static bool CondDoDefined(struct Name *);
 static bool CondDoMake(struct Name *);
 static bool CondDoExists(struct Name *);
 static bool CondDoTarget(struct Name *);
+static bool CondDoTargetWithCommands(struct Name *);
 static bool CondCvtArg(const char *, double *);
 static Token CondToken(bool);
 static Token CondT(bool);
@@ -113,6 +116,7 @@ static Token CondHandleVarSpec(bool);
 static Token CondHandleDefault(bool);
 static Token CondHandleComparison(char *, bool, bool);
 static Token CondHandleString(bool);
+static Token CondHandleNumber(bool);
 static const char *find_cond(const char *);
 
 
@@ -308,10 +312,31 @@ CondDoExists(struct Name *arg)
 static bool
 CondDoTarget(struct Name *arg)
 {
-    GNode *gn;
+	GNode *gn;
 
 	gn = Targ_FindNodei(arg->s, arg->e, TARG_NOCREATE);
 	if (gn != NULL && !OP_NOP(gn->type))
+		return true;
+	else
+		return false;
+}
+
+/*-
+ *-----------------------------------------------------------------------
+ * CondDoTargetWithCommands --
+ *	See if the given node exists and has commands.
+ *
+ * Results:
+ *	true if the node is complete and false if it does not.
+ *-----------------------------------------------------------------------
+ */
+static bool
+CondDoTargetWithCommands(struct Name *arg)
+{
+	GNode *gn;
+
+	gn = Targ_FindNodei(arg->s, arg->e, TARG_NOCREATE);
+	if (gn != NULL && !OP_NOP(gn->type) && (gn->type & OP_HAS_COMMANDS))
 		return true;
 	else
 		return false;
@@ -360,6 +385,20 @@ CondCvtArg(const char *str, double *value)
 	}
 }
 
+
+static Token
+CondHandleNumber(bool doEval)
+{
+	const char *end;
+	char *lhs;
+
+	end = condExpr;
+	while (!isspace(*end) && strchr("!=><", *end) == NULL)
+		end++;
+	lhs = Str_dupi(condExpr, end);
+	condExpr = end;
+	return CondHandleComparison(lhs, true, doEval);
+}
 
 static Token
 CondHandleVarSpec(bool doEval)
@@ -601,6 +640,7 @@ static struct operator {
 	{S("make"), CondDoMake},
 	{S("exists"), CondDoExists},
 	{S("target"), CondDoTarget},
+	{S("commands"), CondDoTargetWithCommands},
 	{NULL, 0, NULL}
 };
 
@@ -736,6 +776,9 @@ CondToken(bool doEval)
 		return CondHandleString(doEval);
 	case '$':
 		return CondHandleVarSpec(doEval);
+	case '0': case '1': case '2': case '3': case '4':
+	case '5': case '6': case '7': case '8': case '9':
+		return CondHandleNumber(doEval);
 	default:
 		return CondHandleDefault(doEval);
 	}
@@ -1121,8 +1164,9 @@ Cond_End(void)
 		    condTop == 0 ? "at least ": "", MAXIF-condTop,
 		    MAXIF-condTop == 1 ? "" : "s");
 		for (i = MAXIF-1; i >= condTop; i--) {
-			fprintf(stderr, "\t at line %lu of %s\n",
-			    condStack[i].origin.lineno, condStack[i].origin.fname);
+			fprintf(stderr, "\t(%s:%lu)\n", 
+			    condStack[i].origin.fname, 
+			    condStack[i].origin.lineno);
 		}
 	}
 	condTop = MAXIF;

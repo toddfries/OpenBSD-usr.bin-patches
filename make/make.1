@@ -1,4 +1,4 @@
-.\"	$OpenBSD: make.1,v 1.95 2012/10/02 10:18:37 espie Exp $
+.\"	$OpenBSD: make.1,v 1.100 2012/10/12 21:44:19 espie Exp $
 .\"	$NetBSD: make.1,v 1.18 1997/03/10 21:19:53 christos Exp $
 .\"
 .\" Copyright (c) 1990, 1993
@@ -30,7 +30,7 @@
 .\"
 .\"	from: @(#)make.1	8.4 (Berkeley) 3/19/94
 .\"
-.Dd $Mdocdate: October 2 2012 $
+.Dd $Mdocdate: October 12 2012 $
 .Dt MAKE 1
 .Os
 .Sh NAME
@@ -55,7 +55,7 @@
 is a program designed to simplify the maintenance of other programs.
 Its input is a
 .Ar makefile :
-a list of specifications (target rules) describing creation
+a list of specifications (target rules) describing build
 relationships between programs and other files.
 By default, this
 .Ar makefile
@@ -164,6 +164,8 @@ Print debugging information about archive searching and caching.
 Print debugging information about conditional evaluation.
 .It Ar d
 Print debugging information about directory searching and caching.
+.It Ar D
+Print warning messages about multiply defined command lists.
 .It Ar e
 Print debugging information about expensive command heuristics.
 .It Ar f
@@ -173,8 +175,13 @@ Print the input graph before making anything.
 .It Ar "g2"
 Print the input graph after making everything, or before exiting
 on error.
+.It Ar h
+Print information about jobs being held back because of sibling/target
+groups races.
 .It Ar j
 Print debugging information about forking processes to run commands.
+.It Ar k
+Print debugging information about manually killing processes.
 .It Ar l
 Print commands in Makefile targets regardless of whether or not they are
 prefixed by @.
@@ -204,9 +211,11 @@ but this does not guarantee reproductibility.
 option: after a fatal error, instead of waiting for other jobs to die,
 kill them right away.
 .It Ar s
-Print debugging information about suffix-transformation rules.
+Print debugging information about inference (suffix) transformation rules.
 .It Ar t
 Print debugging information about target list maintenance.
+.It Ar T
+Print debugging information about target group determination.
 .It Ar v
 Print debugging information about variable assignment.
 .El
@@ -261,68 +270,65 @@ Dependency lines consist of one or more targets, an operator, and zero
 or more prerequisites.
 This creates a relationship where the targets
 .Dq depend
-on the prerequisites and are usually created from them.
-The exact relationship between the target and the prerequisite is determined
+on the prerequisites and are usually built from them.
+The exact relationship between targets and prerequisites is determined
 by the operator that separates them.
-Note that the use of several targets is merely a shorthand for duplicate
-rules.
-Specifically,
-.Bd -literal -offset indent
-target1 target2: reqa reqa
-	cmd1
-	cmd2
-.Ed
 .Pp
-is just a short form of
-.Bd -literal -offset indent
-target1: reqa reqa
-	cmd1
-	cmd2
-target2: reqa reqa
-	cmd1
-	cmd2
-.Ed
-.Pp
-.Nm
-does not support Solaris syntax for true multiple targets:
-.Bd -literal -offset indent
-target1 + target2: reqa reqa
-	cmd1
-	cmd2
-.Ed
+It is an error to use different dependency operators for the same target.
 .Pp
 The operators are as follows:
 .Bl -tag -width flag
 .It Ic \&:
-A target is considered out-of-date if its modification time is less than
-those of any of its prerequisites.
-Prerequisites for a target accumulate over dependency lines
-when this operator is used.
+A target is considered out-of-date if any of its prerequisites has
+been modified more recently than the target (that is, its modification time
+is less than that of any of its prerequisites).
+Thus, targets with no prerequisites are always out-of-date.
+.Pp
+.Nm
+will then execute the list of shell commands associated with that target.
+.Pp
+Additional prerequisites may be specified over additional dependency lines:
+.Nm
+will consider all prerequisites for determining out-of-date status.
 The target is removed if
 .Nm
 is interrupted.
 .It Ic \&!
-Targets are always re-created, but not until all prerequisites have been
-examined and re-created as necessary.
-Prerequisites for a target accumulate over dependency lines when this
-operator is used.
-The target is removed if
+.Nm
+first examines all prerequisites and re-creates them as necessary.
+.Pp
+It will then always execute the list of shell commands associated with
+that target (as if the target always was out-of-date).
+.Pp
+Like
+.Ic \&: ,
+additional prerequisites may be specified over additional dependency lines,
+and the target is still removed if
 .Nm
 is interrupted.
 .It Ic \&::
-If no prerequisites are specified, the target is always re-created.
-Otherwise, a target is considered out-of-date if any of its prerequisites has
-been modified more recently than the target.
-Prerequisites for a target do not accumulate over dependency lines when this
-operator is used.
+Each dependency line for a target is considered independently.
+A target is considered out-of-date for this target rule if any of its
+prerequisites in this dependency has been modified more recently than
+the target.
+.Pp
+.Nm
+will then execute the list of shell commands associated with that target.
+Target rules that specify no prerequisites are always executed.
+.Pp
 The target will not be removed if
 .Nm
 is interrupted.
 .El
 .Pp
 The
+.Ic \&:
+operator is the only standard operator.
+The
 .Ic \&::
-operator is a fairly standard extension.
+operator is a fairly standard extension,
+popularized by
+.Xr imake .
 The
 .Ic !\&
 operator is a BSD extension.
@@ -349,9 +355,33 @@ Expansion is in directory order, not alphabetically as done in the shell.
 .Pp
 For maximum portability, target names should only consist of periods,
 underscores, digits and alphabetic characters.
+.Pp
+The use of several targets can be a shorthand for duplicate rules.
+Specifically,
+.Bd -literal -offset indent
+target1 target2: reqa reqa
+	cmd1
+	cmd2
+.Ed
+.Pp
+may be replaced with
+.Bd -literal -offset indent
+target1: reqa reqa
+	cmd1
+	cmd2
+target2: reqa reqa
+	cmd1
+	cmd2
+.Ed
+.Pp
+in general.
+But
+.Nm
+is aware of parallel issues, and will not build those targets concurrently,
+if not appropriate.
 .Sh SHELL COMMANDS
 Each target may have associated with it a series of shell commands, normally
-used to create the target.
+used to build the target.
 While several dependency lines may name the same target, only one of
 these dependency lines should be followed by shell commands, and thus
 define a complete target rule (unless the
@@ -389,6 +419,77 @@ As an optimization,
 .Nm
 may execute very simple commands without going through an extra shell
 process, as long as this does not change observable behavior.
+.Sh INFERENCE RULES
+.Nm
+also maintains a list of valid suffixes through the use of the
+.Ic .SUFFIXES
+special target.
+.Pp
+These suffixes can be used to write generic transformation rules called
+inference rules.
+.Pp
+If a target has the form
+.Sq \&.s1.s2 ,
+where .s1 and .s2 are currently valid suffixes, then it defines a
+transformation from *.s1 to *.s2 (double suffix inference).
+If a target has the form
+.Sq \&.s1 ,
+where .s1 is a currently valid suffix, then it defines a
+transformation from *.s1 to * (single suffix inference).
+.Pp
+A complete inference rule is a dependency line with such a target, the
+normal dependency operator, no prerequisites and a list of shell commands.
+.Pp
+When
+.Nm
+requires a target for which it has no complete target rule, it will try
+to apply a single active inference rule to create the target.
+.Pp
+For instance, with the following Makefile, describing a C program compiled
+from sources a.c and b.c, with header file a.h:
+.Bd -literal -offset indent
+\&.SUFFIXES: .c .o
+\&.c.o:
+	${CC} ${CFLAGS} -c $<
+
+prog: a.o b.o
+	${CC} ${CFLAGS} -o $@ a.o
+
+a.o b.o: a.h
+
+b.o: b.c
+	${CC} -DFOO ${CFLAGS} -o $@ $<
+.Ed
+.Pp
+Consider b.o:
+there is a complete target rule re-creating it from b.c, so
+it will be compiled using ${CC} -DFOO.
+.Pp
+Consider a.o:
+there is no explicit target rule, so
+.Nm
+will consider valid transforms.
+Fortunately, there is an inference rule that can create a.o from a.c,
+so it will be compiled using ${CC}.
+.Pp
+Note that extra prerequisites are still taken into account, so both a.o
+and b.o depend on a.h for re-creation.
+.Pp
+Valid suffixes accumulate over
+.Ic .SUFFIXES
+lines.
+An empty
+.Ic .SUFFIXES
+can be used to reset the currently valid list of suffixes,
+but inference rules already read are still known by
+.Nm ,
+and they are marked as inactive.
+Redefining the corresponding suffix (or suffixes) will re-active the rule.
+.Pp
+In case of duplicate inference rules with the same suffix combination,
+the new rule overrides the old one.
+.Pp
+For maximal portability, suffixes should start with a dot.
 .Sh VARIABLE ASSIGNMENTS
 Variables in
 .Nm
@@ -468,7 +569,7 @@ The name of the archive file (only valid for library rules).
 The list of prerequisites for this target that were deemed out-of-date.
 .It Va \&<
 The name of the prerequisite from which this target is to be built, if a valid
-implied rule (suffix rule) is in scope.
+inference rule (suffix rule) is in scope.
 .It Va *
 The file prefix of the file, containing only the file portion,
 no suffix or preceding directory components.
@@ -490,9 +591,9 @@ parts of the corresponding macros.
 .Pp
 For maximum compatibility,
 .Sq Va \&<
-should only be used for actual implied rules.
-It is also set when there is an implied rule that matches the current
-dependency in scope.
+should only be used for actual inference rules.
+It is also set for normal target rules when there is an inference rule
+that matches the current target and prerequisite in scope.
 That is, in
 .Bd -literal -offset indent
 \&.SUFFIXES: .c .o
@@ -1019,7 +1120,10 @@ It is of higher precedence than
 The value of
 .Ar expression
 may be any of the following:
-.Bl -tag -width defined
+.Bl -tag -width commands
+.It Ic commands
+Takes a target name as an argument and evaluates to true if the target
+has been defined and has shell commands associated with it.
 .It Ic defined
 Takes a variable name as an argument and evaluates to true if the variable
 has been defined.
@@ -1123,106 +1227,127 @@ they may not cross include file boundaries.
 Comments begin with a hash
 .Pq Ql \&#
 character, anywhere but in a shell
-command line, and continue to the end of the line.
-.Sh SPECIAL PREREQUISITES
-.Bl -tag -width ".PRECIOUS"
-.It Ic .IGNORE
-Ignore any errors from the commands associated with this target, exactly
-as if they all were preceded by a dash
-.Pq Ql \- .
-.It Ic .NOTMAIN
-Normally
-.Nm
-selects the first target it encounters as the default target to be built
-if no target was specified.
-This prerequisite prevents this target from being selected.
-.It Ic .OPTIONAL
-If a target is marked with this attribute and
-.Nm
-can't figure out how to create it, it will ignore this fact and assume
-the file isn't needed or already exists.
-.It Ic .PRECIOUS
-When
-.Nm
-is interrupted, it removes any partially made targets.
-This prerequisite prevents the target from being removed.
-.It Ic .SILENT
-Do not echo any of the commands associated with this target, exactly
-as if they all were preceded by an at sign
-.Pq Ql @ .
-.It Ic .USE
-Turn the target into
-.Nm make Ns 's
-version of a macro.
-When the target is used as a prerequisite for another target, the other target
-acquires the commands, prerequisite, and attributes (except for
-.Ic .USE )
+command line, and continue to the end of the line
+(but a
+.Pq Ql \&#
+character in a shell command line will be interpreted as a comment by
+the shell).
+.Sh TARGET ATTRIBUTES
+Some targets may be tagged with some specific attributes by one
 of the
-prerequisite.
-If the target already has commands, the
-.Ic .USE
-target's commands are appended
-to them.
-.It Ic .WAIT
-If
-.Ic .WAIT
-appears in a dependency line, the prerequisites that precede it are
-made before the prerequisites that follow it in the line.
-Loops are not
-detected and targets that form loops will be silently ignored.
-.El
-.Sh SPECIAL TARGETS
-Special targets may not be included with other targets, i.e., they must be
-the only target specified.
-.Bl -tag -width ".NOTPARALLEL"
-.It Ic .BEGIN
-Any command lines attached to this target are executed before anything
-else is done.
-.It Ic .CHEAP
-In parallel mode, don't scan the commands for
-.Nm ,
-let recursive
-.Fl j
-behavior apply.
-.It Ic .DEFAULT
-This is sort of a
-.Ic .USE
-rule for any target (that was used only as a prerequisite) that
-.Nm
-can't figure out any other way to create.
-Uses only the commands.
-The
-.Ic .IMPSRC
-variable of a target that inherits
-.Ic .DEFAULT Ns 's
-commands is set
-to the target's own name.
-.It Ic .END
-Any command lines attached to this target are executed after everything
-else is done.
-.It Ic .EXPENSIVE
-In parallel mode, don't scan the commands for
-.Nm ,
-assume the whole target invokes recursive commands and don't start
-commands for other targets until that target is finished building.
-.It Ic .IGNORE
-Mark each of the prerequisites with the
-.Ic .IGNORE
-attribute.
-If no prerequisites are specified, this is the equivalent of specifying the
-.Fl i
-option.
-.It Ic .MADE
-Mark all prerequisites as being up-to-date.
-.It Ic .MAKE
-Execute the commands associated with this target even if the
+.Sx SPECIAL TARGETS
+or
+.Sx SPECIAL PREREQUISITES
+described below.
+.Bl -tag -width "Ignoring errors"
+.It Dq Always build
+Run the commands associated with this target even if the
 .Fl n
 or
 .Fl t
 options were specified.
 Can be used to mark recursive
 .Nm make Ns 's ,
-prefer standard
+but prefer standard
+.Sq Ic + Ns Ar cmd .
+.It Dq Cheap
+In parallel mode, don't scan the commands for occurrences of
+.Nm ,
+thus letting normal recursive
+.Fl j
+behavior apply.
+.It Dq Expensive
+In parallel mode, assume commands will invoke recursive commands.
+Once
+.Nm
+starts building an expensive target, it won't start building anything else
+until that target has finished building.
+.It Dq Ignoring errors
+Ignore any errors generating by running shell commands, exactly
+as if they were all preceded by a dash
+.Pq Ql \- .
+.It Dq Phony
+A phony target is a target that does not correspond to any object in the
+file system (more like a placeholder for a list of commands).
+.Pp
+Phony targets are always out-of-date at the start of a run, but
+.Nm
+still keeps track of when they are built (that is, when the associated
+command list finishes running).
+.It Dq Precious
+Don't remove the target if
+.Nm
+is interrupted in the middle of building it.
+.It Dq Silent
+Do not display shell commands before running them, exactly as
+if they were all preceded by a
+.Sq @ .
+.El
+.Sh SPECIAL TARGETS
+.Nm
+recognizes standard special targets:
+.Bl -tag -width ".NOTPARALLEL"
+.It Ic .DEFAULT
+If there is a
+.Ic .DEFAULT
+target rule, with commands but no prequisites, and
+.Nm
+can't figure out another way to build a target, it will use that
+list of commands, setting
+.Va \&<
+and
+.Va @
+appropriately.
+.It Ic .IGNORE
+Mark its prerequisites as
+.Dq Ignoring errors .
+.Pp
+If the list of prerequisites is empty, apply that to all targets, exactly
+like the
+.Fl i
+command-line option.
+.It Ic .PRECIOUS
+Mark its prerequisites as
+.Dq Precious .
+.Pp
+If the list of prerequisites is empty, apply that to all targets.
+.It Ic .SILENT
+Mark its prerequisites as
+.Dq Silent .
+.Pp
+If the list of prerequisites is empty, apply that to all targets, exactly
+like the
+.Fl s
+command-line option.
+.It Ic .SUFFIXES
+See
+.Sx INFERENCE RULES .
+.El
+.Pp
+and also some other special targets as an extension:
+.Bl -tag -width ".NOTPARALLEL"
+.It Ic .BEGIN
+Command lines attached to this target are executed before anything
+else is done.
+.It Ic .CHEAP
+Mark its prerequisites as
+.Dq Cheap .
+.It Ic .END
+Command lines attached to this target are executed at the end of a successful
+run.
+.It Ic .EXPENSIVE
+Mark its prerequisites as
+.Dq Expensive .
+.It Ic .INTERRUPT
+Command lines attached to this target are executed if
+.Nm
+is interrupted by a SIGINT.
+.It Ic .MADE
+Mark its prerequisites as being up-to-date.
+.It Ic .MAKE
+Mark its prerequisites as
+.Dq Always build .
+Prefer standard
 .Sq Ic + Ns Ar cmd .
 .It Ic .MAIN
 If no target is specified when
@@ -1241,58 +1366,75 @@ The flags are as if typed to the shell, though the
 .Fl f
 option will have
 no effect.
-.\" XXX: NOT YET!!!!
-.\" .It Ic .NOTPARALLEL
-.\" The named targets are executed in non parallel mode. If no targets are
-.\" specified, then all targets are executed in non parallel mode.
 .It Ic .NOTPARALLEL
-Disable parallel mode.
+Disable parallel mode for the current makefile.
+The
+.Fl j
+option is still passed to submakes.
 .It Ic .NO_PARALLEL
 Same as above, for compatibility with other pmake variants.
 .It Ic .ORDER
-The named targets are made in sequence.
-.\" XXX: NOT YET!!!!
-.\" .It Ic .PARALLEL
-.\" The named targets are executed in parallel mode. If no targets are
-.\" specified, then all targets are executed in parallel mode.
+The list of prerequisites should be built in sequence.
 .It Ic .PATH
-The prerequisites are directories which are to be searched for files not
-found in the current directory.
+The prerequisites define a search path: directories that will be searched
+for files not found in the current directory.
 If no prerequisites are specified, any previously specified directories are
 deleted.
-.It Ic .PATH\fIsuffix\fR
-The prerequisites are directories which are to be searched for suffixed files
-not found in the current directory.
+.It Ic .PATH\fI.suffix\fR
+This target is only valid if .suffix is a currently valid suffix.
+The prerequisites defines a search path for files ending in that suffix.
+For files not found in the current directory,
 .Nm
-first searches the suffixed search path, before reverting to the default
-path if the file is not found there.
+will first look in that path, before reverting to the default search path.
 .It Ic .PHONY
-Apply the
-.Ic .PHONY
-attribute to any specified prerequisites.
-Targets with this attribute are always
-considered to be out of date.
-.It Ic .PRECIOUS
-Apply the
-.Ic .PRECIOUS
-attribute to any specified prerequisites.
-If no prerequisites are specified, the
-.Ic .PRECIOUS
-attribute is applied to every
-target in the file.
-.It Ic .SILENT
-Apply the
-.Ic .SILENT
-attribute to any specified prerequisites.
-If no prerequisites are specified, the
-.Ic .SILENT
-attribute is applied to every
-command in the file.
-.It Ic .SUFFIXES
-Each prerequisites specifies a suffix to
-.Nm make .
-If no prerequisites are specified, any previously specified suffixes
-are deleted.
+Mark its prerequisites as
+.Dq Phony
+targets.
+.El
+.Pp
+It is an error to use several special targets, or a special target and
+normal targets, in a single dependency line.
+.Sh SPECIAL PREREQUISITES
+Of the special targets described in the previous
+section, the ones that tag prerequisites can also be used as prerequisites,
+in which case the corresponding targets will be tagged accordingly.
+.Pp
+This is an extension, even for standard special targets.
+.Pp
+.Nm
+also recognizes some other prerequisites:
+.Bl -tag -width ".PRECIOUS"
+.It Ic .NOTMAIN
+Normally
+.Nm
+selects the first target it encounters as the default target to be built
+if no target was specified.
+This prerequisite prevents this target from being selected.
+.It Ic .OPTIONAL
+If a target is marked with this attribute and
+.Nm
+can't figure out how to create it, it will ignore this fact and assume
+the file isn't needed or already exists.
+.It Ic .USE
+Turn the target into
+.Nm make Ns 's
+version of a macro.
+When the target is used as a prerequisite for another target, the other target
+acquires the commands, prerequisites, and attributes (except for
+.Ic .USE )
+of the
+prerequisite.
+If the target already has commands, the
+.Ic .USE
+target's commands are appended
+to them.
+.It Ic .WAIT
+If
+.Ic .WAIT
+appears in a dependency line, the prerequisites that precede it are
+made before the prerequisites that follow it in the line.
+Loops are not
+detected and targets that form loops will be silently ignored.
 .El
 .Sh ENVIRONMENT
 .Nm
@@ -1398,9 +1540,9 @@ The determination of
 .Va .OBJDIR
 is contorted to the point of absurdity.
 .Pp
-If the same target is specified several times in normal dependency rules,
+If the same target is specified several times in complete target rules,
 .Nm
-silently ignores all commands after the first non empty set of commands,
+ignores all commands after the first non empty set of commands,
 e.g., in
 .Bd -literal -offset indent
 a:
@@ -1409,7 +1551,7 @@ a:
 	@echo "Bad luck"
 .Ed
 .Pp
-@echo "Bad luck" will be silently ignored.
+@echo "Bad luck" will be ignored.
 .Pp
 .Va .TARGETS
 is not set to the default target when
@@ -1420,23 +1562,28 @@ special target exists.
 .Pp
 The evaluation of
 .Ar expression
-in a test is very simple-minded.
-Currently, the only form that works is
-.Ql .if ${VAR} op something \.
-For instance, tests should be written as
+in a test is somewhat simplistic.
+Variables don't need to be quoted, but strings do:
+Tests like
 .Ql .if ${VAR} == "string" ,
-not the other way around, which doesn't work.
+.Ql .if ${VAR} >= 5 ,
+.Ql .if 5 <= 10 ,
+and
+.Ql .if "string" == ${VAR}
+do work, but
+.Ql .if string = ${VAR}
+doesn't.
 .Pp
 For loops are expanded before tests, so a fragment such as:
 .Bd -literal -offset indent
 \&.for TMACHINE in ${SHARED_ARCHS}
-\&.if ${TMACHINE} == ${MACHINE}
+\&.if "${TMACHINE}" == ${MACHINE}
      ...
 \&.endif
 \&.endfor
 .Ed
 .Pp
-won't work, and should be rewritten the other way around.
+requires the quotes.
 .Pp
 When handling pre-BSD 4.4 archives,
 .Nm

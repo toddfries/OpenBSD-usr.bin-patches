@@ -1,4 +1,4 @@
-/*	$OpenBSD: buffer.c,v 1.81 2012/08/31 18:06:42 lum Exp $	*/
+/*	$OpenBSD: buffer.c,v 1.85 2012/10/23 20:51:17 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -850,15 +850,74 @@ int
 checkdirty(struct buffer *bp)
 {
 	int s;
-	
+
+	if ((bp->b_flag & (BFCHG | BFDIRTY)) == 0)
+		if (fchecktime(bp) != TRUE)
+			bp->b_flag |= BFDIRTY;
+
 	if ((bp->b_flag & (BFDIRTY | BFIGNDIRTY)) == BFDIRTY) {
-		if ((s = eyorn("File changed on disk; really edit the buffer"))
-		    != TRUE)
+		s = eynorr("File changed on disk; really edit the buffer");
+		switch (s) {
+		case TRUE:
+			bp->b_flag &= ~BFDIRTY;
+			bp->b_flag |= BFIGNDIRTY;
+			return (TRUE);
+		case REVERT:
+			dorevert();
+			return (FALSE);
+		default:
 			return (s);
-		bp->b_flag &= ~BFDIRTY;
-		bp->b_flag |= BFIGNDIRTY;
+		}
 	}
 
 	return (TRUE);
 }
-	
+
+/*
+ * Revert the current buffer to whatever is on disk.
+ */
+/* ARGSUSED */
+int
+revertbuffer(int f, int n)
+{
+	char fbuf[NFILEN + 32];
+
+	if (curbp->b_fname[0] == 0) {
+		ewprintf("Cannot revert buffer not associated with any files.");
+		return (FALSE);
+	}
+
+	snprintf(fbuf, sizeof(fbuf), "Revert buffer from file %s",
+	    curbp->b_fname);
+
+	if (eyorn(fbuf) == TRUE)
+		return dorevert();
+
+	return (FALSE);
+}
+
+int
+dorevert()
+{
+	int lineno;
+
+	if (access(curbp->b_fname, F_OK|R_OK) != 0) {
+		if (errno == ENOENT)
+			ewprintf("File %s no longer exists!",
+			    curbp->b_fname);
+		else
+			ewprintf("File %s is no longer readable!",
+			    curbp->b_fname);
+		return (FALSE);
+	}
+
+	/* Save our current line, so we can go back after reloading. */
+	lineno = curwp->w_dotline;
+
+	/* Prevent readin from asking if we want to kill the buffer. */
+	curbp->b_flag &= ~BFCHG;
+
+	if (readin(curbp->b_fname))
+		return(setlineno(lineno));
+	return (FALSE);
+}

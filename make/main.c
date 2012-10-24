@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.97 2012/10/02 10:29:31 espie Exp $ */
+/*	$OpenBSD: main.c,v 1.100 2012/10/18 17:54:43 espie Exp $ */
 /*	$NetBSD: main.c,v 1.34 1997/03/24 20:56:36 gwr Exp $	*/
 
 /*
@@ -124,9 +124,10 @@ static void read_all_make_rules(bool, bool, Lst, struct dirs *);
 static void read_makefile_list(Lst, struct dirs *);
 static int ReadMakefile(void *, void *);
 
-static void record_option(int c, const char *arg)
+static void
+record_option(int c, const char *arg)
 {
-    char opt[3];
+    	char opt[3];
 
 	opt[0] = '-';
 	opt[1] = c;
@@ -246,6 +247,9 @@ MainParseArgs(int argc, char **argv)
 				case 'd':
 					debug |= DEBUG_DIR;
 					break;
+				case 'D':
+					debug |= DEBUG_DOUBLE;
+					break;
 				case 'e':
 					debug |= DEBUG_EXPENSIVE;
 					break;
@@ -262,11 +266,17 @@ MainParseArgs(int argc, char **argv)
 						++modules;
 					}
 					break;
+				case 'h':
+					debug |= DEBUG_HELDJOBS;
+					break;
 				case 'j':
-					debug |= DEBUG_JOB;
+					debug |= DEBUG_JOB | DEBUG_KILL;
 					break;
 				case 'J':
 					/* ignore */
+					break;
+				case 'k':
+					debug |= DEBUG_KILL;
 					break;
 				case 'l':
 					debug |= DEBUG_LOUD;
@@ -288,6 +298,9 @@ MainParseArgs(int argc, char **argv)
 					break;
 				case 't':
 					debug |= DEBUG_TARG;
+					break;
+				case 'T':
+					debug |= DEBUG_TARGGROUP;
 					break;
 				case 'v':
 					debug |= DEBUG_VAR;
@@ -712,6 +725,10 @@ main(int argc, char **argv)
 	 * First snag any flags out of the MAKEFLAGS environment variable.
 	 */
 	Main_ParseArgLine(getenv("MAKEFLAGS"));
+	
+	basedirectory = getenv("MAKEBASEDIRECTORY");
+	if (basedirectory == NULL)
+		setenv("MAKEBASEDIRECTORY", d.current, 0);
 
 	MainParseArgs(argc, argv);
 
