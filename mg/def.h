@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.127 2012/10/22 08:31:42 florian Exp $	*/
+/*	$OpenBSD: def.h,v 1.129 2012/11/06 18:04:10 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -260,7 +260,6 @@ struct buffer {
 	char		 b_cwd[NFILEN]; /* working directory		 */
 	struct fileinfo	 b_fi;		/* File attributes		 */
 	struct undoq	 b_undo;	/* Undo actions list		 */
-	int		 b_undopos;	/* Where we were during last undo */
 	struct undo_rec *b_undoptr;
 	int		 b_dotline;	/* Line number of dot */
 	int		 b_markline;	/* Line number of mark */
@@ -416,7 +415,7 @@ int		 popbuftop(struct buffer *, int);
 int		 getbufcwd(char *, size_t);
 int		 checkdirty(struct buffer *);
 int		 revertbuffer(int, int);
-int		 dorevert();
+int		 dorevert(void);
 
 /* display.c */
 int		vtresize(int, int, int);

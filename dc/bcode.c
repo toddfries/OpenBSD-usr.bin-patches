@@ -1,4 +1,4 @@
-/*	$OpenBSD: bcode.c,v 1.42 2012/03/08 08:15:37 otto Exp $	*/
+/*	$OpenBSD: bcode.c,v 1.45 2012/11/07 11:06:14 otto Exp $	*/
 
 /*
  * Copyright (c) 2003, Otto Moerbeek <otto@drijf.net>
@@ -25,8 +25,6 @@
 #include <string.h>
 
 #include "extern.h"
-
-BIGNUM		zero;
 
 /* #define	DEBUGGING */
 
@@ -256,9 +254,13 @@ init_bmachine(bool extended_registers)
 	if (bmachine.readstack == NULL)
 		err(1, NULL);
 	bmachine.obase = bmachine.ibase = 10;
-	BN_init(&zero);
-	bn_check(BN_zero(&zero));
 	(void)signal(SIGINT, sighandler);
+}
+
+u_int
+bmachine_scale(void)
+{
+	return bmachine.scale;
 }
 
 /* Reset the things needed before processing a (new) file */
@@ -427,7 +429,7 @@ get_ulong(struct number *n)
 void
 negate(struct number *n)
 {
-	bn_check(BN_sub(n->number, &zero, n->number));
+	BN_set_negative(n->number, !BN_is_negative(n->number));
 }
 
 static __inline void
@@ -569,7 +571,7 @@ set_scale(void)
 
 	n = pop_number();
 	if (n != NULL) {
-		if (BN_cmp(n->number, &zero) < 0)
+		if (BN_is_negative(n->number))
 			warnx("scale must be a nonnegative number");
 		else {
 			scale = get_ulong(n);
@@ -865,7 +867,7 @@ load_array(void)
 		if (inumber == NULL)
 			return;
 		idx = get_ulong(inumber);
-		if (BN_cmp(inumber->number, &zero) < 0)
+		if (BN_is_negative(inumber->number))
 			warnx("negative idx");
 		else if (idx == BN_MASK2 || idx > MAX_ARRAY_INDEX)
 			warnx("idx too big");
@@ -904,7 +906,7 @@ store_array(void)
 			return;
 		}
 		idx = get_ulong(inumber);
-		if (BN_cmp(inumber->number, &zero) < 0) {
+		if (BN_is_negative(inumber->number)) {
 			warnx("negative idx");
 			stack_free_value(value);
 		} else if (idx == BN_MASK2 || idx > MAX_ARRAY_INDEX) {
@@ -995,7 +997,7 @@ bsub(void)
 }
 
 void
-bmul_number(struct number *r, struct number *a, struct number *b)
+bmul_number(struct number *r, struct number *a, struct number *b, u_int scale)
 {
 	BN_CTX		*ctx;
 
@@ -1009,11 +1011,9 @@ bmul_number(struct number *r, struct number *a, struct number *b)
 	bn_check(BN_mul(r->number, a->number, b->number, ctx));
 	BN_CTX_free(ctx);
 
-	if (rscale > bmachine.scale && rscale > ascale && rscale > bscale) {
-		r->scale = rscale;
-		normalize(r, max(bmachine.scale, max(ascale, bscale)));
-	} else
-		r->scale = rscale;
+	r->scale = rscale;
+	if (rscale > bmachine.scale && rscale > ascale && rscale > bscale)
+		normalize(r, max(scale, max(ascale, bscale)));
 }
 
 static void
@@ -1033,7 +1033,7 @@ bmul(void)
 	}
 
 	r = new_number();
-	bmul_number(r, a, b);
+	bmul_number(r, a, b, bmachine.scale);
 
 	push_number(r);
 	free_number(a);
@@ -1164,7 +1164,7 @@ bexp(void)
 	struct number	*a, *p;
 	struct number	*r;
 	bool		neg;
-	u_int		scale;
+	u_int		rscale;
 
 	p = pop_number();
 	if (p == NULL) {
@@ -1176,15 +1176,26 @@ bexp(void)
 		return;
 	}
 
-	if (p->scale != 0)
-		warnx("Runtime warning: non-zero scale in exponent");
+	if (p->scale != 0) {
+		BIGNUM *i, *f;
+		i = BN_new();
+		bn_checkp(i);
+		f = BN_new();
+		bn_checkp(f);
+		split_number(p, i, f);
+		if (!BN_is_zero(f))
+			warnx("Runtime warning: non-zero fractional part in exponent");
+		BN_free(i);
+		BN_free(f);
+	}
+
 	normalize(p, 0);
 
 	neg = false;
-	if (BN_cmp(p->number, &zero) < 0) {
+	if (BN_is_negative(p->number)) {
 		neg = true;
 		negate(p);
-		scale = bmachine.scale;
+		rscale = bmachine.scale;
 	} else {
 		/* Posix bc says min(a.scale * b, max(a.scale, scale) */
 		u_long	b;
@@ -1192,30 +1203,37 @@ bexp(void)
 
 		b = BN_get_word(p->number);
 		m = max(a->scale, bmachine.scale);
-		scale = a->scale * (u_int)b;
-		if (scale > m || (a->scale > 0 && (b == BN_MASK2 ||
+		rscale = a->scale * (u_int)b;
+		if (rscale > m || (a->scale > 0 && (b == BN_MASK2 ||
 		    b > UINT_MAX)))
-			scale = m;
+			rscale = m;
 	}
 
 	if (BN_is_zero(p->number)) {
 		r = new_number();
 		bn_check(BN_one(r->number));
-		normalize(r, scale);
+		normalize(r, rscale);
 	} else {
+		u_int ascale, mscale;
+
+		ascale = a->scale;
 		while (!BN_is_bit_set(p->number, 0)) {
-			bmul_number(a, a, a);
+			ascale *= 2;
+			bmul_number(a, a, a, ascale);
 			bn_check(BN_rshift1(p->number, p->number));
 		}
 
 		r = dup_number(a);
-		normalize(r, scale);
 		bn_check(BN_rshift1(p->number, p->number));
 
+		mscale = ascale;
 		while (!BN_is_zero(p->number)) {
-			bmul_number(a, a, a);
-			if (BN_is_bit_set(p->number, 0))
-				bmul_number(r, r, a);
+			ascale *= 2;
+			bmul_number(a, a, a, ascale);
+			if (BN_is_bit_set(p->number, 0)) {
+				mscale += ascale;
+				bmul_number(r, r, a, mscale);
+			}
 			bn_check(BN_rshift1(p->number, p->number));
 		}
 
@@ -1228,13 +1246,18 @@ bexp(void)
 			bn_check(BN_one(one));
 			ctx = BN_CTX_new();
 			bn_checkp(ctx);
-			scale_number(one, r->scale + scale);
-			normalize(r, scale);
-			bn_check(BN_div(r->number, NULL, one, r->number, ctx));
+			scale_number(one, r->scale + rscale);
+
+			if (BN_is_zero(r->number))
+				warnx("divide by zero");
+			else
+				bn_check(BN_div(r->number, NULL, one,
+				    r->number, ctx));
 			BN_free(one);
 			BN_CTX_free(ctx);
+			r->scale = rscale;
 		} else
-			normalize(r, scale);
+			normalize(r, rscale);
 	}
 	push_number(r);
 	free_number(a);
@@ -1274,7 +1297,7 @@ bsqrt(void)
 	if (BN_is_zero(n->number)) {
 		r = new_number();
 		push_number(r);
-	} else if (BN_cmp(n->number, &zero) < 0)
+	} else if (BN_is_negative(n->number))
 		warnx("square root of negative number");
 	else {
 		scale = max(bmachine.scale, n->scale);

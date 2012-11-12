@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.84 2012/08/21 10:00:33 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.86 2012/10/26 14:35:42 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1011,7 +1011,7 @@ window_pane_mouse(
 		    options_get_number(&wp->window->options, "mode-mouse"))
 			wp->mode->mouse(wp, sess, m);
 	} else if (wp->fd != -1)
-		input_mouse(wp, m);
+		input_mouse(wp, sess, m);
 }
 
 int
@@ -1193,7 +1193,7 @@ winlink_clear_flags(struct winlink *wl)
 void
 window_mode_attrs(struct grid_cell *gc, struct options *oo)
 {
-	memcpy(gc, &grid_default_cell, sizeof gc);
+	memcpy(gc, &grid_default_cell, sizeof *gc);
 	colour_set_fg(gc, options_get_number(oo, "mode-fg"));
 	colour_set_bg(gc, options_get_number(oo, "mode-bg"));
 	gc->attr |= options_get_number(oo, "mode-attr");
