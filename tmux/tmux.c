@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.112 2012/07/10 11:53:01 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.114 2012/11/27 16:12:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -159,7 +159,7 @@ parseenvironment(void)
 char *
 makesocketpath(const char *label)
 {
-	char		base[MAXPATHLEN], *path, *s;
+	char		base[MAXPATHLEN], realbase[MAXPATHLEN], *path, *s;
 	struct stat	sb;
 	u_int		uid;
 
@@ -183,7 +183,10 @@ makesocketpath(const char *label)
 		return (NULL);
 	}
 
-	xasprintf(&path, "%s/%s", base, label);
+	if (realpath(base, realbase) == NULL)
+		strlcpy(realbase, base, sizeof realbase);
+
+	xasprintf(&path, "%s/%s", realbase, label);
 	return (path);
 }
 
@@ -327,6 +330,8 @@ main(int argc, char **argv)
 	options_init(&global_w_options, NULL);
 	options_table_populate_tree(window_options_table, &global_w_options);
 
+	ARRAY_INIT(&cfg_causes);
+
 	/* Enable UTF-8 if the first client is on UTF-8 terminal. */
 	if (flags & IDENTIFY_UTF8) {
 		options_set_number(&global_s_options, "status-utf8", 1);
@@ -384,8 +389,7 @@ main(int argc, char **argv)
 		}
 	}
 	free(label);
-	if (realpath(path, socket_path) == NULL)
-		strlcpy(socket_path, path, sizeof socket_path);
+	strlcpy(socket_path, path, sizeof socket_path);
 	free(path);
 
 	/* Set process title. */

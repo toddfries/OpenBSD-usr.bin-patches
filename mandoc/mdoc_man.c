@@ -1,4 +1,4 @@
-/*	$Id: mdoc_man.c,v 1.41 2012/07/29 16:31:44 millert Exp $ */
+/*	$Id: mdoc_man.c,v 1.45 2012/11/19 02:14:39 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
  *
@@ -24,7 +24,7 @@
 #include "mdoc.h"
 #include "main.h"
 
-#define	DECL_ARGS const struct mdoc_meta *m, \
+#define	DECL_ARGS const struct mdoc_meta *meta, \
 		  const struct mdoc_node *n
 
 struct	manact {
@@ -247,9 +247,16 @@ static	int		outflags;
 #define	MMAN_PP		(1 << 5)  /* reset indentation etc. */
 #define	MMAN_Sm		(1 << 6)  /* horizontal spacing mode */
 #define	MMAN_Bk		(1 << 7)  /* word keep mode */
-#define	MMAN_An_split	(1 << 8)  /* author mode is "split" */
-#define	MMAN_An_nosplit	(1 << 9)  /* author mode is "nosplit" */
+#define	MMAN_Bk_susp	(1 << 8)  /* suspend this (after a macro) */
+#define	MMAN_An_split	(1 << 9)  /* author mode is "split" */
+#define	MMAN_An_nosplit	(1 << 10) /* author mode is "nosplit" */
+#define	MMAN_PD		(1 << 11) /* inter-paragraph spacing disabled */
 
+#define	BL_STACK_MAX	32
+
+static	size_t		Bl_stack[BL_STACK_MAX];  /* offsets [chars] */
+static	int		Bl_stack_post[BL_STACK_MAX];  /* add final .RE */
+static	int		Bl_stack_len;  /* number of nested Bl blocks */
 static	int		TPremain;  /* characters before tag is full */
 
 static	struct {
@@ -295,8 +302,15 @@ print_word(const char *s)
 		 * If we need a newline, print it now and start afresh.
 		 */
 		if (MMAN_PP & outflags) {
-			if ( ! (MMAN_sp & outflags))
-				printf("\n.sp -1v");
+			if (MMAN_sp & outflags) {
+				if (MMAN_PD & outflags) {
+					printf("\n.PD");
+					outflags &= ~MMAN_PD;
+				}
+			} else if ( ! (MMAN_PD & outflags)) {
+				printf("\n.PD 0");
+				outflags |= MMAN_PD;
+			}
 			printf("\n.PP\n");
 		} else if (MMAN_sp & outflags)
 			printf("\n.sp\n");
@@ -317,7 +331,8 @@ print_word(const char *s)
 		 */
 		if (MMAN_spc_force & outflags || '\0' == s[0] ||
 		    NULL == strchr(".,:;)]?!", s[0]) || '\0' != s[1]) {
-			if (MMAN_Bk & outflags)
+			if (MMAN_Bk & outflags &&
+			    ! (MMAN_Bk_susp & outflags))
 				putchar('\\');
 			putchar(' ');
 			if (TPremain)
@@ -334,7 +349,7 @@ print_word(const char *s)
 		outflags |= MMAN_spc;
 	else
 		outflags &= ~MMAN_spc;
-	outflags &= ~MMAN_spc_force;
+	outflags &= ~(MMAN_spc_force | MMAN_Bk_susp);
 
 	for ( ; *s; s++) {
 		switch (*s) {
@@ -368,13 +383,17 @@ print_block(const char *s, int newflags)
 {
 
 	outflags &= ~MMAN_PP;
-	if (MMAN_sp & outflags)
+	if (MMAN_sp & outflags) {
 		outflags &= ~(MMAN_sp | MMAN_br);
-	else
-		print_line(".sp -1v", 0);
+		if (MMAN_PD & outflags) {
+			print_line(".PD", 0);
+			outflags &= ~MMAN_PD;
+		}
+	} else if (! (MMAN_PD & outflags))
+		print_line(".PD 0", MMAN_PD);
 	outflags |= MMAN_nl;
 	print_word(s);
-	outflags |= newflags;
+	outflags |= MMAN_Bk_susp | newflags;
 }
 
 static void
@@ -384,6 +403,7 @@ print_offs(const char *v)
 	struct roffsu	  su;
 	size_t		  sz;
 
+	/* Convert v into a number (of characters). */
 	if (NULL == v || '\0' == *v || 0 == strcmp(v, "left"))
 		sz = 0;
 	else if (0 == strcmp(v, "indent"))
@@ -391,10 +411,28 @@ print_offs(const char *v)
 	else if (0 == strcmp(v, "indent-two"))
 		sz = 12;
 	else if (a2roffsu(v, &su, SCALE_MAX)) {
-		print_word(v);
-		return;
+		if (SCALE_EN == su.unit)
+			sz = su.scale;
+		else {
+			/*
+			 * XXX
+			 * If we are inside an enclosing list,
+			 * there is no easy way to add the two
+			 * indentations because they are provided
+			 * in terms of different units.
+			 */
+			print_word(v);
+			return;
+		}
 	} else
 		sz = strlen(v);
+
+	/*
+	 * We are inside an enclosing list.
+	 * Add the two indentations.
+	 */
+	if (Bl_stack_len)
+		sz += Bl_stack[Bl_stack_len - 1];
 
 	snprintf(buf, sizeof(buf), "%ldn", sz);
 	print_word(buf);
@@ -410,6 +448,8 @@ print_width(const char *v, const struct mdoc_node *child, size_t defsz)
 
 	numeric = 1;
 	remain = 0;
+
+	/* Convert v into a number (of characters). */
 	if (NULL == v)
 		sz = defsz;
 	else if (a2roffsu(v, &su, SCALE_MAX)) {
@@ -426,6 +466,24 @@ print_width(const char *v, const struct mdoc_node *child, size_t defsz)
 	chsz = (NULL != child && MDOC_TEXT == child->type) ?
 			strlen(child->string) : 0;
 
+	/*
+	 * If we are inside an enclosing list,
+	 * preserve its indentation.
+	 */
+	if (Bl_stack_len && Bl_stack[Bl_stack_len - 1]) {
+		print_line(".RS", MMAN_Bk_susp);
+		snprintf(buf, sizeof(buf), "%ldn",
+				Bl_stack[Bl_stack_len - 1]);
+		print_word(buf);
+	}
+
+	/*
+	 * Save our own indentation,
+	 * such that child lists can use it.
+	 */
+	Bl_stack[Bl_stack_len++] = sz + 2;
+
+	/* Set up the current list. */
 	if (defsz && chsz > sz)
 		print_block(".HP", 0);
 	else {
@@ -465,14 +523,15 @@ man_man(void *arg, const struct man *man)
 void
 man_mdoc(void *arg, const struct mdoc *mdoc)
 {
-	const struct mdoc_meta *m;
+	const struct mdoc_meta *meta;
 	const struct mdoc_node *n;
 
-	m = mdoc_meta(mdoc);
+	meta = mdoc_meta(mdoc);
 	n = mdoc_node(mdoc);
 
 	printf(".TH \"%s\" \"%s\" \"%s\" \"%s\" \"%s\"\n",
-			m->title, m->msec, m->date, m->os, m->vol);
+			meta->title, meta->msec, meta->date,
+			meta->os, meta->vol);
 
 	/* Disable hyphenation and if nroff, disable justification. */
 	printf(".nh\n.if n .ad l");
@@ -483,7 +542,7 @@ man_mdoc(void *arg, const struct mdoc *mdoc)
 		fontqueue.head = fontqueue.tail = mandoc_malloc(8);
 		*fontqueue.tail = 'R';
 	}
-	print_node(m, n);
+	print_node(meta, n);
 	putchar('\n');
 }
 
@@ -493,7 +552,7 @@ print_node(DECL_ARGS)
 	const struct mdoc_node	*prev, *sub;
 	const struct manact	*act;
 	int			 cond, do_sub;
-	
+
 	/*
 	 * Break the line if we were parsed subsequent the current node.
 	 * This makes the page structure be more consistent.
@@ -524,9 +583,9 @@ print_node(DECL_ARGS)
 		 * node.
 		 */
 		act = manacts + n->tok;
-		cond = NULL == act->cond || (*act->cond)(m, n);
+		cond = NULL == act->cond || (*act->cond)(meta, n);
 		if (cond && act->pre)
-			do_sub = (*act->pre)(m, n);
+			do_sub = (*act->pre)(meta, n);
 	}
 
 	/* 
@@ -536,13 +595,13 @@ print_node(DECL_ARGS)
 	 */
 	if (do_sub)
 		for (sub = n->child; sub; sub = sub->next)
-			print_node(m, sub);
+			print_node(meta, sub);
 
 	/*
 	 * Lastly, conditionally run the post-node handler.
 	 */
 	if (cond && act->post)
-		(*act->post)(m, n);
+		(*act->post)(meta, n);
 }
 
 static int
@@ -633,7 +692,7 @@ post__t(DECL_ARGS)
 		putchar('\"');
 	} else
 		font_pop();
-	post_percent(m, n);
+	post_percent(meta, n);
 }
 
 /*
@@ -643,13 +702,25 @@ static int
 pre_sect(DECL_ARGS)
 {
 
-	if (MDOC_HEAD != n->type)
-		return(1);
-	outflags |= MMAN_sp;
-	print_block(manacts[n->tok].prefix, 0);
-	print_word("");
-	putchar('\"');
-	outflags &= ~MMAN_spc;
+	switch (n->type) {
+	case (MDOC_HEAD):
+		outflags |= MMAN_sp;
+		print_block(manacts[n->tok].prefix, 0);
+		print_word("");
+		putchar('\"');
+		outflags &= ~MMAN_spc;
+		break;
+	case (MDOC_BODY):
+		if (MDOC_Sh == n->tok) {
+			if (MDOC_SYNPRETTY & n->flags)
+				outflags |= MMAN_Bk;
+			else
+				outflags &= ~MMAN_Bk;
+		}
+		break;
+	default:
+		break;
+	}
 	return(1);
 }
 
@@ -754,7 +825,7 @@ pre_bd(DECL_ARGS)
 		print_line(".nf", 0);
 	if (0 == n->norm->Bd.comp && NULL != n->parent->prev)
 		outflags |= MMAN_sp;
-	print_line(".RS", 0);
+	print_line(".RS", MMAN_Bk_susp);
 	print_offs(n->norm->Bd.offs);
 	outflags |= MMAN_nl;
 	return(1);
@@ -763,11 +834,28 @@ pre_bd(DECL_ARGS)
 static void
 post_bd(DECL_ARGS)
 {
+	char		 buf[24];
 
+	/* Close out this display. */
 	print_line(".RE", MMAN_nl);
 	if (DISP_unfilled == n->norm->Bd.type ||
 	    DISP_literal  == n->norm->Bd.type)
 		print_line(".fi", MMAN_nl);
+
+	/*
+	 * If we are inside an enclosing list and the current
+	 * list item is not yet finished, restore the correct
+	 * indentation for what remains of that item.
+	 */
+	if (NULL != n->parent->next &&
+	    Bl_stack_len && Bl_stack[Bl_stack_len - 1]) {
+		print_line(".RS", MMAN_Bk_susp);
+		snprintf(buf, sizeof(buf), "%ldn",
+				Bl_stack[Bl_stack_len - 1]);
+		print_word(buf);
+		/* Remeber to close out this .RS block later. */
+		Bl_stack_post[Bl_stack_len - 1] = 1;
+	}
 }
 
 static int
@@ -936,7 +1024,7 @@ pre_fa(DECL_ARGS)
 
 	while (NULL != n) {
 		font_push('I');
-		print_node(m, n);
+		print_node(meta, n);
 		font_pop();
 		if (NULL != (n = n->next))
 			print_word(",");
@@ -1000,7 +1088,7 @@ pre_fn(DECL_ARGS)
 		return(0);
 
 	font_push('B');
-	print_node(m, n);
+	print_node(meta, n);
 	font_pop();
 	outflags &= ~MMAN_spc;
 	print_word("(");
@@ -1008,7 +1096,7 @@ pre_fn(DECL_ARGS)
 
 	n = n->next;
 	if (NULL != n)
-		pre_fa(m, n);
+		pre_fa(meta, n);
 	return(0);
 }
 
@@ -1054,7 +1142,7 @@ post_fo(DECL_ARGS)
 		font_pop();
 		break;
 	case (MDOC_BODY):
-		post_fn(m, n);
+		post_fn(meta, n);
 		break;
 	default:
 		break;
@@ -1193,10 +1281,46 @@ post_it(DECL_ARGS)
 		}
 		break;
 	case (MDOC_BODY):
-		if (LIST_column == bln->norm->Bl.type &&
-		    NULL != n->next) {
-			putchar('\t');
-			outflags &= ~MMAN_spc;
+		switch (bln->norm->Bl.type) {
+		case (LIST_bullet):
+			/* FALLTHROUGH */
+		case (LIST_dash):
+			/* FALLTHROUGH */
+		case (LIST_hyphen):
+			/* FALLTHROUGH */
+		case (LIST_enum):
+			/* FALLTHROUGH */
+		case (LIST_hang):
+			/* FALLTHROUGH */
+		case (LIST_tag):
+			assert(Bl_stack_len);
+			Bl_stack[--Bl_stack_len] = 0;
+
+			/*
+			 * Our indentation had to be restored
+			 * after a child display.
+			 * Close out that indentation block now.
+			 */
+			if (Bl_stack_post[Bl_stack_len]) {
+				print_line(".RE", MMAN_nl);
+				Bl_stack_post[Bl_stack_len] = 0;
+			}
+
+			/*
+			 * We are inside an enclosing list.
+			 * Restore the indentation of that list.
+			 */
+			if (Bl_stack_len && Bl_stack[Bl_stack_len - 1])
+				print_line(".RE", MMAN_nl);
+			break;
+		case (LIST_column):
+			if (NULL != n->next) {
+				putchar('\t');
+				outflags &= ~MMAN_spc;
+			}
+			break;
+		default:
+			break;
 		}
 		break;
 	default:
@@ -1253,7 +1377,7 @@ pre_nm(DECL_ARGS)
 		pre_syn(n);
 	if (MDOC_ELEM != n->type && MDOC_HEAD != n->type)
 		return(1);
-	name = n->child ? n->child->string : m->name;
+	name = n->child ? n->child->string : meta->name;
 	if (NULL == name)
 		return(0);
 	if (MDOC_HEAD == n->type) {
@@ -1265,7 +1389,7 @@ pre_nm(DECL_ARGS)
 	}
 	font_push('B');
 	if (NULL == n->child)
-		print_word(m->name);
+		print_word(meta->name);
 	return(1);
 }
 
@@ -1397,13 +1521,13 @@ pre_xr(DECL_ARGS)
 	n = n->child;
 	if (NULL == n)
 		return(0);
-	print_node(m, n);
+	print_node(meta, n);
 	n = n->next;
 	if (NULL == n)
 		return(0);
 	outflags &= ~MMAN_spc;
 	print_word("(");
-	print_node(m, n);
+	print_node(meta, n);
 	print_word(")");
 	return(0);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: input-keys.c,v 1.27 2012/10/26 14:35:42 nicm Exp $ */
+/* $OpenBSD: input-keys.c,v 1.29 2012/11/27 14:26:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.305 2012/10/25 11:11:58 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.308 2012/11/27 15:09:35 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: October 25 2012 $
+.Dd $Mdocdate: November 27 2012 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -124,13 +124,19 @@ loads the system configuration file from
 .Pa /etc/tmux.conf ,
 if present, then looks for a user configuration file at
 .Pa ~/.tmux.conf .
+.Pp
 The configuration file is a set of
 .Nm
 commands which are executed in sequence when the server is first started.
-.Pp
-If a command in the configuration file fails,
 .Nm
-will report an error and exit without executing further commands.
+loads configuration files once when the server process has started.
+The
+.Ic source-file
+command may be used to load a file later.
+.Pp
+.Nm
+shows any error messages from commands in configuration files in the first
+session created, and continues to process the rest of the configuration file.
 .It Fl L Ar socket-name
 .Nm
 stores the server socket in a directory under
@@ -2817,6 +2823,15 @@ Like
 .Ar window-status-format ,
 but is the format used when the window is the current window.
 .Pp
+.It Ic window-status-last-attr Ar attributes
+Set status line attributes for the last active window.
+.Pp
+.It Ic window-status-last-bg Ar colour
+Set status line background colour for the last active window.
+.Pp
+.It Ic window-status-last-fg Ar colour
+Set status line foreground colour for the last active window.
+.Pp
 .It Ic window-status-fg Ar colour
 Set status line foreground colour for a single window.
 .Pp
@@ -3379,12 +3394,18 @@ otherwise.
 Lock each client individually by running the command specified by the
 .Ic lock-command
 option.
-.It Ic run-shell Ar shell-command
+.It Xo Ic run-shell
+.Op Fl t Ar target-pane
+.Ar shell-command
+.Xc
 .D1 (alias: Ic run )
 Execute
 .Ar shell-command
 in the background without creating a window.
-After it finishes, any output to stdout is displayed in copy mode.
+After it finishes, any output to stdout is displayed in copy mode (in the pane
+specified by
+.Fl t
+or the current pane if omitted).
 If the command doesn't return success, the exit status is also displayed.
 .It Ic server-info
 .D1 (alias: Ic info )

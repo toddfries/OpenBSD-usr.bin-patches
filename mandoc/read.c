@@ -1,7 +1,7 @@
-/*	$Id: read.c,v 1.10 2012/07/18 11:09:30 schwarze Exp $ */
+/*	$Id: read.c,v 1.12 2012/11/19 22:28:35 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -84,6 +84,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"no title in document",
 	"document title should be all caps",
 	"unknown manual section",
+	"unknown manual volume or arch",
 	"date missing, using today's date",
 	"cannot parse date, using it verbatim",
 	"prologue macros out of order",
@@ -168,6 +169,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"skipping unknown macro",
 	"NOT IMPLEMENTED, please use groff: skipping request",
 	"argument count wrong",
+	"skipping column outside column list",
 	"skipping end of block that is not open",
 	"missing end of block",
 	"scope open on exit",

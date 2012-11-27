@@ -1,6 +1,7 @@
-/*	$Id: mdoc_argv.c,v 1.40 2012/04/15 10:31:00 schwarze Exp $ */
+/*	$Id: mdoc_argv.c,v 1.43 2012/11/18 00:05:28 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2012 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -139,7 +140,7 @@ static	const enum mdocargt args_Bl[] = {
 };
 
 static	const struct mdocarg mdocargs[MDOC_MAX] = {
-	{ ARGSFL_NONE, NULL }, /* Ap */
+	{ ARGSFL_DELIM, NULL }, /* Ap */
 	{ ARGSFL_NONE, NULL }, /* Dd */
 	{ ARGSFL_NONE, NULL }, /* Dt */
 	{ ARGSFL_NONE, NULL }, /* Os */
@@ -156,7 +157,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_DELIM, NULL }, /* Ad */ 
 	{ ARGSFL_DELIM, args_An }, /* An */
 	{ ARGSFL_DELIM, NULL }, /* Ar */
-	{ ARGSFL_NONE, NULL }, /* Cd */
+	{ ARGSFL_DELIM, NULL }, /* Cd */
 	{ ARGSFL_DELIM, NULL }, /* Cm */
 	{ ARGSFL_DELIM, NULL }, /* Dv */ 
 	{ ARGSFL_DELIM, NULL }, /* Er */ 
@@ -168,7 +169,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_DELIM, NULL }, /* Fn */ 
 	{ ARGSFL_DELIM, NULL }, /* Ft */ 
 	{ ARGSFL_DELIM, NULL }, /* Ic */ 
-	{ ARGSFL_NONE, NULL }, /* In */ 
+	{ ARGSFL_DELIM, NULL }, /* In */ 
 	{ ARGSFL_DELIM, NULL }, /* Li */
 	{ ARGSFL_NONE, NULL }, /* Nd */ 
 	{ ARGSFL_DELIM, NULL }, /* Nm */ 
@@ -236,7 +237,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_DELIM, NULL }, /* Xc */
 	{ ARGSFL_NONE, NULL }, /* Xo */
 	{ ARGSFL_NONE, NULL }, /* Fo */ 
-	{ ARGSFL_NONE, NULL }, /* Fc */ 
+	{ ARGSFL_DELIM, NULL }, /* Fc */ 
 	{ ARGSFL_NONE, NULL }, /* Oo */
 	{ ARGSFL_DELIM, NULL }, /* Oc */
 	{ ARGSFL_NONE, args_Bk }, /* Bk */
@@ -245,7 +246,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_NONE, NULL }, /* Hf */
 	{ ARGSFL_NONE, NULL }, /* Fr */
 	{ ARGSFL_NONE, NULL }, /* Ud */
-	{ ARGSFL_NONE, NULL }, /* Lb */
+	{ ARGSFL_DELIM, NULL }, /* Lb */
 	{ ARGSFL_NONE, NULL }, /* Lp */
 	{ ARGSFL_DELIM, NULL }, /* Lk */
 	{ ARGSFL_DELIM, NULL }, /* Mt */
@@ -270,7 +271,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
  * one mandatory value, an optional single value, or no value.
  */
 enum margverr
-mdoc_argv(struct mdoc *m, int line, enum mdoct tok,
+mdoc_argv(struct mdoc *mdoc, int line, enum mdoct tok,
 		struct mdoc_arg **v, int *pos, char *buf)
 {
 	char		 *p, sv;
@@ -337,11 +338,11 @@ mdoc_argv(struct mdoc *m, int line, enum mdoct tok,
 
 	switch (argvflags[tmp.arg]) {
 	case (ARGV_SINGLE):
-		if ( ! argv_single(m, line, &tmp, pos, buf))
+		if ( ! argv_single(mdoc, line, &tmp, pos, buf))
 			return(ARGV_ERROR);
 		break;
 	case (ARGV_MULTI):
-		if ( ! argv_multi(m, line, &tmp, pos, buf))
+		if ( ! argv_multi(mdoc, line, &tmp, pos, buf))
 			return(ARGV_ERROR);
 		break;
 	case (ARGV_NONE):
@@ -402,14 +403,14 @@ argn_free(struct mdoc_arg *p, int iarg)
 }
 
 enum margserr
-mdoc_zargs(struct mdoc *m, int line, int *pos, char *buf, char **v)
+mdoc_zargs(struct mdoc *mdoc, int line, int *pos, char *buf, char **v)
 {
 
-	return(args(m, line, pos, buf, ARGSFL_NONE, v));
+	return(args(mdoc, line, pos, buf, ARGSFL_NONE, v));
 }
 
 enum margserr
-mdoc_args(struct mdoc *m, int line, int *pos, 
+mdoc_args(struct mdoc *mdoc, int line, int *pos, 
 		char *buf, enum mdoct tok, char **v)
 {
 	enum argsflag	  fl;
@@ -418,7 +419,7 @@ mdoc_args(struct mdoc *m, int line, int *pos,
 	fl = mdocargs[tok].flags;
 
 	if (MDOC_It != tok)
-		return(args(m, line, pos, buf, fl, v));
+		return(args(mdoc, line, pos, buf, fl, v));
 
 	/*
 	 * We know that we're in an `It', so it's reasonable to expect
@@ -427,35 +428,35 @@ mdoc_args(struct mdoc *m, int line, int *pos,
 	 * safe fall-back into the default behaviour.
 	 */
 
-	for (n = m->last; n; n = n->parent)
+	for (n = mdoc->last; n; n = n->parent)
 		if (MDOC_Bl == n->tok)
 			if (LIST_column == n->norm->Bl.type) {
 				fl = ARGSFL_TABSEP;
 				break;
 			}
 
-	return(args(m, line, pos, buf, fl, v));
+	return(args(mdoc, line, pos, buf, fl, v));
 }
 
 static enum margserr
-args(struct mdoc *m, int line, int *pos, 
+args(struct mdoc *mdoc, int line, int *pos, 
 		char *buf, enum argsflag fl, char **v)
 {
 	char		*p, *pp;
 	enum margserr	 rc;
 
 	if ('\0' == buf[*pos]) {
-		if (MDOC_PPHRASE & m->flags)
+		if (MDOC_PPHRASE & mdoc->flags)
 			return(ARGS_EOLN);
 		/*
 		 * If we're not in a partial phrase and the flag for
 		 * being a phrase literal is still set, the punctuation
 		 * is unterminated.
 		 */
-		if (MDOC_PHRASELIT & m->flags)
-			mdoc_pmsg(m, line, *pos, MANDOCERR_BADQUOTE);
+		if (MDOC_PHRASELIT & mdoc->flags)
+			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_BADQUOTE);
 
-		m->flags &= ~MDOC_PHRASELIT;
+		mdoc->flags &= ~MDOC_PHRASELIT;
 		return(ARGS_EOLN);
 	}
 
@@ -478,7 +479,7 @@ args(struct mdoc *m, int line, int *pos,
 		pp = NULL;
 
 		/* Scan ahead to unescaped `Ta'. */
-		if ( ! (MDOC_PHRASELIT & m->flags)) 
+		if ( ! (MDOC_PHRASELIT & mdoc->flags)) 
 			for (pp = *v; ; pp++) {
 				if (NULL == (pp = strstr(pp, "Ta")))
 					break;
@@ -512,7 +513,7 @@ args(struct mdoc *m, int line, int *pos,
 
 		/* Whitespace check for eoln case... */
 		if ('\0' == *p && ' ' == *(p - 1))
-			mdoc_pmsg(m, line, *pos, MANDOCERR_EOLNSPACE);
+			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_EOLNSPACE);
 
 		*pos += (int)(p - *v);
 
@@ -538,12 +539,12 @@ args(struct mdoc *m, int line, int *pos,
 	 * Whitespace is NOT involved in literal termination.
 	 */
 
-	if (MDOC_PHRASELIT & m->flags || '\"' == buf[*pos]) {
-		if ( ! (MDOC_PHRASELIT & m->flags))
+	if (MDOC_PHRASELIT & mdoc->flags || '\"' == buf[*pos]) {
+		if ( ! (MDOC_PHRASELIT & mdoc->flags))
 			*v = &buf[++(*pos)];
 
-		if (MDOC_PPHRASE & m->flags)
-			m->flags |= MDOC_PHRASELIT;
+		if (MDOC_PPHRASE & mdoc->flags)
+			mdoc->flags |= MDOC_PHRASELIT;
 
 		for ( ; buf[*pos]; (*pos)++) {
 			if ('\"' != buf[*pos])
@@ -554,13 +555,13 @@ args(struct mdoc *m, int line, int *pos,
 		}
 
 		if ('\0' == buf[*pos]) {
-			if (MDOC_PPHRASE & m->flags)
+			if (MDOC_PPHRASE & mdoc->flags)
 				return(ARGS_QWORD);
-			mdoc_pmsg(m, line, *pos, MANDOCERR_BADQUOTE);
+			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_BADQUOTE);
 			return(ARGS_QWORD);
 		}
 
-		m->flags &= ~MDOC_PHRASELIT;
+		mdoc->flags &= ~MDOC_PHRASELIT;
 		buf[(*pos)++] = '\0';
 
 		if ('\0' == buf[*pos])
@@ -570,13 +571,13 @@ args(struct mdoc *m, int line, int *pos,
 			(*pos)++;
 
 		if ('\0' == buf[*pos])
-			mdoc_pmsg(m, line, *pos, MANDOCERR_EOLNSPACE);
+			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_EOLNSPACE);
 
 		return(ARGS_QWORD);
 	}
 
 	p = &buf[*pos];
-	*v = mandoc_getarg(m->parse, &p, line, pos);
+	*v = mandoc_getarg(mdoc->parse, &p, line, pos);
 
 	return(ARGS_WORD);
 }
@@ -632,7 +633,7 @@ args_checkpunct(const char *buf, int i)
 }
 
 static int
-argv_multi(struct mdoc *m, int line, 
+argv_multi(struct mdoc *mdoc, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	enum margserr	 ac;
@@ -641,7 +642,7 @@ argv_multi(struct mdoc *m, int line,
 	for (v->sz = 0; ; v->sz++) {
 		if ('-' == buf[*pos])
 			break;
-		ac = args(m, line, pos, buf, ARGSFL_NONE, &p);
+		ac = args(mdoc, line, pos, buf, ARGSFL_NONE, &p);
 		if (ARGS_ERROR == ac)
 			return(0);
 		else if (ARGS_EOLN == ac)
@@ -658,13 +659,13 @@ argv_multi(struct mdoc *m, int line,
 }
 
 static int
-argv_single(struct mdoc *m, int line, 
+argv_single(struct mdoc *mdoc, int line, 
 		struct mdoc_argv *v, int *pos, char *buf)
 {
 	enum margserr	 ac;
 	char		*p;
 
-	ac = args(m, line, pos, buf, ARGSFL_NONE, &p);
+	ac = args(mdoc, line, pos, buf, ARGSFL_NONE, &p);
 	if (ARGS_ERROR == ac)
 		return(0);
 	if (ARGS_EOLN == ac)

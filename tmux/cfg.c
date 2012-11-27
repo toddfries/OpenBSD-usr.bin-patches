@@ -1,4 +1,4 @@
-/* $OpenBSD: cfg.c,v 1.16 2012/07/11 07:10:15 nicm Exp $ */
+/* $OpenBSD: cfg.c,v 1.18 2012/11/27 16:12:29 nicm Exp $ */
 
 /*
  * Copyright (c) 2008 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -34,9 +34,10 @@
 void printflike2 cfg_print(struct cmd_ctx *, const char *, ...);
 void printflike2 cfg_error(struct cmd_ctx *, const char *, ...);
 
-char	 	       *cfg_cause;
-int     	 	cfg_finished;
-struct causelist	cfg_causes = ARRAY_INITIALIZER;
+char			*cfg_cause;
+int			 cfg_finished;
+int	 		 cfg_references;
+struct causelist	 cfg_causes;
 
 /* ARGSUSED */
 void printflike2
@@ -88,6 +89,8 @@ load_cfg(const char *path, struct cmd_ctx *ctxin, struct causelist *causes)
 		return (-1);
 	}
 	n = 0;
+
+	cfg_references++;
 
 	line = NULL;
 	retval = CMD_RETURN_NORMAL;
@@ -171,5 +174,29 @@ load_cfg(const char *path, struct cmd_ctx *ctxin, struct causelist *causes)
 	}
 	fclose(f);
 
+	cfg_references--;
+
 	return (retval);
+}
+
+void
+show_cfg_causes(struct session *s)
+{
+	struct window_pane	*wp;
+	char			*cause;
+	u_int			 i;
+
+	if (s == NULL || ARRAY_EMPTY(&cfg_causes))
+		return;
+
+	wp = s->curw->window->active;
+
+	window_pane_set_mode(wp, &window_copy_mode);
+	window_copy_init_for_output(wp);
+	for (i = 0; i < ARRAY_LENGTH(&cfg_causes); i++) {
+		cause = ARRAY_ITEM(&cfg_causes, i);
+		window_copy_add(wp, "%s", cause);
+		free(cause);
+	}
+	ARRAY_FREE(&cfg_causes);
 }
