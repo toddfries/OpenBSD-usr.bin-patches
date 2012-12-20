@@ -1,4 +1,4 @@
-/*	$OpenBSD: funmap.c,v 1.42 2012/11/20 13:10:16 florian Exp $	*/
+/*	$OpenBSD: funmap.c,v 1.44 2012/12/04 10:54:20 florian Exp $	*/
 
 /* This file is in the public domain */
 
@@ -40,6 +40,7 @@ static struct funmap functnames[] = {
 	{capword, "capitalize-word",},
 	{changedir, "cd",},
 	{clearmark, "clear-mark",},
+	{colnotoggle, "column-number-mode",},
 	{copyregion, "copy-region-as-kill",},
 #ifdef	REGEX
 	{cntmatchlines, "count-matches",},
@@ -122,6 +123,7 @@ static struct funmap functnames[] = {
 	{localbind, "local-set-key",},
 	{localunbind, "local-unset-key",},
 	{makebkfile, "make-backup-files",},
+	{makedir, "make-directory",},
 	{markbuffer, "mark-whole-buffer",},
 	{do_meta, "meta-key-mode",},	/* better name, anyone? */
 	{negative_argument, "negative-argument",},

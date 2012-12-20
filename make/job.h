@@ -1,7 +1,7 @@
 #ifndef _JOB_H_
 #define _JOB_H_
 
-/*	$OpenBSD: job.h,v 1.28 2012/10/18 17:54:43 espie Exp $	*/
+/*	$OpenBSD: job.h,v 1.31 2012/12/14 11:10:03 espie Exp $	*/
 /*	$NetBSD: job.h,v 1.5 1996/11/06 17:59:10 christos Exp $ */
 
 /*
@@ -42,20 +42,54 @@
 
 /*-
  * job.h --
- *	Definitions pertaining to the running of jobs in parallel mode.
+ *	Definitions pertaining to the running of jobs.
  */
 
+/* Job_Make(gn);
+ *	register a new job running commands associated with building gn.
+ */
 extern void Job_Make(GNode *);
+/* Job_Init(maxproc);
+ *	setup job handling framework
+ */
 extern void Job_Init(int);
+
+/* interface with the normal build in make.c */
+/* okay = can_start_job();
+ *	can we run new jobs right now ?
+ */
 extern bool can_start_job(void);
+
+/* finished = Job_Empty();
+ *	wait until all jobs are finished after we build everything.
+ */
 extern bool Job_Empty(void);
-extern int Job_Finish(void);
+
+/* errors = Job_Finish();
+ *	final processing including running .END target if no errors.
+ */
+extern bool Job_Finish(void);
+
+/* Job_Begin();
+ *	similarly, run .BEGIN job at start of job.
+ */
 extern void Job_Begin(void);
 
 extern void Job_Wait(void);
 extern void Job_AbortAll(void);
 extern void print_errors(void);
+
+/* handle_running_jobs();
+ *	wait until something happens, like a job finishing running a command
+ *	or a signal coming in.
+ */
 extern void handle_running_jobs(void);
+
+/* handle_all_signals();
+ *	if a signal was received, react accordingly.
+ *	By displaying STATUS info, or by aborting running jobs for a fatal
+ *	signals. Relies on Job_Init() for setting up handlers.
+ */
 extern void handle_all_signals(void);
 
 extern void determine_expensive_job(Job *);

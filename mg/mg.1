@@ -1,7 +1,7 @@
-.\"	$OpenBSD: mg.1,v 1.71 2012/11/13 22:03:44 florian Exp $
+.\"	$OpenBSD: mg.1,v 1.73 2012/12/04 10:54:20 florian Exp $
 .\" This file is in the public domain.
 .\"
-.Dd $Mdocdate: November 13 2012 $
+.Dd $Mdocdate: December 4 2012 $
 .Dt MG 1
 .Os
 .Sh NAME
@@ -414,6 +414,8 @@ upper case, and subsequent letters to lower case.
 .It cd
 Change the global working directory.
 See also global-wd-mode.
+.It column-number-mode
+Toggle whether the column number is displayed in the modeline.
 .It copy-region-as-kill
 Copy all of the characters in the region to the kill buffer,
 clearing the mark afterwards.
@@ -662,6 +664,8 @@ Bind a key mapping in the local (topmost) mode.
 Unbind a key mapping in the local (topmost) mode.
 .It make-backup-files
 Toggle generation of backup files.
+.It make-directory
+Prompt the user for a path or directory name which is then created.
 .It mark-whole-buffer
 Marks whole buffer as a region by putting dot at the beginning and mark
 at the end of buffer.

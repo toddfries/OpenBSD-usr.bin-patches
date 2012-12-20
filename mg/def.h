@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.129 2012/11/06 18:04:10 florian Exp $	*/
+/*	$OpenBSD: def.h,v 1.132 2012/12/04 10:54:20 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -335,6 +335,7 @@ void		 dirinit(void);
 int		 changedir(int, int);
 int		 showcwdir(int, int);
 int		 getcwdir(char *, size_t);
+int		 makedir(int, int);
 
 /* dired.c */
 struct buffer	*dired_(char *);
@@ -423,6 +424,7 @@ void		vtinit(void);
 void		vttidy(void);
 void		update(void);
 int		linenotoggle(int, int);
+int		colnotoggle(int, int);
 
 /* echo.c X */
 void		 eerase(void);
@@ -452,6 +454,7 @@ int		 fchecktime(struct buffer *);
 int		 fupdstat(struct buffer *);
 int		 backuptohomedir(int, int);
 int		 toggleleavetmp(int, int);
+char		*expandtilde(const char *);
 
 /* kbd.c X */
 int		 do_meta(int, int);

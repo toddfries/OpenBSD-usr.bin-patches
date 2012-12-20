@@ -1,4 +1,4 @@
-/*	$OpenBSD: midi.c,v 1.1 2012/11/23 07:03:28 ratchov Exp $	*/
+/*	$OpenBSD: midi.c,v 1.6 2012/12/01 12:13:34 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -13,12 +13,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-/*
- * TODO
- *
- * use shadow variables (to save NRPNs, LSB of controller) 
- * in the midi merger
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +54,7 @@ struct port *port_list = NULL;
 unsigned int midi_portnum = 0;
 
 struct midithru {
-	unsigned txmask;
+	unsigned int txmask, rxmask;
 #define MIDITHRU_NMAX 32
 } midithru[MIDITHRU_NMAX];
 
@@ -120,18 +114,16 @@ midi_new(struct midiops *ops, void *arg, int mode)
 	ep->idx = 0;
 	ep->st = 0;
 	ep->txmask = 0;
-	ep->rxmask = 1 << i;
+	ep->self = 1 << i;
+	ep->tickets = 0;
 	ep->mode = mode;
+
 	/*
-	 * client output is our input (ibuf) and our output (obuf) goes
-	 * to client input
+	 * the output buffer is the client intput
 	 */
-	if (ep->mode & MODE_MIDIOUT) {
-		abuf_init(&ep->ibuf, MIDI_BUFSZ);
-	}
-	if (ep->mode & MODE_MIDIIN) {
+	if (ep->mode & MODE_MIDIIN)
 		abuf_init(&ep->obuf, MIDI_BUFSZ);
-	}
+	midi_tickets(ep);
 	return ep;
 }
 
@@ -139,19 +131,46 @@ void
 midi_del(struct midi *ep)
 {
 	int i;
+	struct midi *peer;
 
-	for (i = 0; i < MIDI_NEP; i++)
-		midi_ep[i].txmask &= ~ep->rxmask;
-	for (i = 0; i < MIDITHRU_NMAX; i++)
-		midithru[i].txmask &= ~ep->rxmask;
-
-	/* XXX: drain output */
-	ep->ops = NULL;
-	if (ep->mode & MODE_MIDIOUT) {
-		abuf_done(&ep->ibuf);
+	ep->txmask = 0;
+	for (i = 0; i < MIDI_NEP; i++) {
+		peer = midi_ep + i;
+		if (peer->txmask & ep->self) {
+			peer->txmask &= ~ep->self;
+			midi_tickets(peer);
+		}
 	}
+	for (i = 0; i < MIDITHRU_NMAX; i++) {
+		midithru[i].txmask &= ~ep->self;
+		midithru[i].rxmask &= ~ep->self;
+	}
+	ep->ops = NULL;
 	if (ep->mode & MODE_MIDIIN) {
 		abuf_done(&ep->obuf);
+	}
+}
+
+/*
+ * connect two midi endpoints
+ */
+void
+midi_link(struct midi *ep, struct midi *peer)
+{
+	if (ep->mode & MODE_MIDIOUT) {
+		ep->txmask |= peer->self;
+		midi_tickets(ep);
+	}
+	if (ep->mode & MODE_MIDIIN) {
+#ifdef DEBUG
+		if (ep->obuf.used > 0) {
+			midi_log(ep);
+			log_puts(": linked with non-empty buffer\n");
+			panic();
+		}
+#endif
+		/* ep has empry buffer, so no need to call midi_tickets() */
+		peer->txmask |= ep->self;
 	}
 }
 
@@ -161,46 +180,37 @@ midi_del(struct midi *ep)
 void
 midi_tag(struct midi *ep, unsigned int tag)
 {
+	struct midi *peer;
+	struct midithru *t = midithru + tag;
 	int i;
-	struct midi *m;
-	unsigned members;
 
-	members = midithru[tag].txmask;
-	midithru[tag].txmask |= ep->rxmask;
-
-	for (i = 0, m = midi_ep; i < MIDI_NEP; i++, m++) {
-		if (!(members & (1 << i)))
-			continue;
-		if (ep->mode & MODE_MIDIOUT)
-			ep->txmask |= m->rxmask;
-		if (ep->mode & MODE_MIDIIN)
-			m->txmask |= ep->rxmask;
+	if (ep->mode & MODE_MIDIOUT) {
+		ep->txmask |= t->txmask;
+		midi_tickets(ep);
 	}
+	if (ep->mode & MODE_MIDIIN) {
+#ifdef DEBUG
+		if (ep->obuf.used > 0) {
+			midi_log(ep);
+			log_puts(": tagged with non-empty buffer\n");
+			panic();
+		}
+#endif
+		for (i = 0; i < MIDI_NEP; i++) {
+			if (!(t->rxmask & (1 << i)))
+				continue;
+			peer = midi_ep + i;
+			peer->txmask |= ep->self;
+		}
+	}
+	if (ep->mode & MODE_MIDIOUT)
+		t->rxmask |= ep->self;
+	if (ep->mode & MODE_MIDIIN)
+		t->txmask |= ep->self;
 }
 
 /*
- * remove the midi endpoint from the ``tag'' midi thru box
- */
-void
-midi_untag(struct midi *ep, unsigned int tag)
-{
-	int i;
-	struct midi *m;
-	unsigned members;
-
-	members = midithru[tag].txmask;
-	midithru[tag].txmask &= ~ep->rxmask;
-
-	for (i = 0, m = midi_ep;; i++, m++) {
-		if (!(members & (1 << i)))
-			continue;
-		ep->txmask &= ~m->rxmask;
-		m->txmask &= ~ep->rxmask;
-	}
-}
-
-/*
- * broadcast the given message to other members of the thru box
+ * broadcast the given message to other endpoints
  */
 void
 midi_send(struct midi *iep, unsigned char *msg, int size)
@@ -240,28 +250,58 @@ midi_send(struct midi *iep, unsigned char *msg, int size)
 	}
 }
 
-
+/*
+ * determine if we have gained more input tickets, and if so call the
+ * fill() call-back to notify the i/o layer that it can send more data
+ */
 void
-midi_fill(struct midi *oep)
+midi_tickets(struct midi *iep)
 {
-	int i, count;
-	struct midi *iep;
+	int i, tickets, avail, maxavail;
+	struct midi *oep;
 
+	maxavail = MIDI_BUFSZ;
 	for (i = 0; i < MIDI_NEP ; i++) {
-		if ((oep->rxmask & (1 << i)) == 0)
+		if ((iep->txmask & (1 << i)) == 0)
 			continue;
-		iep = midi_ep + i;
-		count = midi_in(iep);
-		if (count)
-			iep->ops->fill(iep->arg, count);
+		oep = midi_ep + i;
+		avail = oep->obuf.len - oep->obuf.used;
+		if (maxavail > avail)
+			maxavail = avail;
+	}
+
+	/*
+	 * in the worst case output message is twice the 
+	 * input message (2-byte messages with running status)
+	 */
+	tickets = maxavail / 2 - iep->tickets;
+	if (tickets > 0) {
+		iep->tickets += tickets;
+		iep->ops->fill(iep->arg, tickets);
 	}
 }
 
 /*
- * parse the give data chunk, and calling imsg() for each message
+ * recalculate tickets of endpoints sending data to this one
  */
 void
-midi_parse(struct midi *iep, unsigned char *idata, int icount)
+midi_fill(struct midi *oep)
+{
+	int i;
+	struct midi *iep;
+
+	for (i = 0; i < MIDI_NEP; i++) {
+		iep = midi_ep + i;
+		if (iep->txmask & oep->self)
+			midi_tickets(iep);
+	}
+}
+
+/*
+ * parse then give data chunk, and calling imsg() for each message
+ */
+void
+midi_in(struct midi *iep, unsigned char *idata, int icount)
 {
 	int i;
 	unsigned char c;
@@ -304,60 +344,9 @@ midi_parse(struct midi *iep, unsigned char *idata, int icount)
 			}
 		}
 	}
-}
-
-/*
- * process input data stored in ep->ibuf
- */
-int
-midi_in(struct midi *iep)
-{
-	unsigned char *idata;
-	int i, icount, maxavail, avail, idone;
-	struct midi *oep;
-
-	/*
-	 * calculate the max message size we can process
-	 */
-	maxavail = MIDI_BUFSZ;
-	for (i = 0; i < MIDI_NEP ; i++) {
-		if ((iep->txmask & (1 << i)) == 0)
-			continue;
-		oep = midi_ep + i;
-		avail = oep->obuf.len - oep->obuf.used;
-		if (maxavail > avail)
-			maxavail = avail;
-	}
-	
-	/*
-	 * in the works case output message is twice the 
-	 * input message (2-byte messages with running status)
-	 */
-	maxavail /= 2;
-	idone = 0;
-	for (;;) {
-		idata = abuf_rgetblk(&iep->ibuf, &icount);
-		if (icount > maxavail)
-			icount = maxavail;
-		if (icount == 0)
-			break;
-		maxavail -= icount;
-#ifdef DEBUG
-		if (log_level >= 4) {
-			midi_log(iep);
-			log_puts(":  in:");
-			for (i = 0; i < icount; i++) {
-				log_puts(" ");
-				log_putx(idata[i]);
-			}
-			log_puts("\n");
-		}
-#endif
-		midi_parse(iep, idata, icount);
-		abuf_rdiscard(&iep->ibuf, icount);
-		idone += icount;
-	}
-	return idone;
+	iep->tickets -= icount;
+	if (iep->tickets < 0)
+		iep->tickets = 0;
 }
 
 /*
@@ -377,7 +366,7 @@ midi_out(struct midi *oep, unsigned char *idata, int icount)
 #ifdef DEBUG
 			if (log_level >= 2) {
 				midi_log(oep);
-				log_puts(": overrun, discarding ");
+				log_puts(": too slow, discarding ");
 				log_putu(oep->obuf.used);
 				log_puts(" bytes\n");
 			}
@@ -446,7 +435,8 @@ port_exit(void *arg)
 
 	if (log_level >= 3) {
 		port_log(p);
-		log_puts(": exit\n");
+		log_puts(": port exit\n");
+		panic();
 	}
 #endif
 }
@@ -455,13 +445,14 @@ port_exit(void *arg)
  * create a new midi port
  */
 struct port *
-port_new(char *path, unsigned int mode)
+port_new(char *path, unsigned int mode, int hold)
 {
 	struct port *c;
 
 	c = xmalloc(sizeof(struct port));
 	c->path = path;
 	c->state = PORT_CFG;
+	c->hold = hold;
 	c->midi = midi_new(&port_midiops, c, mode);
 	midi_portnum++;
 	c->next = port_list;
@@ -490,6 +481,37 @@ port_del(struct port *c)
 	}
 	*p = c->next;
 	xfree(c);
+}
+
+int
+port_ref(struct port *c)
+{
+#ifdef DEBUG
+	if (log_level >= 3) {
+		port_log(c);
+		log_puts(": port requested\n");
+	}
+#endif
+	if (c->state == PORT_CFG && !port_open(c))
+		return 0;
+	return 1;
+}
+
+void
+port_unref(struct port *c)
+{
+	int i, rxmask;
+
+#ifdef DEBUG
+	if (log_level >= 3) {
+		port_log(c);
+		log_puts(": port released\n");
+	}
+#endif
+	for (rxmask = 0, i = 0; i < MIDI_NEP; i++)
+		rxmask |= midi_ep[i].txmask;
+	if ((rxmask & c->midi->self) == 0 && c->state == PORT_INIT && !c->hold)
+		port_drain(c);
 }
 
 struct port *
@@ -521,27 +543,56 @@ port_open(struct port *c)
 int
 port_close(struct port *c)
 {
+	int i;
+	struct midi *ep;
 #ifdef DEBUG
 	if (c->state == PORT_CFG) {
 		port_log(c);
 		log_puts(": can't close port (not opened)\n");
+		panic();
 	}
 #endif
-	port_mio_close(c);
 	c->state = PORT_CFG;	
+	port_mio_close(c);
+	
+	for (i = 0; i < MIDI_NEP; i++) {
+		ep = midi_ep + i;
+		if ((ep->txmask & c->midi->self) ||
+		    (c->midi->txmask & ep->self))
+			ep->ops->exit(ep->arg);
+	}
 	return 1;
+}
+
+void
+port_drain(struct port *c)
+{
+	struct midi *ep = c->midi;
+
+	if (!(ep->mode & MODE_MIDIOUT) || ep->obuf.used == 0)
+		port_close(c);
+	else {
+		c->state = PORT_DRAIN;
+#ifdef DEBUG
+		if (log_level >= 3) {
+			port_log(c);
+			log_puts(": draining\n");
+		}
+#endif
+	}
 }
 
 int
 port_init(struct port *c)
 {
-	return port_open(c);
+	if (c->hold)
+		return port_open(c);
+	return 1;
 }
 
 void
 port_done(struct port *c)
 {
-	/* XXX: drain? */
-	if (c->state != PORT_CFG)
-		port_close(c);
+	if (c->state == PORT_INIT)
+		port_drain(c);
 }

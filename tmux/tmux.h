@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.365 2012/11/27 16:12:29 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.368 2012/11/27 22:59:34 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -1520,7 +1520,7 @@ extern int       cfg_finished;
 extern int       cfg_references;
 extern struct causelist cfg_causes;
 void printflike2 cfg_add_cause(struct causelist *, const char *, ...);
-int		 load_cfg(const char *, struct cmd_ctx *, struct causelist *);
+enum cmd_retval	 load_cfg(const char *, struct cmd_ctx *, struct causelist *);
 void		 show_cfg_causes(struct session *);
 
 /* format.c */
@@ -1682,8 +1682,8 @@ const char	*tty_term_string2(
 		     struct tty_term *, enum tty_code_code, int, int);
 const char	*tty_term_ptr1(
 		     struct tty_term *, enum tty_code_code, const void *);
-const char	*tty_term_ptr2(
-		     struct tty_term *, enum tty_code_code, const void *, const void *);
+const char	*tty_term_ptr2(struct tty_term *, enum tty_code_code,
+		     const void *, const void *);
 int		 tty_term_number(struct tty_term *, enum tty_code_code);
 int		 tty_term_flag(struct tty_term *, enum tty_code_code);
 
@@ -1704,6 +1704,9 @@ int		 paste_free_index(struct paste_stack *, u_int);
 void		 paste_add(struct paste_stack *, char *, size_t, u_int);
 int		 paste_replace(struct paste_stack *, u_int, char *, size_t);
 char		*paste_print(struct paste_buffer *, size_t);
+void		 paste_send_pane(struct paste_buffer *, struct window_pane *,
+		     const char *, int);
+
 
 /* clock.c */
 extern const char clock_table[14][5][5];
@@ -1906,7 +1909,7 @@ void	 server_unlink_window(struct session *, struct winlink *);
 void	 server_destroy_pane(struct window_pane *);
 void	 server_destroy_session_group(struct session *);
 void	 server_destroy_session(struct session *);
-void	 server_check_unattached (void);
+void	 server_check_unattached(void);
 void	 server_set_identify(struct client *);
 void	 server_clear_identify(struct client *);
 void	 server_update_event(struct client *);
@@ -2145,10 +2148,10 @@ int		 window_pane_spawn(struct window_pane *, const char *,
 		     const char *, const char *, struct environ *,
 		     struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
-void		 window_pane_alternate_on(
-		     struct window_pane *, struct grid_cell *);
-void		 window_pane_alternate_off(
-		     struct window_pane *, struct grid_cell *);
+void		 window_pane_alternate_on(struct window_pane *,
+		     struct grid_cell *, int);
+void		 window_pane_alternate_off(struct window_pane *,
+		     struct grid_cell *, int);
 int		 window_pane_set_mode(
 		     struct window_pane *, const struct window_mode *);
 void		 window_pane_reset_mode(struct window_pane *);

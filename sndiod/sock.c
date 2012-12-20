@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.c,v 1.1 2012/11/23 07:03:28 ratchov Exp $	*/
+/*	$OpenBSD: sock.c,v 1.5 2012/12/06 08:13:04 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -150,6 +150,10 @@ sock_close(struct sock *f)
 	if (f->midi) {
 		midi_del(f->midi);
 		f->midi = NULL;
+	}
+	if (f->port) {
+		port_unref(f->port);
+		f->port = NULL;
 	}
 	file_del(f->file);
 	close(f->fd);
@@ -505,7 +509,7 @@ sock_wmsg(struct sock *f)
 int
 sock_rdata(struct sock *f)
 {
-	struct abuf *buf;
+	unsigned char midibuf[MIDI_BUFSZ];
 	unsigned char *data;
 	int n, count;
 
@@ -516,19 +520,23 @@ sock_rdata(struct sock *f)
 		panic();
 	}
 #endif
-	if (f->slot)
-		buf = &f->slot->mix.buf;
-	else
-		buf = &f->midi->ibuf;
 	while (f->rtodo > 0) {
-		data = abuf_wgetblk(buf, &count);
+		if (f->slot)
+			data = abuf_wgetblk(&f->slot->mix.buf, &count);
+		else {
+			data = midibuf;
+			count = MIDI_BUFSZ;
+		}
 		if (count > f->rtodo)
 			count = f->rtodo;
 		n = sock_fdread(f, data, count);
 		if (n == 0)
 			return 0;
 		f->rtodo -= n;
-		abuf_wcommit(buf, n);
+		if (f->slot)
+			abuf_wcommit(&f->slot->mix.buf, n);
+		else
+			midi_in(f->midi, midibuf, n);
 	}
 #ifdef DEBUG
 	if (log_level >= 4) {
@@ -538,8 +546,6 @@ sock_rdata(struct sock *f)
 #endif
 	if (f->slot)
 		slot_write(f->slot);
-	if (f->midi)
-		f->fillpending += midi_in(f->midi);
 	return 1;
 }
 
@@ -847,6 +853,7 @@ sock_hello(struct sock *f)
 		return 0;
 	}
 	f->pstate = SOCK_INIT;
+	f->port = NULL;
 	if (mode & MODE_MIDIMASK) {
 		f->slot = NULL;
 		f->midi = midi_new(&sock_midiops, f, mode);
@@ -862,16 +869,12 @@ sock_hello(struct sock *f)
 			midi_tag(f->midi, p->devnum);
 		} else if (p->devnum < 48) {
 			c = port_bynum(p->devnum - 32);
-			if (c == NULL)
+			if (c == NULL || !port_ref(c))
 				return 0;
-			if (mode & MODE_MIDIOUT)
-				f->midi->txmask |= c->midi->rxmask;
-			if (mode & MODE_MIDIIN)
-				c->midi->txmask |= f->midi->rxmask;
+			f->port = c;
+			midi_link(f->midi, c->midi);
 		} else
 			return 0;
-		if (mode & MODE_MIDIOUT)
-			f->fillpending = MIDI_BUFSZ;
 		return 1;
 	}
 	f->opt = opt_byname(p->opt, p->devnum);
@@ -922,7 +925,6 @@ sock_hello(struct sock *f)
 	}
 	s->mix.maxweight = f->opt->maxweight;
 	s->dup = f->opt->dup;
-	/* XXX: must convert to slot rate */
 	f->slot = s;
 	return 1;
 }
@@ -1395,7 +1397,6 @@ sock_buildmsg(struct sock *f)
 	}
 
 	if (f->midi != NULL && f->midi->obuf.used > 0) {
-		/* XXX: use tickets */
 		size = f->midi->obuf.used;		
 		if (size > AMSG_DATAMAX)
 			size = AMSG_DATAMAX;
@@ -1515,7 +1516,6 @@ sock_read(struct sock *f)
 		f->wtodo = sizeof(struct amsg);
 		f->rstate = SOCK_RMSG;
 		f->rtodo = sizeof(struct amsg);
-		/* XXX: call sock_wmsg() ? */
 #ifdef DEBUG
 		if (log_level >= 4) {
 			sock_log(f);
@@ -1552,9 +1552,6 @@ sock_write(struct sock *f)
 			f->wtodo = 0xdeadbeef;
 			break;
 		}
-		/*
-		 * XXX: why not set f->wtodo in sock_wmsg() ?
-		 */
 		f->wstate = SOCK_WDATA;
 		f->wsize = f->wtodo = ntohl(f->wmsg.u.data.size);
 		/* PASSTHROUGH */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: job.c,v 1.133 2012/11/24 11:05:33 espie Exp $	*/
+/*	$OpenBSD: job.c,v 1.135 2012/12/14 11:10:03 espie Exp $	*/
 /*	$NetBSD: job.c,v 1.16 1996/11/06 17:59:08 christos Exp $	*/
 
 /*
@@ -129,7 +129,7 @@ static bool	no_new_jobs;	/* Mark recursive shit so we shouldn't start
 Job *runningJobs;		/* Jobs currently running a process */
 Job *errorJobs;			/* Jobs in error at end */
 static Job *heldJobs;		/* Jobs not running yet because of expensive */
-static pid_t mypid;
+static pid_t mypid;		/* Used for printing debugging messages */
 
 static volatile sig_atomic_t got_fatal;
 
@@ -414,7 +414,7 @@ notice_signal(int sig)
 	}
 }
 
-void
+static void
 setup_all_signals(void)
 {
 	sigemptyset(&sigset);
@@ -849,6 +849,11 @@ handle_running_jobs(void)
 	 * reception of new stuff on sigsuspend
 	 */
 	sigprocmask(SIG_BLOCK, &sigset, &old);
+	/* note this will NOT loop until runningJobs == NULL.
+	 * It's merely an optimisation, namely that we don't need to go 
+	 * through the logic if no job is present. As soon as a job 
+	 * gets reaped, we WILL exit the loop through the break.
+	 */
 	while (runningJobs != NULL) {
 		/* did we already have pending stuff that advances things ?
 		 * then handle_all_signals() will not return
@@ -979,17 +984,17 @@ handle_fatal_signal(int signo)
 bool
 Job_Finish(void)
 {
-	bool errors = errorJobs != NULL;
+	bool problem = errorJobs != NULL;
 
 	if ((end_node->type & OP_DUMMY) == 0) {
-		if (errors) {
+		if (problem) {
 			Error("Errors reported so .END ignored");
 		} else {
 			Job_Make(end_node);
 			loop_handle_running_jobs();
 		}
 	}
-	return errors;
+	return problem;
 }
 
 void
