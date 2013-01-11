@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.220 2012/12/03 00:14:06 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.222 2013/01/09 05:40:17 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -710,15 +710,33 @@ do_download(struct passwd *pw)
 #ifdef ENABLE_PKCS11
 	Key **keys = NULL;
 	int i, nkeys;
+	enum fp_rep rep;
+	enum fp_type fptype;
+	char *fp, *ra;
+
+	fptype = print_bubblebabble ? SSH_FP_SHA1 : SSH_FP_MD5;
+	rep =    print_bubblebabble ? SSH_FP_BUBBLEBABBLE : SSH_FP_HEX;
 
 	pkcs11_init(0);
 	nkeys = pkcs11_add_provider(pkcs11provider, NULL, &keys);
 	if (nkeys <= 0)
 		fatal("cannot read public key from pkcs11");
 	for (i = 0; i < nkeys; i++) {
-		key_write(keys[i], stdout);
+		if (print_fingerprint) {
+			fp = key_fingerprint(keys[i], fptype, rep);
+			ra = key_fingerprint(keys[i], SSH_FP_MD5,
+			    SSH_FP_RANDOMART);
+			printf("%u %s %s (PKCS11 key)\n", key_size(keys[i]),
+			    fp, key_type(keys[i]));
+			if (log_level >= SYSLOG_LEVEL_VERBOSE)
+				printf("%s\n", ra);
+			xfree(ra);
+			xfree(fp);
+		} else {
+			key_write(keys[i], stdout);
+			fprintf(stdout, "\n");
+		}
 		key_free(keys[i]);
-		fprintf(stdout, "\n");
 	}
 	xfree(keys);
 	pkcs11_terminate();
@@ -2158,7 +2176,7 @@ main(int argc, char **argv)
 		usage();
 	}
 	if (print_fingerprint && (delete_host || hash_hosts)) {
-		printf("Cannot use -l with -D or -R.\n");
+		printf("Cannot use -l with -H or -R.\n");
 		usage();
 	}
 	if (ca_key_path != NULL) {
@@ -2170,6 +2188,8 @@ main(int argc, char **argv)
 		do_show_cert(pw);
 	if (delete_host || hash_hosts || find_host)
 		do_known_hosts(pw, rr_hostname);
+	if (pkcs11provider != NULL)
+		do_download(pw);
 	if (print_fingerprint || print_bubblebabble)
 		do_fingerprint(pw);
 	if (change_passphrase)
@@ -2207,8 +2227,6 @@ main(int argc, char **argv)
 			exit(0);
 		}
 	}
-	if (pkcs11provider != NULL)
-		do_download(pw);
 
 	if (do_gen_candidates) {
 		FILE *out = fopen(out_file, "w");

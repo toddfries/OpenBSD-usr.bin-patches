@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.132 2012/12/04 10:54:20 florian Exp $	*/
+/*	$OpenBSD: def.h,v 1.134 2012/12/27 18:51:52 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -417,6 +417,7 @@ int		 getbufcwd(char *, size_t);
 int		 checkdirty(struct buffer *);
 int		 revertbuffer(int, int);
 int		 dorevert(void);
+int		 diffbuffer(int, int);
 
 /* display.c */
 int		vtresize(int, int, int);
@@ -591,6 +592,8 @@ int		 region_get_data(struct region *, char *, int);
 void		 region_put_data(const char *, int);
 int		 markbuffer(int, int);
 int		 piperegion(int, int);
+int		 pipeio(const char * const, char * const[], char * const, int,
+		     struct buffer *);
 
 /* search.c X */
 int		 forwsearch(int, int);
