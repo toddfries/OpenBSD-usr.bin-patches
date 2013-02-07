@@ -1,4 +1,4 @@
-/* $OpenBSD: input.c,v 1.55 2012/11/27 20:08:42 nicm Exp $ */
+/* $OpenBSD: input.c,v 1.58 2013/01/18 02:16:21 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -135,6 +135,7 @@ enum input_csi_type {
 	INPUT_CSI_DECSTBM,
 	INPUT_CSI_DL,
 	INPUT_CSI_DSR,
+	INPUT_CSI_ECH,
 	INPUT_CSI_ED,
 	INPUT_CSI_EL,
 	INPUT_CSI_HPA,
@@ -167,6 +168,7 @@ const struct input_table_entry input_csi_table[] = {
 	{ 'L', "",  INPUT_CSI_IL },
 	{ 'M', "",  INPUT_CSI_DL },
 	{ 'P', "",  INPUT_CSI_DCH },
+	{ 'X', "",  INPUT_CSI_ECH },
 	{ 'Z', "",  INPUT_CSI_CBT },
 	{ 'c', "",  INPUT_CSI_DA },
 	{ 'c', ">", INPUT_CSI_DA_TWO },
@@ -877,8 +879,8 @@ input_clear(struct input_ctx *ictx)
 int
 input_print(struct input_ctx *ictx)
 {
-	ictx->cell.data = ictx->ch;
-	screen_write_cell(&ictx->ctx, &ictx->cell, NULL);
+	grid_cell_one(&ictx->cell, ictx->ch);
+	screen_write_cell(&ictx->ctx, &ictx->cell);
 
 	return (0);
 }
@@ -1142,6 +1144,9 @@ input_csi_dispatch(struct input_ctx *ictx)
 			log_debug("%s: unknown '%c'", __func__, ictx->ch);
 			break;
 		}
+		break;
+	case INPUT_CSI_ECH:
+		screen_write_clearcharacter(sctx, input_get(ictx, 0, 1, 1));
 		break;
 	case INPUT_CSI_DCH:
 		screen_write_deletecharacter(sctx, input_get(ictx, 0, 1, 1));
@@ -1560,10 +1565,11 @@ input_exit_osc(struct input_ctx *ictx)
 		server_status_window(ictx->wp->window);
 		break;
 	case 12:
-		screen_set_cursor_colour(ictx->ctx.s, p);
+		if (*p != '?') /* ? is colour request */
+			screen_set_cursor_colour(ictx->ctx.s, p);
 		break;
 	case 112:
-		if (*p == '\0') /* No arguments allowed. */
+		if (*p == '\0') /* no arguments allowed */
 			screen_set_cursor_colour(ictx->ctx.s, "");
 		break;
 	default:
@@ -1651,9 +1657,8 @@ input_utf8_close(struct input_ctx *ictx)
 
 	utf8_append(&ictx->utf8data, ictx->ch);
 
-	ictx->cell.flags |= GRID_FLAG_UTF8;
-	screen_write_cell(&ictx->ctx, &ictx->cell, &ictx->utf8data);
-	ictx->cell.flags &= ~GRID_FLAG_UTF8;
+	grid_cell_set(&ictx->cell, &ictx->utf8data);
+	screen_write_cell(&ictx->ctx, &ictx->cell);
 
 	return (0);
 }
