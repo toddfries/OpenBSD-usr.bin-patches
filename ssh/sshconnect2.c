@@ -1,4 +1,4 @@
-/* $OpenBSD: sshconnect2.c,v 1.191 2013/02/15 00:21:01 dtucker Exp $ */
+/* $OpenBSD: sshconnect2.c,v 1.194 2013/04/05 00:14:00 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  * Copyright (c) 2008 Damien Miller.  All rights reserved.
@@ -534,8 +534,12 @@ input_userauth_failure(int type, u_int32_t seq, void *ctxt)
 	partial = packet_get_char();
 	packet_check_eom();
 
-	if (partial != 0)
+	if (partial != 0) {
 		logit("Authenticated with partial success.");
+		/* reset state */
+		pubkey_cleanup(authctxt);
+		pubkey_prepare(authctxt);
+	}
 	debug("Authentications that can continue: %s", authlist);
 
 	userauth(authctxt, authlist);
@@ -800,7 +804,7 @@ input_gssapi_errtok(int type, u_int32_t plen, void *ctxt)
 	Gssctxt *gssctxt;
 	gss_buffer_desc send_tok = GSS_C_EMPTY_BUFFER;
 	gss_buffer_desc recv_tok;
-	OM_uint32 status, ms;
+	OM_uint32 ms;
 	u_int len;
 
 	if (authctxt == NULL)
@@ -813,7 +817,7 @@ input_gssapi_errtok(int type, u_int32_t plen, void *ctxt)
 	packet_check_eom();
 
 	/* Stick it into GSSAPI and see what it says */
-	status = ssh_gssapi_init_ctx(gssctxt, options.gss_deleg_creds,
+	(void)ssh_gssapi_init_ctx(gssctxt, options.gss_deleg_creds,
 	    &recv_tok, &send_tok, NULL);
 
 	xfree(recv_tok.value);
@@ -826,12 +830,11 @@ input_gssapi_errtok(int type, u_int32_t plen, void *ctxt)
 void
 input_gssapi_error(int type, u_int32_t plen, void *ctxt)
 {
-	OM_uint32 maj, min;
 	char *msg;
 	char *lang;
 
-	maj=packet_get_int();
-	min=packet_get_int();
+	/* maj */(void)packet_get_int();
+	/* min */(void)packet_get_int();
 	msg=packet_get_string(NULL);
 	lang=packet_get_string(NULL);
 
@@ -1378,7 +1381,7 @@ pubkey_prepare(Authctxt *authctxt)
 		id = xcalloc(1, sizeof(*id));
 		id->key = key;
 		id->filename = xstrdup(options.identity_files[i]);
-		id->userprovided = 1;
+		id->userprovided = options.identity_file_userprovided[i];
 		TAILQ_INSERT_TAIL(&files, id, next);
 	}
 	/* Prefer PKCS11 keys that are explicitly listed */

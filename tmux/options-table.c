@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.32 2013/01/17 00:11:22 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.36 2013/03/27 11:17:12 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -414,7 +414,7 @@ const struct options_table_entry session_options_table[] = {
 
 	{ .name = "terminal-overrides",
 	  .type = OPTIONS_TABLE_STRING,
-	  .default_str = "*88col*:colors=88,*256col*:colors=256"
+	  .default_str = "*256col*:colors=256"
 	                 ",xterm*:XT:Ms=\\E]52;%p1%s;%p2%s\\007"
 	                 ":Cc=\\E]12;%p1%s\\007:Cr=\\E]112\\007"
 			 ":Cs=\\E[%p1%d q:Csr=\\E[2 q,screen*:XT"
@@ -476,7 +476,6 @@ const struct options_table_entry window_options_table[] = {
 	  .type = OPTIONS_TABLE_FLAG,
 	  .default_num = 1
 	},
-
 
 	{ .name = "c0-change-trigger",
 	  .type = OPTIONS_TABLE_NUMBER,
@@ -746,8 +745,8 @@ options_table_populate_tree(
 
 /* Print an option using its type from the table. */
 const char *
-options_table_print_entry(
-    const struct options_table_entry *oe, struct options_entry *o)
+options_table_print_entry(const struct options_table_entry *oe,
+    struct options_entry *o, int no_quotes)
 {
 	static char	 out[BUFSIZ];
 	const char	*s;
@@ -755,13 +754,17 @@ options_table_print_entry(
 	*out = '\0';
 	switch (oe->type) {
 	case OPTIONS_TABLE_STRING:
-		xsnprintf(out, sizeof out, "\"%s\"", o->str);
+		if (no_quotes)
+			xsnprintf(out, sizeof out, "%s", o->str);
+		else
+			xsnprintf(out, sizeof out, "\"%s\"", o->str);
 		break;
 	case OPTIONS_TABLE_NUMBER:
 		xsnprintf(out, sizeof out, "%lld", o->num);
 		break;
 	case OPTIONS_TABLE_KEY:
-		xsnprintf(out, sizeof out, "%s", key_string_lookup_key(o->num));
+		xsnprintf(out, sizeof out, "%s",
+		    key_string_lookup_key(o->num));
 		break;
 	case OPTIONS_TABLE_COLOUR:
 		s = colour_tostring(o->num);

@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-start-server.c,v 1.7 2012/07/11 07:10:15 nicm Exp $ */
+/* $OpenBSD: cmd-start-server.c,v 1.9 2013/03/24 09:54:10 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -24,7 +24,7 @@
  * Start the server and do nothing else.
  */
 
-enum cmd_retval	 cmd_start_server_exec(struct cmd *, struct cmd_ctx *);
+enum cmd_retval	 cmd_start_server_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_start_server_entry = {
 	"start-server", "start",
@@ -36,9 +36,8 @@ const struct cmd_entry cmd_start_server_entry = {
 	cmd_start_server_exec
 };
 
-/* ARGSUSED */
 enum cmd_retval
-cmd_start_server_exec(unused struct cmd *self, unused struct cmd_ctx *ctx)
+cmd_start_server_exec(unused struct cmd *self, unused struct cmd_q *cmdq)
 {
 	return (CMD_RETURN_NORMAL);
 }

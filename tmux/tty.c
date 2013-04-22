@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.147 2013/01/18 02:16:21 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.159 2013/04/11 07:27:27 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,6 @@ void	tty_read_callback(struct bufferevent *, void *);
 void	tty_error_callback(struct bufferevent *, short, void *);
 
 int	tty_try_256(struct tty *, u_char, const char *);
-int	tty_try_88(struct tty *, u_char, const char *);
 
 void	tty_colours(struct tty *, const struct grid_cell *);
 void	tty_check_fg(struct tty *, struct grid_cell *);
@@ -149,19 +148,18 @@ tty_open(struct tty *tty, const char *overrides, char **cause)
 	}
 	tty->flags |= TTY_OPENED;
 
-	tty->flags &= ~(TTY_NOCURSOR|TTY_FREEZE|TTY_ESCAPE);
+	tty->flags &= ~(TTY_NOCURSOR|TTY_FREEZE|TTY_TIMER);
 
 	tty->event = bufferevent_new(
 	    tty->fd, tty_read_callback, NULL, tty_error_callback, tty);
 
 	tty_start_tty(tty);
 
-	tty_keys_init(tty);
+	tty_keys_build(tty);
 
 	return (0);
 }
 
-/* ARGSUSED */
 void
 tty_read_callback(unused struct bufferevent *bufev, void *data)
 {
@@ -171,7 +169,6 @@ tty_read_callback(unused struct bufferevent *bufev, void *data)
 		;
 }
 
-/* ARGSUSED */
 void
 tty_error_callback(
     unused struct bufferevent *bufev, unused short what, unused void *data)
@@ -220,10 +217,10 @@ tty_start_tty(struct tty *tty)
 
 	tty_putcode(tty, TTYC_CNORM);
 	if (tty_term_has(tty->term, TTYC_KMOUS))
-		tty_puts(tty, "\033[?1000l");
+		tty_puts(tty, "\033[?1000l\033[?1006l\033[?1005l");
 
 	if (tty_term_has(tty->term, TTYC_XT))
-		tty_puts(tty, "\033[c");
+		tty_puts(tty, "\033[c\033[>4;1m\033[?1004h\033[m");
 
 	tty->cx = UINT_MAX;
 	tty->cy = UINT_MAX;
@@ -267,8 +264,6 @@ tty_stop_tty(struct tty *tty)
 	if (tcsetattr(tty->fd, TCSANOW, &tty->tio) == -1)
 		return;
 
-	setblocking(tty->fd, 1);
-
 	tty_raw(tty, tty_term_string2(tty->term, TTYC_CSR, 0, ws.ws_row - 1));
 	if (tty_use_acs(tty))
 		tty_raw(tty, tty_term_string(tty->term, TTYC_RMACS));
@@ -285,9 +280,14 @@ tty_stop_tty(struct tty *tty)
 
 	tty_raw(tty, tty_term_string(tty->term, TTYC_CNORM));
 	if (tty_term_has(tty->term, TTYC_KMOUS))
-		tty_raw(tty, "\033[?1000l");
+		tty_raw(tty, "\033[?1000l\033[?1006l\033[?1005l");
+
+	if (tty_term_has(tty->term, TTYC_XT))
+		tty_raw(tty, "\033[>4m\033[?1004l\033[m");
 
 	tty_raw(tty, tty_term_string(tty->term, TTYC_RMCUP));
+
+	setblocking(tty->fd, 1);
 }
 
 void
@@ -332,7 +332,21 @@ tty_free(struct tty *tty)
 void
 tty_raw(struct tty *tty, const char *s)
 {
-	write(tty->fd, s, strlen(s));
+	ssize_t	n, slen;
+	u_int	i;
+
+	slen = strlen(s);
+	for (i = 0; i < 5; i++) {
+		n = write(tty->fd, s, slen);
+		if (n >= 0) {
+			s += n;
+			slen -= n;
+			if (slen == 0)
+				break;
+		} else if (n == -1 && errno != EAGAIN)
+			break;
+		usleep(100);
+	}
 }
 
 void
@@ -474,10 +488,21 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 		}
 		tty->cstyle = s->cstyle;
 	}
-	if (changed & ALL_MOUSE_MODES) {
+	if (changed & (ALL_MOUSE_MODES|MODE_MOUSE_UTF8)) {
 		if (mode & ALL_MOUSE_MODES) {
+			/*
+			 * Enable the UTF-8 (1005) extension if configured to.
+			 * Enable the SGR (1006) extension unconditionally, as
+			 * this is safe from misinterpretation. Do it in this
+			 * order, because in some terminals it's the last one
+			 * that takes effect and SGR is the preferred one.
+			 */
 			if (mode & MODE_MOUSE_UTF8)
 				tty_puts(tty, "\033[?1005h");
+			else
+				tty_puts(tty, "\033[?1005l");
+			tty_puts(tty, "\033[?1006h");
+
 			if (mode & MODE_MOUSE_ANY)
 				tty_puts(tty, "\033[?1003h");
 			else if (mode & MODE_MOUSE_BUTTON)
@@ -491,6 +516,8 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 				tty_puts(tty, "\033[?1002l");
 			else if (tty->mode & MODE_MOUSE_STANDARD)
 				tty_puts(tty, "\033[?1000l");
+
+			tty_puts(tty, "\033[?1006l");
 			if (tty->mode & MODE_MOUSE_UTF8)
 				tty_puts(tty, "\033[?1005l");
 		}
@@ -1418,9 +1445,7 @@ tty_check_fg(struct tty *tty, struct grid_cell *gc)
 	/* Is this a 256-colour colour? */
 	if (gc->flags & GRID_FLAG_FG256) {
 		/* And not a 256 colour mode? */
-		if (!(tty->term->flags & TERM_88COLOURS) &&
-		    !(tty->term_flags & TERM_88COLOURS) &&
-		    !(tty->term->flags & TERM_256COLOURS) &&
+		if (!(tty->term->flags & TERM_256COLOURS) &&
 		    !(tty->term_flags & TERM_256COLOURS)) {
 			gc->fg = colour_256to16(gc->fg);
 			if (gc->fg & 8) {
@@ -1453,9 +1478,7 @@ tty_check_bg(struct tty *tty, struct grid_cell *gc)
 		 * palette. Bold background doesn't exist portably, so just
 		 * discard the bold bit if set.
 		 */
-		if (!(tty->term->flags & TERM_88COLOURS) &&
-		    !(tty->term_flags & TERM_88COLOURS) &&
-		    !(tty->term->flags & TERM_256COLOURS) &&
+		if (!(tty->term->flags & TERM_256COLOURS) &&
 		    !(tty->term_flags & TERM_256COLOURS)) {
 			gc->bg = colour_256to16(gc->bg);
 			if (gc->bg & 8)
@@ -1483,10 +1506,8 @@ tty_colours_fg(struct tty *tty, const struct grid_cell *gc)
 
 	/* Is this a 256-colour colour? */
 	if (gc->flags & GRID_FLAG_FG256) {
-		/* Try as 256 colours or translating to 88. */
+		/* Try as 256 colours. */
 		if (tty_try_256(tty, fg, "38") == 0)
-			goto save_fg;
-		if (tty_try_88(tty, fg, "38") == 0)
 			goto save_fg;
 		/* Else already handled by tty_check_fg. */
 		return;
@@ -1518,10 +1539,8 @@ tty_colours_bg(struct tty *tty, const struct grid_cell *gc)
 
 	/* Is this a 256-colour colour? */
 	if (gc->flags & GRID_FLAG_BG256) {
-		/* Try as 256 colours or translating to 88. */
+		/* Try as 256 colours. */
 		if (tty_try_256(tty, bg, "48") == 0)
-			goto save_bg;
-		if (tty_try_88(tty, bg, "48") == 0)
 			goto save_bg;
 		/* Else already handled by tty_check_bg. */
 		return;
@@ -1557,21 +1576,6 @@ tty_try_256(struct tty *tty, u_char colour, const char *type)
 	if (!(tty->term->flags & TERM_256COLOURS) &&
 	    !(tty->term_flags & TERM_256COLOURS))
 		return (-1);
-
-	xsnprintf(s, sizeof s, "\033[%s;5;%hhum", type, colour);
-	tty_puts(tty, s);
-	return (0);
-}
-
-int
-tty_try_88(struct tty *tty, u_char colour, const char *type)
-{
-	char	s[32];
-
-	if (!(tty->term->flags & TERM_88COLOURS) &&
-	    !(tty->term_flags & TERM_88COLOURS))
-		return (-1);
-	colour = colour_256to88(colour);
 
 	xsnprintf(s, sizeof s, "\033[%s;5;%hhum", type, colour);
 	tty_puts(tty, s);

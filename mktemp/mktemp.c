@@ -1,7 +1,8 @@
-/*	$OpenBSD: mktemp.c,v 1.15 2009/10/27 23:59:40 deraadt Exp $	*/
+/*	$OpenBSD: mktemp.c,v 1.19 2013/03/14 15:44:15 millert Exp $	*/
 
 /*
- * Copyright (c) 1996, 1997, 2001 Todd C. Miller <Todd.Miller@courtesan.com>
+ * Copyright (c) 1996, 1997, 2001-2003, 2013
+ *	Todd C. Miller <Todd.Miller@courtesan.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -16,21 +17,26 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <err.h>
 #include <paths.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <err.h>
 
 __dead void usage(void);
+__dead void fatal(const char *, ...) __attribute__((__format__(printf, 1, 2)));
+__dead void fatalx(const char *, ...) __attribute__((__format__(printf, 1, 2)));
+
+static int quiet;
 
 int
 main(int argc, char *argv[])
 {
-	int ch, fd, uflag = 0, quiet = 0, tflag = 0, makedir = 0;
+	int ch, fd, uflag = 0, tflag = 0, makedir = 0;
 	char *cp, *template, *tempfile, *prefix = _PATH_TMP;
-	int plen;
+	size_t len;
 
 	while ((ch = getopt(argc, argv, "dp:qtu")) != -1)
 		switch(ch) {
@@ -69,46 +75,39 @@ main(int argc, char *argv[])
 
 	if (tflag) {
 		if (strchr(template, '/')) {
-			if (!quiet)
-				warnx("template must not contain directory "
-				    "separators in -t mode");
-			exit(1);
+			fatalx("template must not contain directory "
+			    "separators in -t mode");
 		}
 
 		cp = getenv("TMPDIR");
 		if (cp != NULL && *cp != '\0')
 			prefix = cp;
-		plen = strlen(prefix);
-		while (plen != 0 && prefix[plen - 1] == '/')
-			plen--;
+		len = strlen(prefix);
+		while (len != 0 && prefix[len - 1] == '/')
+			len--;
 
-		if (asprintf(&tempfile, "%.*s/%s", plen, prefix, template) < 0)
+		if (asprintf(&tempfile, "%.*s/%s", (int)len, prefix, template) < 0)
 			tempfile = NULL;
-	} else
+	} else {
+		len = strlen(template);
+		if (len < 6 || strcmp(&template[len - 6], "XXXXXX")) {
+			fatalx("insufficient number of Xs in template `%s'",
+			    template);
+		}
 		tempfile = strdup(template);
-	if (tempfile == NULL) {
-		if (!quiet)
-			warnx("cannot allocate memory");
-		exit(1);
 	}
+	if (tempfile == NULL)
+		fatalx("cannot allocate memory");
 
 	if (makedir) {
-		if (mkdtemp(tempfile) == NULL) {
-			if (!quiet)
-				warn("cannot make temp dir %s", tempfile);
-			exit(1);
-		}
-
+		if (mkdtemp(tempfile) == NULL)
+			fatal("cannot make temp dir %s", tempfile);
 		if (uflag)
 			(void)rmdir(tempfile);
 	} else {
-		if ((fd = mkstemp(tempfile)) < 0) {
-			if (!quiet)
-				warn("cannot make temp file %s", tempfile);
-			exit(1);
-		}
+		if ((fd = mkstemp(tempfile)) < 0)
+			fatal("cannot make temp file %s", tempfile);
 		(void)close(fd);
-
 		if (uflag)
 			(void)unlink(tempfile);
 	}
@@ -116,7 +115,33 @@ main(int argc, char *argv[])
 	(void)puts(tempfile);
 	free(tempfile);
 
-	exit(0);
+	exit(EXIT_SUCCESS);
+}
+
+__dead void
+fatal(const char *fmt, ...)
+{
+	if (!quiet) {
+		va_list ap;
+
+		va_start(ap, fmt);
+		vwarn(fmt, ap);
+		va_end(ap);
+	}
+	exit(EXIT_FAILURE);
+}
+
+__dead void
+fatalx(const char *fmt, ...)
+{
+	if (!quiet) {
+		va_list ap;
+
+		va_start(ap, fmt);
+		vwarnx(fmt, ap);
+		va_end(ap);
+	}
+	exit(EXIT_FAILURE);
 }
 
 __dead void
@@ -126,5 +151,5 @@ usage(void)
 
 	(void)fprintf(stderr,
 	    "usage: %s [-dqtu] [-p directory] [template]\n", __progname);
-	exit(1);
+	exit(EXIT_FAILURE);
 }

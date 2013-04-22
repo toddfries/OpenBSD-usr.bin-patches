@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.77 2012/12/25 09:35:51 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.79 2013/04/16 22:11:10 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -385,7 +385,8 @@ dumpheader(struct ktr_header *kth)
 			prevtime = kth->ktr_time;
 		} else
 			temp = kth->ktr_time;
-		(void)printf("%ld.%06ld ", temp.tv_sec, temp.tv_nsec / 1000);
+		printf("%lld.%06ld ", (long long)temp.tv_sec,
+		    temp.tv_nsec / 1000);
 	}
 	(void)printf("%s  ", type);
 }
@@ -904,7 +905,6 @@ static struct ctlname vmname[] = CTL_VM_NAMES;
 static struct ctlname fsname[] = CTL_FS_NAMES;
 static struct ctlname netname[] = CTL_NET_NAMES;
 static struct ctlname hwname[] = CTL_HW_NAMES;
-static struct ctlname username[] = CTL_USER_NAMES;
 static struct ctlname debugname[CTL_DEBUG_MAXID];
 static struct ctlname kernmallocname[] = CTL_KERN_MALLOC_NAMES;
 static struct ctlname forkstatname[] = CTL_KERN_FORKSTAT_NAMES;
@@ -974,9 +974,6 @@ kresolvsysctl(int depth, int *top, int idx)
 			SETNAME(machdepname);
 			break;
 #endif
-		case CTL_USER:
-			SETNAME(username);
-			break;
 		case CTL_DDB:
 			SETNAME(ddbname);
 			break;

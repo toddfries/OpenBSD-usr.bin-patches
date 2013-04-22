@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-display-message.c,v 1.17 2012/12/09 23:17:35 nicm Exp $ */
+/* $OpenBSD: cmd-display-message.c,v 1.22 2013/03/25 11:42:01 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -27,7 +27,7 @@
  * Displays a message in the status line.
  */
 
-enum cmd_retval	 cmd_display_message_exec(struct cmd *, struct cmd_ctx *);
+enum cmd_retval	 cmd_display_message_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_display_message_entry = {
 	"display-message", "display",
@@ -41,7 +41,7 @@ const struct cmd_entry cmd_display_message_entry = {
 };
 
 enum cmd_retval
-cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
+cmd_display_message_exec(struct cmd *self, struct cmd_q *cmdq)
 {
 	struct args		*args = self->args;
 	struct client		*c;
@@ -55,22 +55,31 @@ cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
 	time_t			 t;
 	size_t			 len;
 
-	if ((c = cmd_find_client(ctx, args_get(args, 'c'))) == NULL)
-		return (CMD_RETURN_ERROR);
-
 	if (args_has(args, 't')) {
-		wl = cmd_find_pane(ctx, args_get(args, 't'), &s, &wp);
+		wl = cmd_find_pane(cmdq, args_get(args, 't'), &s, &wp);
 		if (wl == NULL)
 			return (CMD_RETURN_ERROR);
 	} else {
-		wl = cmd_find_pane(ctx, NULL, &s, &wp);
+		wl = cmd_find_pane(cmdq, NULL, &s, &wp);
 		if (wl == NULL)
 			return (CMD_RETURN_ERROR);
 	}
 
 	if (args_has(args, 'F') && args->argc != 0) {
-		ctx->error(ctx, "only one of -F or argument must be given");
+		cmdq_error(cmdq, "only one of -F or argument must be given");
 		return (CMD_RETURN_ERROR);
+	}
+
+	if (args_has(args, 'c')) {
+	    c = cmd_find_client(cmdq, args_get(args, 'c'), 0);
+	    if (c == NULL)
+		return (CMD_RETURN_ERROR);
+	} else {
+		c = cmd_current_client(cmdq);
+		if (c == NULL && !args_has(self->args, 'p')) {
+			cmdq_error(cmdq, "no client available");
+			return (CMD_RETURN_ERROR);
+		}
 	}
 
 	template = args_get(args, 'F');
@@ -80,7 +89,8 @@ cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
 		template = DISPLAY_MESSAGE_TEMPLATE;
 
 	ft = format_create();
-	format_client(ft, c);
+	if (c != NULL)
+		format_client(ft, c);
 	format_session(ft, s);
 	format_winlink(ft, s, wl);
 	format_window_pane(ft, wp);
@@ -91,11 +101,11 @@ cmd_display_message_exec(struct cmd *self, struct cmd_ctx *ctx)
 
 	msg = format_expand(ft, out);
 	if (args_has(self->args, 'p'))
-		ctx->print(ctx, "%s", msg);
+		cmdq_print(cmdq, "%s", msg);
 	else
 		status_message_set(c, "%s", msg);
-
 	free(msg);
 	format_free(ft);
+
 	return (CMD_RETURN_NORMAL);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.107 2012/08/18 06:46:46 haesbaert Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.109 2013/04/09 08:58:46 sthen Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -751,7 +751,7 @@ again:
 	switch (status) {
 	case 200:	/* OK */
 #ifndef SMALL
-		/*              
+		/*
 		 * When we request a partial file, and we receive an HTTP 200
 		 * it is a good indication that the server doesn't support
 		 * range requests, and is about to send us the entire file.
@@ -877,6 +877,7 @@ again:
 			free(redirurl);
 			goto cleanup_url_get;
 		}
+		free(buf);
 	}
 
 	/* Open the output file.  */
@@ -1484,6 +1485,7 @@ SSL_readline(SSL *ssl, size_t *lenp)
 {
 	size_t i, len;
 	char *buf, *q, c;
+	int ret;
 
 	len = 128;
 	if ((buf = malloc(len)) == NULL)
@@ -1495,8 +1497,15 @@ SSL_readline(SSL *ssl, size_t *lenp)
 			buf = q;
 			len *= 2;
 		}
-		if (SSL_read(ssl, &c, 1) <= 0)
-			break;
+again:
+		ret = SSL_read(ssl, &c, 1);
+		if (ret <= 0) {
+			if (SSL_get_error(ssl, ret) == SSL_ERROR_WANT_READ)
+				goto again;
+			else
+				errx(1, "SSL_read error: %u",
+				    SSL_get_error(ssl, ret));
+		}
 		buf[i] = c;
 		if (c == '\n')
 			break;

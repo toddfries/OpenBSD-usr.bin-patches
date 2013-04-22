@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.114 2012/11/27 16:12:29 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.119 2013/04/11 21:52:18 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -22,6 +22,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <locale.h>
 #include <paths.h>
 #include <pwd.h>
 #include <stdlib.h>
@@ -49,7 +50,7 @@ char		 socket_path[MAXPATHLEN];
 int		 login_shell;
 char		*environ_path;
 pid_t		 environ_pid = -1;
-int		 environ_idx = -1;
+int		 environ_session_id = -1;
 
 __dead void	 usage(void);
 void	 	 parseenvironment(void);
@@ -144,16 +145,16 @@ parseenvironment(void)
 {
 	char	*env, path[256];
 	long	 pid;
-	int	 idx;
+	int	 id;
 
 	if ((env = getenv("TMUX")) == NULL)
 		return;
 
-	if (sscanf(env, "%255[^,],%ld,%d", path, &pid, &idx) != 3)
+	if (sscanf(env, "%255[^,],%ld,%d", path, &pid, &id) != 3)
 		return;
 	environ_path = xstrdup(path);
 	environ_pid = pid;
-	environ_idx = idx;
+	environ_session_id = id;
 }
 
 char *
@@ -164,10 +165,12 @@ makesocketpath(const char *label)
 	u_int		uid;
 
 	uid = getuid();
-	if ((s = getenv("TMPDIR")) == NULL || *s == '\0')
-		xsnprintf(base, sizeof base, "%s/tmux-%u", _PATH_TMP, uid);
-	else
+	if ((s = getenv("TMUX_TMPDIR")) != NULL && *s != '\0')
+		xsnprintf(base, sizeof base, "%s/", s);
+	else if ((s = getenv("TMPDIR")) != NULL && *s != '\0')
 		xsnprintf(base, sizeof base, "%s/tmux-%u", s, uid);
+	else
+		xsnprintf(base, sizeof base, "%s/tmux-%u", _PATH_TMP, uid);
 
 	if (mkdir(base, S_IRWXU) != 0 && errno != EEXIST)
 		return (NULL);
@@ -241,18 +244,15 @@ main(int argc, char **argv)
 	malloc_options = (char *) "AFGJPX";
 #endif
 
+	setlocale(LC_TIME, "");
+
 	quiet = flags = 0;
 	label = path = NULL;
 	login_shell = (**argv == '-');
-	while ((opt = getopt(argc, argv, "28c:Cdf:lL:qS:uUv")) != -1) {
+	while ((opt = getopt(argc, argv, "2c:Cdf:lL:qS:uUv")) != -1) {
 		switch (opt) {
 		case '2':
 			flags |= IDENTIFY_256COLOURS;
-			flags &= ~IDENTIFY_88COLOURS;
-			break;
-		case '8':
-			flags |= IDENTIFY_88COLOURS;
-			flags &= ~IDENTIFY_256COLOURS;
 			break;
 		case 'c':
 			free(shell_cmd);
@@ -329,8 +329,6 @@ main(int argc, char **argv)
 
 	options_init(&global_w_options, NULL);
 	options_table_populate_tree(window_options_table, &global_w_options);
-
-	ARRAY_INIT(&cfg_causes);
 
 	/* Enable UTF-8 if the first client is on UTF-8 terminal. */
 	if (flags & IDENTIFY_UTF8) {

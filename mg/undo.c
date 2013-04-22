@@ -1,4 +1,4 @@
-/* $OpenBSD: undo.c,v 1.51 2012/11/06 18:04:10 florian Exp $ */
+/* $OpenBSD: undo.c,v 1.53 2013/03/25 11:39:38 florian Exp $ */
 /*
  * This file is in the public domain
  */
@@ -239,7 +239,13 @@ undo_add_boundary(int f, int n)
 void
 undo_add_modified(void)
 {
-	struct undo_rec *rec;
+	struct undo_rec *rec, *trec;
+
+	TAILQ_FOREACH_SAFE(rec, &curbp->b_undo, next, trec)
+		if (rec->type == MODIFIED) {
+			TAILQ_REMOVE(&curbp->b_undo, rec, next);
+			free_undo_record(rec);
+		}
 
 	rec = new_undo_record();
 	rec->type = MODIFIED;
@@ -418,6 +424,12 @@ undo_dump(int f, int n)
 			return (FALSE);
 		}
 		addlinef(bp, "%s", buf);
+	}
+	for (wp = wheadp; wp != NULL; wp = wp->w_wndp) {
+		if (wp->w_bufp == bp) {
+			wp->w_dotline = num+1;
+			wp->w_rflag |= WFFULL;
+		}
 	}
 	return (TRUE);
 }

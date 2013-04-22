@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.181 2013/02/10 23:35:24 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.183 2013/04/19 01:06:50 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -211,7 +211,7 @@ alloc_session_state(void)
 void
 packet_set_connection(int fd_in, int fd_out)
 {
-	Cipher *none = cipher_by_name("none");
+	const Cipher *none = cipher_by_name("none");
 
 	if (none == NULL)
 		fatal("packet_set_connection: cannot load cipher 'none'");
@@ -536,7 +536,7 @@ packet_start_compression(int level)
 void
 packet_set_encryption_key(const u_char *key, u_int keylen, int number)
 {
-	Cipher *cipher = cipher_by_number(number);
+	const Cipher *cipher = cipher_by_number(number);
 
 	if (cipher == NULL)
 		fatal("packet_set_encryption_key: unknown cipher number %d", number);
@@ -1448,7 +1448,11 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 			case SSH2_MSG_DISCONNECT:
 				reason = packet_get_int();
 				msg = packet_get_string(NULL);
-				error("Received disconnect from %s: %u: %.400s",
+				/* Ignore normal client exit notifications */
+				do_log2(active_state->server_side &&
+				    reason == SSH2_DISCONNECT_BY_APPLICATION ?
+				    SYSLOG_LEVEL_INFO : SYSLOG_LEVEL_ERROR,
+				    "Received disconnect from %s: %u: %.400s",
 				    get_remote_ipaddr(), reason, msg);
 				xfree(msg);
 				cleanup_exit(255);
