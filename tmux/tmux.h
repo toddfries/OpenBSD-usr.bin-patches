@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.407 2013/03/27 11:17:12 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.409 2013/04/24 10:01:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -43,9 +43,8 @@
 extern char    *__progname;
 extern char   **environ;
 
-/* Default configuration files. */
-#define DEFAULT_CFG ".tmux.conf"
-#define SYSTEM_CFG "/etc/tmux.conf"
+/* Default global configuration file. */
+#define TMUX_CONF "/etc/tmux.conf"
 
 /* Default prompt history length. */
 #define PROMPT_HISTORY 100
@@ -2257,6 +2256,8 @@ struct window_choose_data	*window_choose_add_item(struct window_pane *,
 			struct client *, struct winlink *, const char *,
 			const char *, u_int);
 void	window_choose_expand_all(struct window_pane *);
+void	window_choose_collapse_all(struct window_pane *);
+void	window_choose_set_current(struct window_pane *, u_int);
 
 /* names.c */
 void		 queue_window_name(struct window *);
