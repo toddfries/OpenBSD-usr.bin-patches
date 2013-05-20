@@ -1,4 +1,4 @@
-/* $OpenBSD: auth2-pubkey.c,v 1.35 2013/03/07 00:19:59 djm Exp $ */
+/* $OpenBSD: auth2-pubkey.c,v 1.37 2013/05/19 02:38:28 djm Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -144,6 +144,8 @@ userauth_pubkey(Authctxt *authctxt)
 #ifdef DEBUG_PK
 		buffer_dump(&b);
 #endif
+		pubkey_auth_info(authctxt, key);
+
 		/* test for correct signature */
 		authenticated = 0;
 		if (PRIVSEP(user_key_allowed(authctxt->pw, key)) &&
@@ -151,7 +153,7 @@ userauth_pubkey(Authctxt *authctxt)
 		    buffer_len(&b))) == 1)
 			authenticated = 1;
 		buffer_free(&b);
-		xfree(sig);
+		free(sig);
 	} else {
 		debug("test whether pkalg/pkblob are acceptable");
 		packet_check_eom();
@@ -179,9 +181,29 @@ done:
 	debug2("userauth_pubkey: authenticated %d pkalg %s", authenticated, pkalg);
 	if (key != NULL)
 		key_free(key);
-	xfree(pkalg);
-	xfree(pkblob);
+	free(pkalg);
+	free(pkblob);
 	return authenticated;
+}
+
+void
+pubkey_auth_info(Authctxt *authctxt, const Key *key)
+{
+	char *fp;
+
+	if (key_is_cert(key)) {
+		fp = key_fingerprint(key->cert->signature_key,
+		    SSH_FP_MD5, SSH_FP_HEX);
+		auth_info(authctxt, "%s ID %s (serial %llu) CA %s %s", 
+		    key_type(key), key->cert->key_id,
+		    (unsigned long long)key->cert->serial,
+		    key_type(key->cert->signature_key), fp);
+		free(fp);
+	} else {
+		fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
+		auth_info(authctxt, "%s %s", key_type(key), fp);
+		free(fp);
+	}
 }
 
 static int
@@ -197,7 +219,7 @@ match_principals_option(const char *principal_list, struct KeyCert *cert)
 		    principal_list, NULL)) != NULL) {
 			debug3("matched principal from key options \"%.100s\"",
 			    result);
-			xfree(result);
+			free(result);
 			return 1;
 		}
 	}
@@ -277,11 +299,13 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 	char *fp;
 
 	found_key = 0;
-	found = key_new(key_is_cert(key) ? KEY_UNSPEC : key->type);
 
+	found = NULL;
 	while (read_keyfile_line(f, file, line, sizeof(line), &linenum) != -1) {
 		char *cp, *key_options = NULL;
-
+		if (found != NULL)
+			key_free(found);
+		found = key_new(key_is_cert(key) ? KEY_UNSPEC : key->type);
 		auth_clear_options();
 
 		/* Skip leading whitespace, empty and comment lines. */
@@ -333,7 +357,7 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 				reason = "Certificate does not contain an "
 				    "authorized principal";
  fail_reason:
-				xfree(fp);
+				free(fp);
 				error("%s", reason);
 				auth_debug_add("%s", reason);
 				continue;
@@ -343,13 +367,13 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 			    &reason) != 0)
 				goto fail_reason;
 			if (auth_cert_options(key, pw) != 0) {
-				xfree(fp);
+				free(fp);
 				continue;
 			}
 			verbose("Accepted certificate ID \"%s\" "
 			    "signed by %s CA %s via %s", key->cert->key_id,
 			    key_type(found), fp, file);
-			xfree(fp);
+			free(fp);
 			found_key = 1;
 			break;
 		} else if (key_equal(found, key)) {
@@ -359,16 +383,15 @@ check_authkeys_file(FILE *f, char *file, Key* key, struct passwd *pw)
 			if (key_is_cert_authority)
 				continue;
 			found_key = 1;
-			debug("matching key found: file %s, line %lu",
-			    file, linenum);
 			fp = key_fingerprint(found, SSH_FP_MD5, SSH_FP_HEX);
-			verbose("Found matching %s key: %s",
-			    key_type(found), fp);
-			xfree(fp);
+			debug("matching key found: file %s, line %lu %s %s",
+			    file, linenum, key_type(found), fp);
+			free(fp);
 			break;
 		}
 	}
-	key_free(found);
+	if (found != NULL)
+		key_free(found);
 	if (!found_key)
 		debug2("key not found");
 	return found_key;
@@ -422,10 +445,8 @@ user_cert_trusted_ca(struct passwd *pw, Key *key)
 	ret = 1;
 
  out:
-	if (principals_file != NULL)
-		xfree(principals_file);
-	if (ca_fp != NULL)
-		xfree(ca_fp);
+	free(principals_file);
+	free(ca_fp);
 	return ret;
 }
 
@@ -630,7 +651,7 @@ user_key_allowed(struct passwd *pw, Key *key)
 		    options.authorized_keys_files[i], pw);
 
 		success = user_key_allowed2(pw, key, file);
-		xfree(file);
+		free(file);
 	}
 
 	return success;

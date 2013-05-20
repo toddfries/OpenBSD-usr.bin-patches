@@ -1,6 +1,6 @@
-/*	$Id: mdoc_man.c,v 1.46 2012/12/31 22:34:01 schwarze Exp $ */
+/*	$Id: mdoc_man.c,v 1.48 2013/05/19 21:40:18 schwarze Exp $ */
 /*
- * Copyright (c) 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -404,6 +404,8 @@ print_offs(const char *v)
 	struct roffsu	  su;
 	size_t		  sz;
 
+	print_line(".RS", MMAN_Bk_susp);
+
 	/* Convert v into a number (of characters). */
 	if (NULL == v || '\0' == *v || 0 == strcmp(v, "left"))
 		sz = 0;
@@ -423,6 +425,7 @@ print_offs(const char *v)
 			 * in terms of different units.
 			 */
 			print_word(v);
+			outflags |= MMAN_nl;
 			return;
 		}
 	} else
@@ -437,6 +440,7 @@ print_offs(const char *v)
 
 	snprintf(buf, sizeof(buf), "%ldn", sz);
 	print_word(buf);
+	outflags |= MMAN_nl;
 }
 
 /*
@@ -821,9 +825,7 @@ pre_bd(DECL_ARGS)
 		print_line(".nf", 0);
 	if (0 == n->norm->Bd.comp && NULL != n->parent->prev)
 		outflags |= MMAN_sp;
-	print_line(".RS", MMAN_Bk_susp);
 	print_offs(n->norm->Bd.offs);
-	outflags |= MMAN_nl;
 	return(1);
 }
 
@@ -904,6 +906,16 @@ pre_bl(DECL_ARGS)
 {
 	size_t		 icol;
 
+	/*
+	 * print_offs() will increase the -offset to account for
+	 * a possible enclosing .It, but any enclosed .It blocks
+	 * just nest and do not add up their indentation.
+	 */
+	if (n->norm->Bl.offs) {
+		print_offs(n->norm->Bl.offs);
+		Bl_stack[Bl_stack_len++] = 0;
+	}
+
 	switch (n->norm->Bl.type) {
 	case (LIST_enum):
 		n->norm->Bl.count = 0;
@@ -936,8 +948,16 @@ post_bl(DECL_ARGS)
 	default:
 		break;
 	}
-	outflags |= MMAN_PP | MMAN_nl;
-	outflags &= ~(MMAN_sp | MMAN_br);
+
+	if (n->norm->Bl.offs) {
+		print_line(".RE", MMAN_nl);
+		assert(Bl_stack_len);
+		Bl_stack_len--;
+		assert(0 == Bl_stack[Bl_stack_len]);
+	} else {
+		outflags |= MMAN_PP | MMAN_nl;
+		outflags &= ~(MMAN_sp | MMAN_br);
+	}
 
 	/* Maybe we are inside an enclosing list? */
 	if (NULL != n->parent->next)
@@ -977,9 +997,7 @@ static int
 pre_dl(DECL_ARGS)
 {
 
-	print_line(".RS", MMAN_Bk_susp);
 	print_offs("6n");
-	outflags |= MMAN_nl;
 	return(1);
 }
 

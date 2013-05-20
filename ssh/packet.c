@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.183 2013/04/19 01:06:50 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.186 2013/05/17 00:13:13 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -54,6 +54,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <signal.h>
+#include <time.h>
 
 #include "xmalloc.h"
 #include "buffer.h"
@@ -161,8 +162,13 @@ struct session_state {
 	Newkeys *newkeys[MODE_MAX];
 	struct packet_state p_read, p_send;
 
+	/* Volume-based rekeying */
 	u_int64_t max_blocks_in, max_blocks_out;
 	u_int32_t rekey_limit;
+
+	/* Time-based rekeying */
+	time_t rekey_interval;	/* how often in seconds */
+	time_t rekey_time;	/* time of last rekeying */
 
 	/* Session key for protocol v1 */
 	u_char ssh1_key[SSH_SESSION_KEY_LENGTH];
@@ -749,13 +755,13 @@ set_newkeys(int mode)
 		memset(enc->iv,  0, enc->iv_len);
 		memset(enc->key, 0, enc->key_len);
 		memset(mac->key, 0, mac->key_len);
-		xfree(enc->name);
-		xfree(enc->iv);
-		xfree(enc->key);
-		xfree(mac->name);
-		xfree(mac->key);
-		xfree(comp->name);
-		xfree(active_state->newkeys[mode]);
+		free(enc->name);
+		free(enc->iv);
+		free(enc->key);
+		free(mac->name);
+		free(mac->key);
+		free(comp->name);
+		free(active_state->newkeys[mode]);
 	}
 	active_state->newkeys[mode] = kex_get_newkeys(mode);
 	if (active_state->newkeys[mode] == NULL)
@@ -998,6 +1004,7 @@ packet_send2(void)
 	/* after a NEWKEYS message we can send the complete queue */
 	if (type == SSH2_MSG_NEWKEYS) {
 		active_state->rekeying = 0;
+		active_state->rekey_time = time(NULL);
 		while ((p = TAILQ_FIRST(&active_state->outgoing))) {
 			type = p->type;
 			debug("dequeue packet: %u", type);
@@ -1005,7 +1012,7 @@ packet_send2(void)
 			memcpy(&active_state->outgoing_packet, &p->payload,
 			    sizeof(Buffer));
 			TAILQ_REMOVE(&active_state->outgoing, p, next);
-			xfree(p);
+			free(p);
 			packet_send2_wrapped();
 		}
 	}
@@ -1055,7 +1062,7 @@ packet_read_seqnr(u_int32_t *seqnr_p)
 			packet_check_eom();
 		/* If we got a packet, return it. */
 		if (type != SSH_MSG_NONE) {
-			xfree(setp);
+			free(setp);
 			return type;
 		}
 		/*
@@ -1441,9 +1448,9 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 				packet_get_char();
 				msg = packet_get_string(NULL);
 				debug("Remote: %.900s", msg);
-				xfree(msg);
+				free(msg);
 				msg = packet_get_string(NULL);
-				xfree(msg);
+				free(msg);
 				break;
 			case SSH2_MSG_DISCONNECT:
 				reason = packet_get_int();
@@ -1454,7 +1461,7 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 				    SYSLOG_LEVEL_INFO : SYSLOG_LEVEL_ERROR,
 				    "Received disconnect from %s: %u: %.400s",
 				    get_remote_ipaddr(), reason, msg);
-				xfree(msg);
+				free(msg);
 				cleanup_exit(255);
 				break;
 			case SSH2_MSG_UNIMPLEMENTED:
@@ -1473,7 +1480,7 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 			case SSH_MSG_DEBUG:
 				msg = packet_get_string(NULL);
 				debug("Remote: %.900s", msg);
-				xfree(msg);
+				free(msg);
 				break;
 			case SSH_MSG_DISCONNECT:
 				msg = packet_get_string(NULL);
@@ -1757,7 +1764,7 @@ packet_write_wait(void)
 		}
 		packet_write_poll();
 	}
-	xfree(setp);
+	free(setp);
 }
 
 /* Returns true if there is buffered data to write to the connection. */
@@ -1911,13 +1918,33 @@ packet_need_rekeying(void)
 	    (active_state->max_blocks_out &&
 	        (active_state->p_send.blocks > active_state->max_blocks_out)) ||
 	    (active_state->max_blocks_in &&
-	        (active_state->p_read.blocks > active_state->max_blocks_in));
+	        (active_state->p_read.blocks > active_state->max_blocks_in)) ||
+	    (active_state->rekey_interval != 0 && active_state->rekey_time +
+		 active_state->rekey_interval <= time(NULL));
 }
 
 void
-packet_set_rekey_limit(u_int32_t bytes)
+packet_set_rekey_limits(u_int32_t bytes, time_t seconds)
 {
+	debug3("rekey after %lld bytes, %d seconds", (long long)bytes,
+	    (int)seconds);
 	active_state->rekey_limit = bytes;
+	active_state->rekey_interval = seconds;
+	/*
+	 * We set the time here so that in post-auth privsep slave we count
+	 * from the completion of the authentication.
+	 */
+	active_state->rekey_time = time(NULL);
+}
+
+time_t
+packet_get_rekey_timeout(void)
+{
+	time_t seconds;
+
+	seconds = active_state->rekey_time + active_state->rekey_interval -
+	    time(NULL);
+	return (seconds <= 0 ? 1 : seconds);
 }
 
 void

@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.399 2013/04/07 02:10:33 dtucker Exp $ */
+/* $OpenBSD: sshd.c,v 1.402 2013/05/17 00:13:14 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -951,7 +951,7 @@ recv_rexec_state(int fd, Buffer *conf)
 	cp = buffer_get_string(&m, &len);
 	if (conf != NULL)
 		buffer_append(conf, cp, len + 1);
-	xfree(cp);
+	free(cp);
 
 	if (buffer_get_int(&m)) {
 		if (sensitive_data.server_key != NULL)
@@ -1104,7 +1104,7 @@ server_accept_loop(int *sock_in, int *sock_out, int *newsock, int *config_s)
 		if (received_sighup)
 			sighup_restart();
 		if (fdset != NULL)
-			xfree(fdset);
+			free(fdset);
 		fdset = (fd_set *)xcalloc(howmany(maxfd + 1, NFDBITS),
 		    sizeof(fd_mask));
 
@@ -1432,7 +1432,7 @@ main(int ac, char **av)
 			if (process_server_config_line(&options, line,
 			    "command-line", 0, NULL, NULL) != 0)
 				exit(1);
-			xfree(line);
+			free(line);
 			break;
 		case '?':
 		default:
@@ -1454,7 +1454,7 @@ main(int ac, char **av)
 	/* If requested, redirect the logs to the specified logfile. */
 	if (logfile != NULL) {
 		log_redirect_stderr_to(logfile);
-		xfree(logfile);
+		free(logfile);
 	}
 	/*
 	 * Force logging to stderr until we have loaded the private host
@@ -1717,7 +1717,8 @@ main(int ac, char **av)
 
 	/* Chdir to the root directory so that the current disk can be
 	   unmounted if desired. */
-	chdir("/");
+	if (chdir("/") == -1)
+		error("chdir(\"/\"): %s", strerror(errno));
 
 	/* ignore SIGPIPE */
 	signal(SIGPIPE, SIG_IGN);
@@ -2164,7 +2165,7 @@ do_ssh1_kex(void)
 		MD5_Update(&md, sensitive_data.ssh1_cookie, SSH_SESSION_KEY_LENGTH);
 		MD5_Final(session_key + 16, &md);
 		memset(buf, 0, bytes);
-		xfree(buf);
+		free(buf);
 		for (i = 0; i < 16; i++)
 			session_id[i] = session_key[i] ^ session_key[i + 16];
 	}
@@ -2221,6 +2222,10 @@ do_ssh2_kex(void)
 	}
 	if (options.kex_algorithms != NULL)
 		myproposal[PROPOSAL_KEX_ALGS] = options.kex_algorithms;
+
+	if (options.rekey_limit || options.rekey_interval)
+		packet_set_rekey_limits((u_int32_t)options.rekey_limit,
+		    (time_t)options.rekey_interval);
 
 	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = list_hostkey_types();
 
