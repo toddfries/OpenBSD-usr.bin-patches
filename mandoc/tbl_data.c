@@ -1,4 +1,4 @@
-/*	$Id: tbl_data.c,v 1.12 2012/05/26 20:03:34 schwarze Exp $ */
+/*	$Id: tbl_data.c,v 1.14 2013/06/01 04:56:41 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011 Ingo Schwarze <schwarze@openbsd.org>
@@ -98,7 +98,7 @@ data(struct tbl_node *tbl, struct tbl_span *dp,
 
 	if (*pos - sv == 2 && 'T' == p[sv] && '{' == p[sv + 1]) {
 		tbl->part = TBL_PART_CDATA;
-		return(0);
+		return(1);
 	}
 
 	assert(*pos - sv >= 0);
@@ -181,7 +181,7 @@ newspan(struct tbl_node *tbl, int line, struct tbl_row *rp)
 
 	dp = mandoc_calloc(1, sizeof(struct tbl_span));
 	dp->line = line;
-	dp->tbl = &tbl->opts;
+	dp->opts = &tbl->opts;
 	dp->layout = rp;
 	dp->head = tbl->first_head;
 

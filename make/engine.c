@@ -1,4 +1,4 @@
-/*	$OpenBSD: engine.c,v 1.42 2013/05/14 18:47:40 espie Exp $ */
+/*	$OpenBSD: engine.c,v 1.45 2013/05/30 08:58:38 espie Exp $ */
 /*
  * Copyright (c) 2012 Marc Espie.
  *
@@ -286,9 +286,8 @@ Job_Touch(GNode *gn)
 void
 Make_TimeStamp(GNode *parent, GNode *child)
 {
-	if (is_strictly_before(parent->cmtime, child->mtime)) {
-		parent->cmtime = child->mtime;
-		parent->youngest = child;
+	if (is_strictly_before(parent->youngest->mtime, child->mtime)) {
+ 		parent->youngest = child;
 	}
 }
 
@@ -382,7 +381,7 @@ Make_DoAllVar(GNode *gn)
 			if (child->built_status == MADE)
 				do_oodate = true;
 		} else if (is_strictly_before(gn->mtime, child->mtime) ||
-		   (!is_strictly_before(child->mtime, now) &&
+		   (!is_strictly_before(child->mtime, starttime) &&
 		   child->built_status == MADE))
 		   	do_oodate = true;
 		if (do_oodate) {
@@ -446,7 +445,7 @@ Make_OODate(GNode *gn)
 		if (DEBUG(MAKE)) {
 			if (!is_out_of_date(gn->mtime))
 				printf("modified %s...",
-				    time_to_string(gn->mtime));
+				    time_to_string(&gn->mtime));
 			else
 				printf("non-existent...");
 		}
@@ -491,17 +490,17 @@ Make_OODate(GNode *gn)
 				printf(".EXEC node...");
 		}
 		oodate = true;
-	} else if (is_strictly_before(gn->mtime, gn->cmtime) ||
-	   (is_out_of_date(gn->cmtime) &&
+	} else if (is_strictly_before(gn->mtime, gn->youngest->mtime) ||
+	   (gn == gn->youngest &&
 	    (is_out_of_date(gn->mtime) || (gn->type & OP_DOUBLEDEP)))) {
 		/*
 		 * A node whose modification time is less than that of its
-		 * youngest child or that has no children (cmtime ==
-		 * OUT_OF_DATE) and either doesn't exist (mtime == OUT_OF_DATE)
+		 * youngest child or that has no children (gn->youngest == gn)
+		 * and either doesn't exist (mtime == OUT_OF_DATE)
 		 * or was the object of a :: operator is out-of-date.
 		 */
 		if (DEBUG(MAKE)) {
-			if (is_strictly_before(gn->mtime, gn->cmtime))
+			if (is_strictly_before(gn->mtime, gn->youngest->mtime))
 				printf("modified before source(%s)...",
 				    gn->youngest->name);
 			else if (is_out_of_date(gn->mtime))

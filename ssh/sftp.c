@@ -1,4 +1,4 @@
-/* $OpenBSD: sftp.c,v 1.145 2013/05/17 00:13:14 djm Exp $ */
+/* $OpenBSD: sftp.c,v 1.147 2013/07/12 00:20:00 djm Exp $ */
 /*
  * Copyright (c) 2001-2004 Damien Miller <djm@openbsd.org>
  *
@@ -29,6 +29,7 @@
 #include <histedit.h>
 #include <paths.h>
 #include <libgen.h>
+#include <locale.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -1681,8 +1682,9 @@ complete_match(EditLine *el, struct sftp_conn *conn, char *remote_path,
     char *file, int remote, int lastarg, char quote, int terminated)
 {
 	glob_t g;
-	char *tmp, *tmp2, ins[3];
+	char *tmp, *tmp2, ins[8];
 	u_int i, hadglob, pwdlen, len, tmplen, filelen, cesc, isesc, isabs;
+	int clen;
 	const LineInfo *lf;
 	
 	/* Glob from "file" location */
@@ -1751,10 +1753,13 @@ complete_match(EditLine *el, struct sftp_conn *conn, char *remote_path,
 		tmp2 = tmp + filelen - cesc;
 		len = strlen(tmp2); 
 		/* quote argument on way out */
-		for (i = 0; i < len; i++) {
+		for (i = 0; i < len; i += clen) {
+			if ((clen = mblen(tmp2 + i, len - i)) < 0 ||
+			    (size_t)clen > sizeof(ins) - 2)
+				fatal("invalid multibyte character");
 			ins[0] = '\\';
-			ins[1] = tmp2[i];
-			ins[2] = '\0';
+			memcpy(ins + 1, tmp2 + i, clen);
+			ins[clen + 1] = '\0';
 			switch (tmp2[i]) {
 			case '\'':
 			case '"':
@@ -1803,7 +1808,8 @@ static unsigned char
 complete(EditLine *el, int ch)
 {
 	char **argv, *line, quote; 
-	u_int argc, carg, cursor, len, terminated, ret = CC_ERROR;
+	int argc, carg;
+	u_int cursor, len, terminated, ret = CC_ERROR;
 	const LineInfo *lf;
 	struct complete_ctx *complete_ctx;
 
@@ -2081,6 +2087,7 @@ main(int argc, char **argv)
 
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
 	sanitise_stdfd();
+	setlocale(LC_CTYPE, "");
 
 	memset(&args, '\0', sizeof(args));
 	args.list = NULL;

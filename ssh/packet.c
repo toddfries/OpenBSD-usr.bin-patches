@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.186 2013/05/17 00:13:13 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.188 2013/07/12 00:19:58 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -1004,7 +1004,7 @@ packet_send2(void)
 	/* after a NEWKEYS message we can send the complete queue */
 	if (type == SSH2_MSG_NEWKEYS) {
 		active_state->rekeying = 0;
-		active_state->rekey_time = time(NULL);
+		active_state->rekey_time = monotime();
 		while ((p = TAILQ_FIRST(&active_state->outgoing))) {
 			type = p->type;
 			debug("dequeue packet: %u", type);
@@ -1037,7 +1037,7 @@ packet_send(void)
 int
 packet_read_seqnr(u_int32_t *seqnr_p)
 {
-	int type, len, ret, ms_remain, cont;
+	int type, len, ret, cont, ms_remain = 0;
 	fd_set *setp;
 	char buf[8192];
 	struct timeval timeout, start, *timeoutp = NULL;
@@ -1475,6 +1475,8 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 		} else {
 			type = packet_read_poll1();
 			switch (type) {
+			case SSH_MSG_NONE:
+				return SSH_MSG_NONE;
 			case SSH_MSG_IGNORE:
 				break;
 			case SSH_MSG_DEBUG:
@@ -1489,8 +1491,7 @@ packet_read_poll_seqnr(u_int32_t *seqnr_p)
 				cleanup_exit(255);
 				break;
 			default:
-				if (type)
-					DBG(debug("received packet type %d", type));
+				DBG(debug("received packet type %d", type));
 				return type;
 			}
 		}
@@ -1724,7 +1725,7 @@ void
 packet_write_wait(void)
 {
 	fd_set *setp;
-	int ret, ms_remain;
+	int ret, ms_remain = 0;
 	struct timeval start, timeout, *timeoutp = NULL;
 
 	setp = (fd_set *)xcalloc(howmany(active_state->connection_out + 1,
@@ -1920,7 +1921,7 @@ packet_need_rekeying(void)
 	    (active_state->max_blocks_in &&
 	        (active_state->p_read.blocks > active_state->max_blocks_in)) ||
 	    (active_state->rekey_interval != 0 && active_state->rekey_time +
-		 active_state->rekey_interval <= time(NULL));
+		 active_state->rekey_interval <= monotime());
 }
 
 void
@@ -1934,7 +1935,7 @@ packet_set_rekey_limits(u_int32_t bytes, time_t seconds)
 	 * We set the time here so that in post-auth privsep slave we count
 	 * from the completion of the authentication.
 	 */
-	active_state->rekey_time = time(NULL);
+	active_state->rekey_time = monotime();
 }
 
 time_t
@@ -1943,7 +1944,7 @@ packet_get_rekey_timeout(void)
 	time_t seconds;
 
 	seconds = active_state->rekey_time + active_state->rekey_interval -
-	    time(NULL);
+	    monotime();
 	return (seconds <= 0 ? 1 : seconds);
 }
 

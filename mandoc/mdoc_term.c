@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.148 2013/05/18 17:47:17 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.151 2013/06/02 18:16:51 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012 Ingo Schwarze <schwarze@openbsd.org>
@@ -309,14 +309,10 @@ print_mdoc_node(DECL_ARGS)
 	 */
 
 	if (TERMP_KEEP & p->flags || MDOC_SYNPRETTY & n->flags) {
-		if (n->prev && n->prev->line != n->line) {
+		if (n->prev ? (n->prev->line != n->line) :
+		    (n->parent && n->parent->line != n->line)) {
 			p->flags &= ~TERMP_KEEP;
 			p->flags |= TERMP_PREKEEP;
-		} else if (NULL == n->prev) {
-			if (n->parent && n->parent->line != n->line) {
-				p->flags &= ~TERMP_KEEP;
-				p->flags |= TERMP_PREKEEP;
-			}
 		}
 	}
 
@@ -1925,7 +1921,7 @@ termp_quote_pre(DECL_ARGS)
 	case (MDOC_Do):
 		/* FALLTHROUGH */
 	case (MDOC_Dq):
-		term_word(p, "``");
+		term_word(p, "\\(lq");
 		break;
 	case (MDOC_Eo):
 		break;
@@ -1946,7 +1942,7 @@ termp_quote_pre(DECL_ARGS)
 	case (MDOC_So):
 		/* FALLTHROUGH */
 	case (MDOC_Sq):
-		term_word(p, "`");
+		term_word(p, "\\(oq");
 		break;
 	default:
 		abort();
@@ -1991,7 +1987,7 @@ termp_quote_post(DECL_ARGS)
 	case (MDOC_Do):
 		/* FALLTHROUGH */
 	case (MDOC_Dq):
-		term_word(p, "''");
+		term_word(p, "\\(rq");
 		break;
 	case (MDOC_Eo):
 		break;
@@ -2012,7 +2008,7 @@ termp_quote_post(DECL_ARGS)
 	case (MDOC_So):
 		/* FALLTHROUGH */
 	case (MDOC_Sq):
-		term_word(p, "'");
+		term_word(p, "\\(cq");
 		break;
 	default:
 		abort();
@@ -2211,7 +2207,7 @@ static void
 termp_bk_post(DECL_ARGS)
 {
 
-	if (MDOC_BODY == n->type)
+	if (MDOC_BODY == n->type && ! (MDOC_SYNPRETTY & n->flags))
 		p->flags &= ~(TERMP_KEEP | TERMP_PREKEEP);
 }
 

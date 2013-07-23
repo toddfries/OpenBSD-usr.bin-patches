@@ -1,4 +1,4 @@
-/*	$OpenBSD: man.c,v 1.45 2012/02/05 18:51:18 schwarze Exp $	*/
+/*	$OpenBSD: man.c,v 1.48 2013/07/01 18:47:39 schwarze Exp $	*/
 /*	$NetBSD: man.c,v 1.7 1995/09/28 06:05:34 tls Exp $	*/
 
 /*
@@ -74,15 +74,14 @@ static TAG *section;
 extern char *__progname;
 
 static void	 clearlist(TAG *);
-static void	 parse_path(TAG *, char *);
+static void	 parse_path(TAG *, const char *);
 static void	 append_subdirs(TAG *, const char *);
 static void	 build_page(char *, char **);
 static void	 cat(char *);
-static char	*check_pager(char *);
 static int	 cleanup(int);
 static void	 how(char *);
 static void	 jump(char **, char *, char *);
-static int	 manual(char *, TAG *, glob_t *);
+static int	 manual(const char *, TAG *, glob_t *);
 static void	 check_companion(char **, TAG *);
 static void	 onsig(int);
 static void	 usage(void);
@@ -98,7 +97,8 @@ main(int argc, char *argv[])
 	glob_t pg;
 	size_t len;
 	int ch, f_cat, f_how, found;
-	char **ap, *cmd, *machine, *p, *p_add, *p_path, *pager, *sflag;
+	const char *pager, *p_path;
+	char **ap, *cmd, *machine, *p, *p_add, *sflag;
 	char *conffile;
 
 	if (argv[1] == NULL && strcmp(basename(__progname), "help") == 0) {
@@ -112,7 +112,8 @@ main(int argc, char *argv[])
 
 	machine = sflag = NULL;
 	f_cat = f_how = 0;
-	conffile = p_add = p_path = NULL;
+	conffile = p_add = NULL;
+	p_path = (const char *)NULL;
 	while ((ch = getopt(argc, argv, "aC:cfhkM:m:P:s:S:w-")) != -1)
 		switch (ch) {
 		case 'a':
@@ -167,13 +168,13 @@ main(int argc, char *argv[])
 	if (!f_cat && !f_how && !f_where) {
 		if (!isatty(1))
 			f_cat = 1;
-		else if ((pager = getenv("MANPAGER")) != NULL &&
-				(*pager != '\0'))
-			pager = check_pager(pager);
-		else if ((pager = getenv("PAGER")) != NULL && (*pager != '\0'))
-			pager = check_pager(pager);
-		else
-			pager = _PATH_PAGER;
+		else {
+			pager = getenv("MANPAGER");
+			if (pager == NULL || *pager == '\0')
+				pager = getenv("PAGER");
+			if (pager == NULL || *pager == '\0')
+				pager = _PATH_PAGER;
+		}
 	}
 
 	/* Read the configuration file. */
@@ -218,10 +219,13 @@ main(int argc, char *argv[])
 	 * 4: Append the _subdir list where appropriate,
 	 *    and always append the machine type.
 	 */
-	if (machine || (machine = getenv("MACHINE")))
+	if (machine || (machine = getenv("MACHINE"))) {
+		/* Avoid mangling argv/environment. */
+		if ((machine = strdup(machine)) == NULL)
+			err(1, NULL);
 		for (p = machine; *p; ++p)
 			*p = tolower(*p);
-	else
+	} else
 		machine = MACHINE;
 
 	append_subdirs(searchlist, machine);
@@ -332,12 +336,15 @@ clearlist(TAG *t)
  *	and insert the parts into the searchlist.
  */
 static void
-parse_path(TAG *t, char *path)
+parse_path(TAG *t, const char *path)
 {
 	ENTRY *eplast = NULL, *ep;
-	char *p, *slashp;
+	char *p, *slashp, *path_copy;
 
-	while ((p = strsep(&path, ":")) != NULL) {
+	if ((path_copy = strdup(path)) == NULL)
+		err(1, NULL);
+
+	while ((p = strsep(&path_copy, ":")) != NULL) {
 		/* Skip empty fields */
 		if (*p == '\0')
 			continue;
@@ -372,6 +379,8 @@ parse_path(TAG *t, char *path)
 			TAILQ_INSERT_HEAD(&t->list, ep, q);
 		eplast = ep;
 	}
+
+	free(path_copy);
 }
 
 /*
@@ -433,7 +442,7 @@ append_subdirs(TAG *t, const char *machine)
  *	Search the manuals for the pages.
  */
 static int
-manual(char *page, TAG *tag, glob_t *pg)
+manual(const char *page, TAG *tag, glob_t *pg)
 {
 	ENTRY *ep, *e_sufp, *e_tag;
 	TAG *missp, *sufp;
@@ -843,36 +852,6 @@ cat(char *fname)
 		exit(1);
 	}
 	(void)close(fd);
-}
-
-/*
- * check_pager --
- *	check the user supplied page information
- */
-static char *
-check_pager(char *name)
-{
-	char *p, *save;
-
-	/*
-	 * if the user uses "more", we make it "more -s"; watch out for
-	 * PAGER = "mypager /usr/bin/more"
-	 */
-	for (p = name; *p && !isspace(*p); ++p)
-		;
-	for (; p > name && *p != '/'; --p)
-		;
-	if (p != name)
-		++p;
-
-	/* make sure it's "more", not "morex" */
-	if (!strncmp(p, "more", 4) && (p[4] == '\0' || isspace(p[4]))){
-		save = name;
-		/* allocate space to add the "-s" */
-		if (asprintf(&name, "%s -s", save) == -1)
-			err(1, "asprintf");
-	}
-	return(name);
 }
 
 /*

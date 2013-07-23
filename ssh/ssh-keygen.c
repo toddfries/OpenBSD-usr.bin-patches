@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keygen.c,v 1.227 2013/05/17 00:13:14 djm Exp $ */
+/* $OpenBSD: ssh-keygen.c,v 1.230 2013/07/20 01:44:37 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1994 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -515,7 +515,7 @@ do_convert_from_ssh2(struct passwd *pw, Key **k, int *private)
 		fatal("%s: %s: %s", __progname, identity_file, strerror(errno));
 	encoded[0] = '\0';
 	while ((blen = get_line(fp, line, sizeof(line))) != -1) {
-		if (line[blen - 1] == '\\')
+		if (blen > 0 && line[blen - 1] == '\\')
 			escaped++;
 		if (strncmp(line, "----", 4) == 0 ||
 		    strstr(line, ": ") != NULL) {
@@ -1286,7 +1286,7 @@ do_print_resource_record(struct passwd *pw, char *fname, char *hname)
 	struct stat st;
 
 	if (fname == NULL)
-		ask_filename(pw, "Enter file in which the key is");
+		fatal("%s: no filename", __func__);
 	if (stat(fname, &st) < 0) {
 		if (errno == ENOENT)
 			return 0;
@@ -1782,7 +1782,8 @@ add_cert_option(char *opt)
 static void
 show_options(const Buffer *optbuf, int v00, int in_critical)
 {
-	u_char *name, *data;
+	char *name;
+	u_char *data;
 	u_int dlen;
 	Buffer options, option;
 
@@ -2194,7 +2195,7 @@ main(int argc, char **argv)
 	/* we need this for the home * directory.  */
 	pw = getpwuid(getuid());
 	if (!pw) {
-		printf("You don't exist, go away!\n");
+		printf("No user exists for uid %lu\n", (u_long)getuid());
 		exit(1);
 	}
 	if (gethostname(hostname, sizeof(hostname)) < 0) {

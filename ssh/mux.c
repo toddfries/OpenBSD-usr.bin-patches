@@ -1,4 +1,4 @@
-/* $OpenBSD: mux.c,v 1.41 2013/05/17 00:13:13 djm Exp $ */
+/* $OpenBSD: mux.c,v 1.44 2013/07/12 00:19:58 djm Exp $ */
 /*
  * Copyright (c) 2002-2008 Damien Miller <djm@openbsd.org>
  *
@@ -171,7 +171,7 @@ static const struct {
 
 /* Cleanup callback fired on closure of mux slave _session_ channel */
 /* ARGSUSED */
-void
+static void
 mux_master_session_cleanup_cb(int cid, void *unused)
 {
 	Channel *cc, *c = channel_by_id(cid);
@@ -275,6 +275,7 @@ process_mux_master_hello(u_int rid, Channel *c, Buffer *m, Buffer *r)
 
 		if (name == NULL || value == NULL) {
 			free(name);
+			free(value);
 			goto malf;
 		}
 		debug2("Unrecognised slave extension \"%s\"", name);
@@ -616,19 +617,22 @@ process_mux_open_fwd(u_int rid, Channel *c, Buffer *m, Buffer *r)
 	Forward fwd;
 	char *fwd_desc = NULL;
 	u_int ftype;
+	u_int lport, cport;
 	int i, ret = 0, freefwd = 1;
 
 	fwd.listen_host = fwd.connect_host = NULL;
 	if (buffer_get_int_ret(&ftype, m) != 0 ||
 	    (fwd.listen_host = buffer_get_string_ret(m, NULL)) == NULL ||
-	    buffer_get_int_ret(&fwd.listen_port, m) != 0 ||
+	    buffer_get_int_ret(&lport, m) != 0 ||
 	    (fwd.connect_host = buffer_get_string_ret(m, NULL)) == NULL ||
-	    buffer_get_int_ret(&fwd.connect_port, m) != 0) {
+	    buffer_get_int_ret(&cport, m) != 0 ||
+	    lport > 65535 || cport > 65535) {
 		error("%s: malformed message", __func__);
 		ret = -1;
 		goto out;
 	}
-
+	fwd.listen_port = lport;
+	fwd.connect_port = cport;
 	if (*fwd.listen_host == '\0') {
 		free(fwd.listen_host);
 		fwd.listen_host = NULL;
@@ -764,17 +768,21 @@ process_mux_close_fwd(u_int rid, Channel *c, Buffer *m, Buffer *r)
 	const char *error_reason = NULL;
 	u_int ftype;
 	int i, listen_port, ret = 0;
+	u_int lport, cport;
 
 	fwd.listen_host = fwd.connect_host = NULL;
 	if (buffer_get_int_ret(&ftype, m) != 0 ||
 	    (fwd.listen_host = buffer_get_string_ret(m, NULL)) == NULL ||
-	    buffer_get_int_ret(&fwd.listen_port, m) != 0 ||
+	    buffer_get_int_ret(&lport, m) != 0 ||
 	    (fwd.connect_host = buffer_get_string_ret(m, NULL)) == NULL ||
-	    buffer_get_int_ret(&fwd.connect_port, m) != 0) {
+	    buffer_get_int_ret(&cport, m) != 0 ||
+	    lport > 65535 || cport > 65535) {
 		error("%s: malformed message", __func__);
 		ret = -1;
 		goto out;
 	}
+	fwd.listen_port = lport;
+	fwd.connect_port = cport;
 
 	if (*fwd.listen_host == '\0') {
 		free(fwd.listen_host);
@@ -1407,7 +1415,9 @@ mux_client_read_packet(int fd, Buffer *m)
 	buffer_init(&queue);
 	if (mux_client_read(fd, &queue, 4) != 0) {
 		if ((oerrno = errno) == EPIPE)
-		debug3("%s: read header failed: %s", __func__, strerror(errno));
+			debug3("%s: read header failed: %s", __func__,
+			    strerror(errno));
+		buffer_free(&queue);
 		errno = oerrno;
 		return -1;
 	}
@@ -1415,6 +1425,7 @@ mux_client_read_packet(int fd, Buffer *m)
 	if (mux_client_read(fd, &queue, need) != 0) {
 		oerrno = errno;
 		debug3("%s: read body failed: %s", __func__, strerror(errno));
+		buffer_free(&queue);
 		errno = oerrno;
 		return -1;
 	}

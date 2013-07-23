@@ -1,4 +1,4 @@
-/*	$OpenBSD: iostat.c,v 1.40 2011/09/19 14:48:04 beck Exp $	*/
+/*	$OpenBSD: iostat.c,v 1.42 2013/07/09 15:37:43 beck Exp $	*/
 /*	$NetBSD: iostat.c,v 1.5 1996/05/10 23:16:35 thorpej Exp $	*/
 
 /*

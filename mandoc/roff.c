@@ -1,7 +1,7 @@
-/*	$Id: roff.c,v 1.48 2012/07/07 18:27:36 schwarze Exp $ */
+/*	$Id: roff.c,v 1.51 2013/07/13 12:51:38 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -17,6 +17,7 @@
  */
 #include <assert.h>
 #include <ctype.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -182,12 +183,13 @@ static	void		 roff_freestr(struct roffkv *);
 static	char		*roff_getname(struct roff *, char **, int, int);
 static	const char	*roff_getstrn(const struct roff *, 
 				const char *, size_t);
+static	enum rofferr	 roff_it(ROFF_ARGS);
 static	enum rofferr	 roff_line_ignore(ROFF_ARGS);
 static	enum rofferr	 roff_nr(ROFF_ARGS);
 static	void		 roff_openeqn(struct roff *, const char *,
 				int, int, const char *);
 static	enum rofft	 roff_parse(struct roff *, const char *, int *);
-static	enum rofferr	 roff_parsetext(char *);
+static	enum rofferr	 roff_parsetext(char **, size_t *, int, int *);
 static	enum rofferr	 roff_res(struct roff *, 
 				char **, size_t *, int, int);
 static	enum rofferr	 roff_rm(ROFF_ARGS);
@@ -229,7 +231,7 @@ static	struct roffmac	 roffs[ROFF_MAX] = {
 	{ "ie", roff_cond, roff_cond_text, roff_cond_sub, ROFFMAC_STRUCT, NULL },
 	{ "if", roff_cond, roff_cond_text, roff_cond_sub, ROFFMAC_STRUCT, NULL },
 	{ "ig", roff_block, roff_block_text, roff_block_sub, 0, NULL },
-	{ "it", roff_line_ignore, NULL, NULL, 0, NULL },
+	{ "it", roff_it, NULL, NULL, 0, NULL },
 	{ "ne", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "nh", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "nr", roff_nr, NULL, NULL, 0, NULL },
@@ -290,6 +292,9 @@ static	const struct predef predefs[PREDEFS_MAX] = {
 
 /* See roffhash_find() */
 #define	ROFF_HASH(p)	(p[0] - ASCII_LO)
+
+static	int	 roffit_lines;  /* number of lines to delay */
+static	char	*roffit_macro;  /* nil-terminated macro line */
 
 static void
 roffhash_init(void)
@@ -389,13 +394,13 @@ roffnode_push(struct roff *r, enum rofft tok, const char *name,
 static void
 roff_free1(struct roff *r)
 {
-	struct tbl_node	*t;
+	struct tbl_node	*tbl;
 	struct eqn_node	*e;
 	int		 i;
 
-	while (NULL != (t = r->first_tbl)) {
-		r->first_tbl = t->next;
-		tbl_free(t);
+	while (NULL != (tbl = r->first_tbl)) {
+		r->first_tbl = tbl->next;
+		tbl_free(tbl);
 	}
 
 	r->first_tbl = r->last_tbl = r->tbl = NULL;
@@ -592,16 +597,20 @@ again:
 }
 
 /*
- * Process text streams: convert all breakable hyphens into ASCII_HYPH.
+ * Process text streams:
+ * Convert all breakable hyphens into ASCII_HYPH.
+ * Decrement and spring input line trap.
  */
 static enum rofferr
-roff_parsetext(char *p)
+roff_parsetext(char **bufp, size_t *szp, int pos, int *offs)
 {
 	size_t		 sz;
 	const char	*start;
+	char		*p;
+	int		 isz;
 	enum mandoc_esc	 esc;
 
-	start = p;
+	start = p = *bufp + pos;
 
 	while ('\0' != *p) {
 		sz = strcspn(p, "-\\");
@@ -629,6 +638,22 @@ roff_parsetext(char *p)
 		p++;
 	}
 
+	/* Spring the input line trap. */
+	if (1 == roffit_lines) {
+		isz = asprintf(&p, "%s\n.%s", *bufp, roffit_macro);
+		if (-1 == isz) {
+			perror(NULL);
+			exit((int)MANDOCLEVEL_SYSERR);
+		}
+		free(*bufp);
+		*bufp = p;
+		*szp = isz + 1;
+		*offs = 0;
+		free(roffit_macro);
+		roffit_lines = 0;
+		return(ROFF_REPARSE);
+	} else if (1 < roffit_lines)
+		--roffit_lines;
 	return(ROFF_CONT);
 }
 
@@ -673,13 +698,13 @@ roff_parseln(struct roff *r, int ln, char **bufp,
 			return(eqn_read(&r->eqn, ln, *bufp, pos, offs));
 		if (r->tbl)
 			return(tbl_read(r->tbl, ln, *bufp, pos));
-		return(roff_parsetext(*bufp + pos));
+		return(roff_parsetext(bufp, szp, pos, offs));
 	} else if ( ! ctl) {
 		if (r->eqn)
 			return(eqn_read(&r->eqn, ln, *bufp, pos, offs));
 		if (r->tbl)
 			return(tbl_read(r->tbl, ln, *bufp, pos));
-		return(roff_parsetext(*bufp + pos));
+		return(roff_parsetext(bufp, szp, pos, offs));
 	} else if (r->eqn)
 		return(eqn_read(&r->eqn, ln, *bufp, ppos, offs));
 
@@ -1024,57 +1049,45 @@ roff_cond_sub(ROFF_ARGS)
 
 	rr = r->last->rule;
 	roffnode_cleanscope(r);
+	t = roff_parse(r, *bufp, &pos);
 
 	/*
-	 * If the macro is unknown, first check if it contains a closing
-	 * delimiter `\}'.  If it does, close out our scope and return
-	 * the currently-scoped rule (ignore or continue).  Else, drop
-	 * into the currently-scoped rule.
+	 * Fully handle known macros when they are structurally
+	 * required or when the conditional evaluated to true.
 	 */
 
-	if (ROFF_MAX == (t = roff_parse(r, *bufp, &pos))) {
-		ep = &(*bufp)[pos];
-		for ( ; NULL != (ep = strchr(ep, '\\')); ep++) {
-			ep++;
-			if ('}' != *ep)
-				continue;
-
-			/*
-			 * Make the \} go away.
-			 * This is a little haphazard, as it's not quite
-			 * clear how nroff does this.
-			 * If we're at the end of line, then just chop
-			 * off the \} and resize the buffer.
-			 * If we aren't, then conver it to spaces.
-			 */
-
-			if ('\0' == *(ep + 1)) {
-				*--ep = '\0';
-				*szp -= 2;
-			} else
-				*(ep - 1) = *ep = ' ';
-
-			roff_ccond(r, ROFF_ccond, bufp, szp, 
-					ln, pos, pos + 2, offs);
-			break;
-		}
-		return(ROFFRULE_DENY == rr ? ROFF_IGN : ROFF_CONT);
+	if ((ROFF_MAX != t) &&
+	    (ROFF_ccond == t || ROFFRULE_ALLOW == rr ||
+	     ROFFMAC_STRUCT & roffs[t].flags)) {
+		assert(roffs[t].proc);
+		return((*roffs[t].proc)(r, t, bufp, szp,
+					ln, ppos, pos, offs));
 	}
 
-	/*
-	 * A denied conditional must evaluate its children if and only
-	 * if they're either structurally required (such as loops and
-	 * conditionals) or a closing macro.
-	 */
+	/* Always check for the closing delimiter `\}'. */
 
-	if (ROFFRULE_DENY == rr)
-		if ( ! (ROFFMAC_STRUCT & roffs[t].flags))
-			if (ROFF_ccond != t)
-				return(ROFF_IGN);
+	ep = &(*bufp)[pos];
+	while (NULL != (ep = strchr(ep, '\\'))) {
+		if ('}' != *(++ep))
+			continue;
 
-	assert(roffs[t].proc);
-	return((*roffs[t].proc)(r, t, bufp, szp, 
-				ln, ppos, pos, offs));
+		/*
+		 * If we're at the end of line, then just chop
+		 * off the \} and resize the buffer.
+		 * If we aren't, then convert it to spaces.
+		 */
+
+		if ('\0' == *(ep + 1)) {
+			*--ep = '\0';
+			*szp -= 2;
+		} else
+			*(ep - 1) = *ep = ' ';
+
+		roff_ccond(r, ROFF_ccond, bufp, szp, 
+				ln, pos, pos + 2, offs);
+		break;
+	}
+	return(ROFFRULE_DENY == rr ? ROFF_IGN : ROFF_CONT);
 }
 
 /* ARGSUSED */
@@ -1127,9 +1140,6 @@ roff_evalcond(const char *v, int *pos)
 static enum rofferr
 roff_line_ignore(ROFF_ARGS)
 {
-
-	if (ROFF_it == tok)
-		mandoc_msg(MANDOCERR_REQUEST, r->parse, ln, ppos, "it");
 
 	return(ROFF_IGN);
 }
@@ -1305,6 +1315,31 @@ roff_rm(ROFF_ARGS)
 
 /* ARGSUSED */
 static enum rofferr
+roff_it(ROFF_ARGS)
+{
+	char		*cp;
+	size_t		 len;
+	int		 iv;
+
+	/* Parse the number of lines. */
+	cp = *bufp + pos;
+	len = strcspn(cp, " \t");
+	cp[len] = '\0';
+	if ((iv = mandoc_strntoi(cp, len, 10)) <= 0) {
+		mandoc_msg(MANDOCERR_NUMERIC, r->parse,
+				ln, ppos, *bufp + 1);
+		return(ROFF_IGN);
+	}
+	cp += len + 1;
+
+	/* Arm the input line trap. */
+	roffit_lines = iv;
+	roffit_macro = mandoc_strdup(cp);
+	return(ROFF_IGN);
+}
+
+/* ARGSUSED */
+static enum rofferr
 roff_Dd(ROFF_ARGS)
 {
 	const char *const	*cp;
@@ -1409,21 +1444,21 @@ roff_EN(ROFF_ARGS)
 static enum rofferr
 roff_TS(ROFF_ARGS)
 {
-	struct tbl_node	*t;
+	struct tbl_node	*tbl;
 
 	if (r->tbl) {
 		mandoc_msg(MANDOCERR_SCOPEBROKEN, r->parse, ln, ppos, NULL);
 		tbl_end(&r->tbl);
 	}
 
-	t = tbl_alloc(ppos, ln, r->parse);
+	tbl = tbl_alloc(ppos, ln, r->parse);
 
 	if (r->last_tbl)
-		r->last_tbl->next = t;
+		r->last_tbl->next = tbl;
 	else
-		r->first_tbl = r->last_tbl = t;
+		r->first_tbl = r->last_tbl = tbl;
 
-	r->tbl = r->last_tbl = t;
+	r->tbl = r->last_tbl = tbl;
 	return(ROFF_IGN);
 }
 

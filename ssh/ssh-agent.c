@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-agent.c,v 1.173 2013/05/17 00:13:14 djm Exp $ */
+/* $OpenBSD: ssh-agent.c,v 1.177 2013/07/20 01:50:20 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -92,7 +92,7 @@ typedef struct identity {
 	Key *key;
 	char *comment;
 	char *provider;
-	u_int death;
+	time_t death;
 	u_int confirm;
 } Identity;
 
@@ -108,7 +108,7 @@ int max_fd = 0;
 
 /* pid of shell == parent of agent */
 pid_t parent_pid = -1;
-u_int parent_alive_interval = 0;
+time_t parent_alive_interval = 0;
 
 /* pathname and directory for AUTH_SOCKET */
 char socket_name[MAXPATHLEN];
@@ -120,8 +120,8 @@ char *lock_passwd = NULL;
 
 extern char *__progname;
 
-/* Default lifetime (0 == forever) */
-static int lifetime = 0;
+/* Default lifetime in seconds (0 == forever) */
+static long lifetime = 0;
 
 static void
 close_socket(SocketEntry *e)
@@ -414,10 +414,10 @@ process_remove_all_identities(SocketEntry *e, int version)
 }
 
 /* removes expired keys and returns number of seconds until the next expiry */
-static u_int
+static time_t
 reaper(void)
 {
-	u_int deadline = 0, now = time(NULL);
+	time_t deadline = 0, now = monotime();
 	Identity *id, *nxt;
 	int version;
 	Idtab *tab;
@@ -449,8 +449,9 @@ process_add_identity(SocketEntry *e, int version)
 {
 	Idtab *tab = idtab_lookup(version);
 	Identity *id;
-	int type, success = 0, death = 0, confirm = 0;
+	int type, success = 0, confirm = 0;
 	char *type_name, *comment, *curve;
+	time_t death = 0;
 	Key *k = NULL;
 	BIGNUM *exponent;
 	EC_POINT *q;
@@ -598,7 +599,7 @@ process_add_identity(SocketEntry *e, int version)
 	while (buffer_len(&e->request)) {
 		switch ((type = buffer_get_char(&e->request))) {
 		case SSH_AGENT_CONSTRAIN_LIFETIME:
-			death = time(NULL) + buffer_get_int(&e->request);
+			death = monotime() + buffer_get_int(&e->request);
 			break;
 		case SSH_AGENT_CONSTRAIN_CONFIRM:
 			confirm = 1;
@@ -613,7 +614,7 @@ process_add_identity(SocketEntry *e, int version)
 	}
 	success = 1;
 	if (lifetime && !death)
-		death = time(NULL) + lifetime;
+		death = monotime() + lifetime;
 	if ((id = lookup_identity(k, version)) == NULL) {
 		id = xcalloc(1, sizeof(Identity));
 		id->key = k;
@@ -680,7 +681,8 @@ static void
 process_add_smartcard_key(SocketEntry *e)
 {
 	char *provider = NULL, *pin;
-	int i, type, version, count = 0, success = 0, death = 0, confirm = 0;
+	int i, type, version, count = 0, success = 0, confirm = 0;
+	time_t death = 0;
 	Key **keys = NULL, *k;
 	Identity *id;
 	Idtab *tab;
@@ -691,7 +693,7 @@ process_add_smartcard_key(SocketEntry *e)
 	while (buffer_len(&e->request)) {
 		switch ((type = buffer_get_char(&e->request))) {
 		case SSH_AGENT_CONSTRAIN_LIFETIME:
-			death = time(NULL) + buffer_get_int(&e->request);
+			death = monotime() + buffer_get_int(&e->request);
 			break;
 		case SSH_AGENT_CONSTRAIN_CONFIRM:
 			confirm = 1;
@@ -703,7 +705,7 @@ process_add_smartcard_key(SocketEntry *e)
 		}
 	}
 	if (lifetime && !death)
-		death = time(NULL) + lifetime;
+		death = monotime() + lifetime;
 
 	count = pkcs11_add_provider(provider, pin, &keys);
 	for (i = 0; i < count; i++) {
@@ -907,9 +909,10 @@ static int
 prepare_select(fd_set **fdrp, fd_set **fdwp, int *fdl, u_int *nallocp,
     struct timeval **tvpp)
 {
-	u_int i, sz, deadline;
+	u_int i, sz;
 	int n = 0;
 	static struct timeval tv;
+	time_t deadline;
 
 	for (i = 0; i < sockets_alloc; i++) {
 		switch (sockets[i].type) {
@@ -1304,9 +1307,8 @@ skip:
 	if (ac > 0)
 		parent_alive_interval = 10;
 	idtab_init();
-	if (!d_flag)
-		signal(SIGINT, SIG_IGN);
 	signal(SIGPIPE, SIG_IGN);
+	signal(SIGINT, d_flag ? cleanup_handler : SIG_IGN);
 	signal(SIGHUP, cleanup_handler);
 	signal(SIGTERM, cleanup_handler);
 	nalloc = 0;

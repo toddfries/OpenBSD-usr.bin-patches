@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.80 2013/04/23 20:03:05 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.83 2013/07/03 23:04:33 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -47,6 +47,7 @@
 #include <sys/vmmeter.h>
 #include <sys/stat.h>
 #include <sys/tty.h>
+#include <sys/wait.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #define _KERNEL
@@ -157,10 +158,21 @@ static void ktrsyscall(struct ktr_syscall *);
 static const char *kresolvsysctl(int, int *, int);
 static void ktrsysret(struct ktr_sysret *);
 static void ktrstruct(char *, size_t);
+static void ktruser(struct ktr_user *, size_t);
 static void setemul(const char *);
 static void usage(void);
 static void atfd(int);
 static void polltimeout(int);
+static void pgid(int);
+static void wait4pid(int);
+static void signame(int);
+static void sigset(int);
+static void semctlname(int);
+static void shmctlname(int);
+static void semgetname(int);
+static void flagsandmodename(int, int);
+static void clockname(int);
+static void sockoptlevelname(int);
 
 int
 main(int argc, char *argv[])
@@ -286,6 +298,9 @@ main(int argc, char *argv[])
 		case KTR_STRUCT:
 			ktrstruct(m, ktrlen);
 			break;
+		case KTR_USER:
+			ktruser(m, ktrlen);
+			break;
 		}
 		if (tail)
 			(void)fflush(stdout);
@@ -368,6 +383,9 @@ dumpheader(struct ktr_header *kth)
 		break;
 	case KTR_STRUCT:
 		type = "STRU";
+		break;
+	case KTR_USER:
+		type = "USER";
 		break;
 	default:
 		(void)snprintf(unknown, sizeof unknown, "UNKNOWN(%d)",
@@ -620,7 +638,7 @@ ktrsyscall(struct ktr_syscall *ktr)
 		break;
 	}
 	case SYS_kill:
-		pn(NULL);
+		pn(pgid);
 		pn(signame);
 		break;
 	case SYS_lseek:
@@ -785,7 +803,7 @@ ktrsyscall(struct ktr_syscall *ktr)
 		plln();
 		break;
 	case SYS_wait4:
-		pn(NULL);
+		pn(wait4pid);
 		pn(NULL);
 		pn(wait4optname);
 		break;
@@ -1094,12 +1112,10 @@ ktremul(char *cp, size_t len)
 }
 
 static void
-ktrgenio(struct ktr_genio *ktr, size_t len)
+showbuf(unsigned char *dp, size_t datalen)
 {
-	unsigned char *dp = (unsigned char *)ktr + sizeof(struct ktr_genio);
 	int i, j;
-	size_t datalen = len - sizeof(struct ktr_genio);
-	static int screenwidth = 0;
+	static int screenwidth;
 	int col = 0, width, bpl;
 	unsigned char visbuf[5], *cp, c;
 
@@ -1112,14 +1128,6 @@ ktrgenio(struct ktr_genio *ktr, size_t len)
 		else
 			screenwidth = 80;
 	}
-	printf("fd %d %s %zu bytes\n", ktr->ktr_fd,
-		ktr->ktr_rw == UIO_READ ? "read" : "wrote", datalen);
-	if (maxdata == 0)
-		return;
-	if (datalen > maxdata)
-		datalen = maxdata;
-	if (iohex && !datalen)
-		return;
 	if (iohex == 1) {
 		putchar('\t');
 		col = 8;
@@ -1202,6 +1210,23 @@ ktrgenio(struct ktr_genio *ktr, size_t len)
 }
 
 static void
+ktrgenio(struct ktr_genio *ktr, size_t len)
+{
+	unsigned char *dp = (unsigned char *)ktr + sizeof(struct ktr_genio);
+	size_t datalen = len - sizeof(struct ktr_genio);
+
+	printf("fd %d %s %zu bytes\n", ktr->ktr_fd,
+		ktr->ktr_rw == UIO_READ ? "read" : "wrote", datalen);
+	if (maxdata == 0)
+		return;
+	if (datalen > maxdata)
+		datalen = maxdata;
+	if (iohex && !datalen)
+		return;
+	showbuf(dp, datalen);
+}
+
+static void
 ktrpsig(struct ktr_psig *psig)
 {
 	(void)printf("SIG%s ", sys_signame[psig->signo]);
@@ -1262,8 +1287,6 @@ ktrcsw(struct ktr_csw *cs)
 	(void)printf("%s %s\n", cs->out ? "stop" : "resume",
 	    cs->user ? "user" : "kernel");
 }
-
-
 
 static void
 ktrsockaddr(struct sockaddr *sa)
@@ -1589,13 +1612,22 @@ invalid:
 }
 
 static void
+ktruser(struct ktr_user *usr, size_t len)
+{
+	len -= sizeof(struct ktr_user);
+	printf("%.*s:", KTR_USER_MAXIDLEN, usr->ktr_id);
+	printf(" %zu bytes\n", len);
+	showbuf((unsigned char *)(usr + 1), len);
+}
+
+static void
 usage(void)
 {
 
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
 	    "[-dHlnRrTXx] [-e emulation] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [ceinsw]]\n",
+	    "%*s[-t [ceinstuw]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);
 }
@@ -1634,3 +1666,177 @@ polltimeout(int timeout)
 	else
 		(void)printf("%#x", timeout);
 }
+
+static void
+pgid(int pid)
+{
+	(void)printf("%d", pid);
+}
+
+static void
+wait4pid(int pid)
+{
+	if (pid == WAIT_ANY)
+		(void)printf("WAIT_ANY");
+	else if (pid == WAIT_MYPGRP)
+		(void)printf("WAIT_MYPGRP");
+	else
+		pgid(pid);
+}
+
+static void
+signame(int sig)
+{
+	if (sig > 0 && sig < NSIG)
+		(void)printf("SIG%s", sys_signame[sig]);
+	else
+		(void)printf("SIG %d", sig);
+}
+
+static void
+sigset(int ss)
+{
+	int	or = 0;
+	int	cnt = 0;
+	int	i;
+
+	for (i = 1; i < NSIG; i++)
+		if (sigismember(&ss, i))
+			cnt++;
+	if (cnt > (NSIG-1)/2) {
+		ss = ~ss;
+		putchar('~');
+	}
+
+	if (ss == 0) {
+		(void)printf("0<>");
+		return;
+	}
+
+	printf("%#x<", ss);
+	for (i = 1; i < NSIG; i++)
+		if (sigismember(&ss, i)) {
+			if (or) putchar('|'); else or=1;
+			signame(i);
+		}
+	printf(">");
+}
+
+static void
+semctlname(int cmd)
+{
+	switch (cmd) {
+	case GETNCNT:
+		(void)printf("GETNCNT");
+		break;
+	case GETPID:
+		(void)printf("GETPID");
+		break;
+	case GETVAL:
+		(void)printf("GETVAL");
+		break;
+	case GETALL:
+		(void)printf("GETALL");
+		break;
+	case GETZCNT:
+		(void)printf("GETZCNT");
+		break;
+	case SETVAL:
+		(void)printf("SETVAL");
+		break;
+	case SETALL:
+		(void)printf("SETALL");
+		break;
+	case IPC_RMID:
+		(void)printf("IPC_RMID");
+		break;
+	case IPC_SET:
+		(void)printf("IPC_SET");
+		break;
+	case IPC_STAT:
+		(void)printf("IPC_STAT");
+		break;
+	default: /* Should not reach */
+		(void)printf("<invalid=%ld>", (long)cmd);
+	}
+}
+
+static void
+shmctlname(int cmd) {
+	switch (cmd) {
+	case IPC_RMID:
+		(void)printf("IPC_RMID");
+		break;
+	case IPC_SET:
+		(void)printf("IPC_SET");
+		break;
+	case IPC_STAT:
+		(void)printf("IPC_STAT");
+		break;
+	default: /* Should not reach */
+		(void)printf("<invalid=%ld>", (long)cmd);
+	}
+}
+
+
+static void
+semgetname(int flag) {
+	int	or = 0;
+	if_print_or(flag, IPC_CREAT, or);
+	if_print_or(flag, IPC_EXCL, or);
+	if_print_or(flag, SEM_R, or);
+	if_print_or(flag, SEM_A, or);
+	if_print_or(flag, (SEM_R>>3), or);
+	if_print_or(flag, (SEM_A>>3), or);
+	if_print_or(flag, (SEM_R>>6), or);
+	if_print_or(flag, (SEM_A>>6), or);
+}
+
+
+/*
+ * Only used by SYS_open. Unless O_CREAT is set in flags, the
+ * mode argument is unused (and often bogus and misleading).
+ */
+static void
+flagsandmodename(int flags, int mode) {
+	flagsname (flags);
+	if ((flags & O_CREAT) == O_CREAT) {
+		(void)putchar(',');
+		modename (mode);
+	} else if (!fancy) {
+		(void)putchar(',');
+		if (decimal) {
+			(void)printf("<unused>%ld", (long)mode);
+		} else {
+			(void)printf("<unused>%#lx", (long)mode);
+		}
+	}
+}
+
+static void
+clockname(int clockid)
+{
+	clocktypename(__CLOCK_TYPE(clockid));
+	if (__CLOCK_PTID(clockid) != 0)
+		printf("(%d)", __CLOCK_PTID(clockid));
+}
+
+/*
+ * [g|s]etsockopt's level argument can either be SOL_SOCKET or a value
+ * referring to a line in /etc/protocols . It might be appropriate
+ * to use getprotoent(3) here.
+ */
+static void
+sockoptlevelname(int level)
+{
+	if (level == SOL_SOCKET) {
+		(void)printf("SOL_SOCKET");
+	} else {
+		if (decimal) {
+			(void)printf("%ld", (long)level);
+		} else {
+			(void)printf("%#lx", (long)level);
+		}
+	}
+}
+

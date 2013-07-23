@@ -1,4 +1,4 @@
-/*	$OpenBSD: dired.c,v 1.52 2012/11/03 15:36:03 haesbaert Exp $	*/
+/*	$OpenBSD: dired.c,v 1.63 2013/06/03 05:10:59 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -19,6 +19,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <err.h>
 #include <errno.h>
 #include <libgen.h>
 #include <stdarg.h>
@@ -43,7 +44,10 @@ static int	 d_forwpage(int, int);
 static int	 d_backpage(int, int);
 static int	 d_forwline(int, int);
 static int	 d_backline(int, int);
+static int	 d_killbuffer_cmd(int, int);
+static int	 d_refreshbuffer(int, int);
 static void	 reaper(int);
+static struct buffer	*refreshbuffer(struct buffer *);
 
 extern struct keymap_s helpmap, cXmap, metamap;
 
@@ -100,14 +104,15 @@ static PF diredc[] = {
 	d_copy,			/* c */
 	d_del,			/* d */
 	d_findfile,		/* e */
-	d_findfile		/* f */
+	d_findfile,		/* f */
+	d_refreshbuffer		/* g */
 };
 
 static PF diredn[] = {
 	d_forwline,		/* n */
 	d_ffotherwindow,	/* o */
 	d_backline,		/* p */
-	rescan,			/* q */
+	d_killbuffer_cmd,	/* q */
 	d_rename,		/* r */
 	rescan,			/* s */
 	rescan,			/* t */
@@ -163,7 +168,7 @@ static struct KEYMAPE (7 + NDIRED_XMAPS + IMAPEXT) diredmap = {
 			CCHR('Z'), '+', diredcz, (KEYMAP *) & metamap
 		},
 		{
-			'c', 'f', diredc, NULL
+			'c', 'g', diredc, NULL
 		},
 		{
 			'n', 'x', diredn, NULL
@@ -181,19 +186,21 @@ void
 dired_init(void)
 {
 	funmap_add(dired, "dired");
-	funmap_add(d_undelbak, "dired-backup-unflag");
-	funmap_add(d_copy, "dired-copy-file");
-	funmap_add(d_expunge, "dired-do-deletions");
+	funmap_add(d_undelbak, "dired-unmark-backward");
+	funmap_add(d_create_directory, "dired-create-directory");
+	funmap_add(d_copy, "dired-do-copy");
+	funmap_add(d_expunge, "dired-do-flagged-delete");
 	funmap_add(d_findfile, "dired-find-file");
 	funmap_add(d_ffotherwindow, "dired-find-file-other-window");
-	funmap_add(d_del, "dired-flag-file-deleted");
+	funmap_add(d_del, "dired-flag-file-deletion");
 	funmap_add(d_forwline, "dired-next-line");
 	funmap_add(d_otherwindow, "dired-other-window");
 	funmap_add(d_backline, "dired-previous-line");
-	funmap_add(d_rename, "dired-rename-file");
+	funmap_add(d_rename, "dired-do-rename");
 	funmap_add(d_backpage, "dired-scroll-down");
 	funmap_add(d_forwpage, "dired-scroll-up");
-	funmap_add(d_undel, "dired-unflag");
+	funmap_add(d_undel, "dired-unmark");
+	funmap_add(d_killbuffer_cmd, "quit-window");
 	maps_add((KEYMAP *)&diredmap, "dired");
 	dobindkey(fundamental_map, "dired", "^Xd");
 }
@@ -272,8 +279,7 @@ d_del(int f, int n)
 			curwp->w_dotp = lforw(curwp->w_dotp);
 	}
 	curwp->w_rflag |= WFEDIT | WFMOVE;
-	curwp->w_doto = 0;
-	return (TRUE);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
 }
 
 /* ARGSUSED */
@@ -289,8 +295,7 @@ d_undel(int f, int n)
 			curwp->w_dotp = lforw(curwp->w_dotp);
 	}
 	curwp->w_rflag |= WFEDIT | WFMOVE;
-	curwp->w_doto = 0;
-	return (TRUE);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
 }
 
 /* ARGSUSED */
@@ -305,9 +310,8 @@ d_undelbak(int f, int n)
 		if (lback(curwp->w_dotp) != curbp->b_headp)
 			curwp->w_dotp = lback(curwp->w_dotp);
 	}
-	curwp->w_doto = 0;
 	curwp->w_rflag |= WFEDIT | WFMOVE;
-	return (TRUE);
+	return (d_warpdot(curwp->w_dotp, &curwp->w_doto));
 }
 
 /* ARGSUSED */
@@ -398,10 +402,11 @@ d_expunge(int f, int n)
 int
 d_copy(int f, int n)
 {
-	char	frname[NFILEN], toname[NFILEN], sname[NFILEN], *bufp;
-	int	ret;
-	size_t	off;
-	struct buffer *bp;
+	char		 frname[NFILEN], toname[NFILEN], sname[NFILEN];
+	char		*topath, *bufp;
+	int		 ret;
+	size_t		 off;
+	struct buffer	*bp;
 
 	if (d_makename(curwp->w_dotp, frname, sizeof(frname)) != FALSE) {
 		ewprintf("Not a file");
@@ -419,10 +424,13 @@ d_copy(int f, int n)
 		return (ABORT);
 	else if (bufp[0] == '\0')
 		return (FALSE);
-	ret = (copy(frname, toname) >= 0) ? TRUE : FALSE;
+
+	topath = adjustname(toname, TRUE);
+	ret = (copy(frname, topath) >= 0) ? TRUE : FALSE;
 	if (ret != TRUE)
 		return (ret);
-	bp = dired_(curbp->b_fname);
+	if ((bp = refreshbuffer(curbp)) == NULL)
+		return (FALSE);
 	return (showbuffer(bp, curwp, WFFULL | WFMODE));
 }
 
@@ -430,7 +438,8 @@ d_copy(int f, int n)
 int
 d_rename(int f, int n)
 {
-	char		 frname[NFILEN], toname[NFILEN], *bufp;
+	char		 frname[NFILEN], toname[NFILEN];
+	char		*topath, *bufp;
 	int		 ret;
 	size_t		 off;
 	struct buffer	*bp;
@@ -452,10 +461,13 @@ d_rename(int f, int n)
 		return (ABORT);
 	else if (bufp[0] == '\0')
 		return (FALSE);
-	ret = (rename(frname, toname) >= 0) ? TRUE : FALSE;
+
+	topath = adjustname(toname, TRUE);
+	ret = (rename(frname, topath) >= 0) ? TRUE : FALSE;
 	if (ret != TRUE)
 		return (ret);
-	bp = dired_(curbp->b_fname);
+	if ((bp = refreshbuffer(curbp)) == NULL)
+		return (FALSE);
 	return (showbuffer(bp, curwp, WFFULL | WFMODE));
 }
 
@@ -621,25 +633,59 @@ out:
 int
 d_create_directory(int f, int n)
 {
-	char	 tocreate[MAXPATHLEN], *bufp;
-	size_t  off;
+	int ret;
 	struct buffer	*bp;
 
-	off = strlcpy(tocreate, curbp->b_fname, sizeof(tocreate));
-	if (off >= sizeof(tocreate) - 1)
+	ret = do_makedir();
+	if (ret != TRUE)
+		return(ret);
+
+	if ((bp = refreshbuffer(curbp)) == NULL)
 		return (FALSE);
-	if ((bufp = eread("Create directory: ", tocreate,
-	    sizeof(tocreate), EFDEF | EFNEW | EFCR)) == NULL)
-		return (ABORT);
-	else if (bufp[0] == '\0')
-		return (FALSE);
-	if (mkdir(tocreate, 0755) == -1) {
-		ewprintf("Creating directory: %s, %s", strerror(errno),
-		    tocreate);
-		return (FALSE);
-	}
-	bp = dired_(curbp->b_fname);
+
 	return (showbuffer(bp, curwp, WFFULL | WFMODE));
+}
+
+/* ARGSUSED */
+int
+d_killbuffer_cmd(int f, int n)
+{
+	return(killbuffer_cmd(FFRAND, 0));
+}
+
+int
+d_refreshbuffer(int f, int n)
+{
+	struct buffer *bp;
+
+	if ((bp = refreshbuffer(curbp)) == NULL)
+		return (FALSE);
+
+	return (showbuffer(bp, curwp, WFFULL | WFMODE));
+}
+
+struct buffer *
+refreshbuffer(struct buffer *bp)
+{
+	char	*tmp;
+
+	tmp = strdup(bp->b_fname);
+	if (tmp == NULL) {
+		ewprintf("Out of memory");
+		return (NULL);
+	}
+
+	killbuffer(bp);
+
+	/* dired_() uses findbuffer() to create new buffer */
+	if ((bp = dired_(tmp)) == NULL) {
+		free(tmp);
+		return (NULL);
+	}
+	free(tmp);
+	curbp = bp;
+
+	return (bp);
 }
 
 static int
@@ -727,11 +773,6 @@ dired_(char *dname)
 	int		 i;
 	size_t		 len;
 
-	if ((access(dname, R_OK | X_OK)) == -1) {
-		if (errno == EACCES)
-			ewprintf("Permission denied");
-		return (NULL);
-	}
 	if ((dname = adjustname(dname, FALSE)) == NULL) {
 		ewprintf("Bad directory name");
 		return (NULL);
@@ -741,6 +782,11 @@ dired_(char *dname)
 	if (dname[len - 1] != '/') {
 		dname[len++] = '/';
 		dname[len] = '\0';
+	}
+	if ((access(dname, R_OK | X_OK)) == -1) {
+		if (errno == EACCES)
+			ewprintf("Permission denied");
+		return (NULL);
 	}
 	if ((bp = findbuffer(dname)) == NULL) {
 		ewprintf("Could not create buffer");

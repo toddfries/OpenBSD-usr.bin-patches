@@ -1,4 +1,4 @@
-/*	$OpenBSD: def.h,v 1.135 2013/03/25 11:41:44 florian Exp $	*/
+/*	$OpenBSD: def.h,v 1.138 2013/05/31 18:03:43 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -336,6 +336,7 @@ int		 changedir(int, int);
 int		 showcwdir(int, int);
 int		 getcwdir(char *, size_t);
 int		 makedir(int, int);
+int		 do_makedir(void);
 
 /* dired.c */
 struct buffer	*dired_(char *);
@@ -423,7 +424,7 @@ int		 diffbuffer(int, int);
 int		vtresize(int, int, int);
 void		vtinit(void);
 void		vttidy(void);
-void		update(void);
+void		update(int);
 int		linenotoggle(int, int);
 int		colnotoggle(int, int);
 
@@ -592,6 +593,7 @@ int		 region_get_data(struct region *, char *, int);
 void		 region_put_data(const char *, int);
 int		 markbuffer(int, int);
 int		 piperegion(int, int);
+int		 shellcommand(int, int);
 int		 pipeio(const char * const, char * const[], char * const, int,
 		     struct buffer *);
 
@@ -679,6 +681,12 @@ int		 next_error(int, int);
 int		 globalwdtoggle(int, int);
 int		 compile(int, int);
 
+/* bell.c */
+void		 bellinit(void);
+int		 toggleaudiblebell(int, int);
+int		 togglevisiblebell(int, int);
+void		 dobeep(void);
+
 /*
  * Externals.
  */
@@ -702,6 +710,9 @@ extern int		 ttbot;
 extern int		 tthue;
 extern int		 defb_nmodes;
 extern int		 defb_flag;
+extern int		 doaudiblebell;
+extern int		 dovisiblebell;
+extern int		 donebell;
 extern char	 	 cinfo[];
 extern char		*keystrings[];
 extern char		 pat[NPAT];

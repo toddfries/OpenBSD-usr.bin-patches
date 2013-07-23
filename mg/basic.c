@@ -1,4 +1,4 @@
-/*	$OpenBSD: basic.c,v 1.39 2013/03/25 11:41:44 florian Exp $	*/
+/*	$OpenBSD: basic.c,v 1.41 2013/05/31 18:19:19 florian Exp $	*/
 
 /* This file is in the public domain */
 
@@ -43,8 +43,10 @@ backchar(int f, int n)
 	while (n--) {
 		if (curwp->w_doto == 0) {
 			if ((lp = lback(curwp->w_dotp)) == curbp->b_headp) {
-				if (!(f & FFRAND))
+				if (!(f & FFRAND)) {
+					dobeep();
 					ewprintf("Beginning of buffer");
+				}
 				return (FALSE);
 			}
 			curwp->w_dotp = lp;
@@ -85,8 +87,10 @@ forwchar(int f, int n)
 			curwp->w_dotp = lforw(curwp->w_dotp);
 			if (curwp->w_dotp == curbp->b_headp) {
 				curwp->w_dotp = lback(curwp->w_dotp);
-				if (!(f & FFRAND))
+				if (!(f & FFRAND)) {
+					dobeep();
 					ewprintf("End of buffer");
+				}
 				return (FALSE);
 			}
 			curwp->w_doto = 0;
@@ -158,8 +162,13 @@ forwline(int f, int n)
 
 	if (n < 0)
 		return (backline(f | FFRAND, -n));
-	if ((dlp = curwp->w_dotp) == curbp->b_headp)
+	if ((dlp = curwp->w_dotp) == curbp->b_headp) {
+		if (!(f & FFRAND)) {
+			dobeep();
+			ewprintf("End of buffer");
+		}
 		return(TRUE);
+	}
 	if ((lastflag & CFCPCN) == 0)	/* Fix goal. */
 		setgoal();
 	thisflag |= CFCPCN;
@@ -171,6 +180,10 @@ forwline(int f, int n)
 			curwp->w_dotp = lback(dlp);
 			curwp->w_doto = llength(curwp->w_dotp);
 			curwp->w_rflag |= WFMOVE;
+			if (!(f & FFRAND)) {
+				dobeep();
+				ewprintf("End of buffer");
+			}
 			return (TRUE);
 		}
 		curwp->w_dotline++;
@@ -201,9 +214,20 @@ backline(int f, int n)
 		setgoal();
 	thisflag |= CFCPCN;
 	dlp = curwp->w_dotp;
+	if (lback(dlp) == curbp->b_headp)  {
+		if (!(f & FFRAND)) {
+			dobeep();
+			ewprintf("Beginning of buffer");
+		}
+		return(TRUE);
+	}
 	while (n-- && lback(dlp) != curbp->b_headp) {
 		dlp = lback(dlp);
 		curwp->w_dotline--;
+	}
+	if (n > 0 && !(f & FFRAND)) {
+		dobeep();
+		ewprintf("Beginning of buffer");
 	}
 	curwp->w_dotp = dlp;
 	curwp->w_doto = getgoal(dlp);
@@ -283,7 +307,7 @@ forwpage(int f, int n)
 	lp = curwp->w_linep;
 	while (n--)
 		if ((lp = lforw(lp)) == curbp->b_headp) {
-			ttbeep();
+			dobeep();
 			ewprintf("End of buffer");
 			return(TRUE);
 		}
@@ -332,7 +356,7 @@ backpage(int f, int n)
 		lp = lback(lp);
 	}
 	if (lp == curwp->w_linep) {
-		ttbeep();
+		dobeep();
 		ewprintf("Beginning of buffer");
 	}
 	curwp->w_linep = lp;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: funmap.c,v 1.45 2012/12/27 18:51:52 florian Exp $	*/
+/*	$OpenBSD: funmap.c,v 1.47 2013/05/31 18:03:44 lum Exp $	*/
 
 /* This file is in the public domain */
 
@@ -21,6 +21,7 @@ static struct funmap *funs;
 
 static struct funmap functnames[] = {
 	{apropos_command, "apropos",},
+	{toggleaudiblebell, "audible-bell",},
 	{auto_execute, "auto-execute",},
 	{fillmode, "auto-fill-mode",},
 	{indentmode, "auto-indent-mode",},
@@ -179,6 +180,7 @@ static struct funmap functnames[] = {
 	{setfillcol, "set-fill-column",},
 	{setmark, "set-mark-command",},
 	{setprefix, "set-prefix-string",},
+	{shellcommand, "shell-command",},
 	{piperegion, "shell-command-on-region",},
 	{shrinkwind, "shrink-window",},
 #ifdef NOTAB
@@ -199,6 +201,7 @@ static struct funmap functnames[] = {
 	{universal_argument, "universal-argument",},
 	{upperregion, "upcase-region",},
 	{upperword, "upcase-word",},
+	{togglevisiblebell, "visible-bell",},
 	{tagsvisit, "visit-tags-table",},
 	{showcpos, "what-cursor-position",},
 	{filewrite, "write-file",},
