@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.120 2013/04/24 10:01:32 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.122 2013/10/05 10:40:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -127,17 +127,25 @@ areshell(const char *shell)
 const char*
 get_full_path(const char *wd, const char *path)
 {
-	static char	newpath[MAXPATHLEN];
-	char		oldpath[MAXPATHLEN];
+	int		 fd;
+	static char	 newpath[MAXPATHLEN];
+	const char	*retval;
 
-	if (getcwd(oldpath, sizeof oldpath) == NULL)
+	fd = open(".", O_RDONLY);
+	if (fd == -1)
 		return (NULL);
-	if (chdir(wd) != 0)
-		return (NULL);
-	if (realpath(path, newpath) != 0)
-		return (NULL);
-	chdir(oldpath);
-	return (newpath);
+
+	retval = NULL;
+	if (chdir(wd) == 0) {
+		if (realpath(path, newpath) == 0)
+			retval = newpath;
+	}
+
+	if (fchdir(fd) != 0)
+		chdir("/");
+	close(fd);
+
+	return (retval);
 }
 
 void
