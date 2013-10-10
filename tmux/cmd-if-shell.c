@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-if-shell.c,v 1.23 2013/03/25 16:04:07 nicm Exp $ */
+/* $OpenBSD: cmd-if-shell.c,v 1.25 2013/10/10 12:04:38 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -40,7 +40,6 @@ const struct cmd_entry cmd_if_shell_entry = {
 	"bt:", 2, 3,
 	"[-b] " CMD_TARGET_PANE_USAGE " shell-command command [command]",
 	0,
-	NULL,
 	NULL,
 	cmd_if_shell_exec
 };
@@ -147,6 +146,9 @@ cmd_if_shell_done(struct cmd_q *cmdq1)
 {
 	struct cmd_if_shell_data	*cdata = cmdq1->data;
 	struct cmd_q			*cmdq = cdata->cmdq;
+
+	if (cmdq1->client_exit >= 0)
+		cmdq->client_exit = cmdq1->client_exit;
 
 	if (!cmdq_free(cmdq) && !cdata->bflag)
 		cmdq_continue(cmdq);

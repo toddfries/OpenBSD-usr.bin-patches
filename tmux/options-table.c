@@ -1,4 +1,4 @@
-/* $OpenBSD: options-table.c,v 1.39 2013/10/05 13:56:48 nicm Exp $ */
+/* $OpenBSD: options-table.c,v 1.42 2013/10/10 12:26:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -124,11 +124,6 @@ const struct options_table_entry session_options_table[] = {
 	{ .name = "default-command",
 	  .type = OPTIONS_TABLE_STRING,
 	  .default_str = ""
-	},
-
-	{ .name = "default-path",
-	  .type = OPTIONS_TABLE_STRING,
-	  .default_str = "~"
 	},
 
 	{ .name = "default-shell",
@@ -387,7 +382,7 @@ const struct options_table_entry session_options_table[] = {
 
 	{ .name = "status-right",
 	  .type = OPTIONS_TABLE_STRING,
-	  .default_str = "\"#22T\" %H:%M %d-%b-%y"
+	  .default_str = "\"#{=22:pane_title}\" %H:%M %d-%b-%y"
 	},
 
 	{ .name = "status-right-attr",
@@ -480,6 +475,11 @@ const struct options_table_entry window_options_table[] = {
 	{ .name = "automatic-rename",
 	  .type = OPTIONS_TABLE_FLAG,
 	  .default_num = 1
+	},
+
+	{ .name = "automatic-rename-format",
+	  .type = OPTIONS_TABLE_STRING,
+	  .default_str = "#{?pane_in_mode,[tmux],#{pane_current_command}}#{?pane_dead,[dead],}"
 	},
 
 	{ .name = "c0-change-trigger",
