@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.36 2013/10/10 12:39:24 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.39 2013/10/11 08:03:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -353,15 +353,20 @@ format_expand(struct format_tree *ft, const char *fmt)
 char *
 format_get_command(struct window_pane *wp)
 {
-	char	*cmd;
+	char	*cmd, *out;
 
 	cmd = get_proc_name(wp->fd, wp->tty);
 	if (cmd == NULL || *cmd == '\0') {
-		cmd = wp->cmd;
-		if (cmd == NULL || *cmd == '\0')
-			cmd = wp->shell;
+		free(cmd);
+		cmd = xstrdup(wp->cmd);
+		if (cmd == NULL || *cmd == '\0') {
+			free(cmd);
+			cmd = xstrdup(wp->shell);
+		}
 	}
-	return (parse_window_name(cmd));
+	out = parse_window_name(cmd);
+	free(cmd);
+	return (out);
 }
 
 /* Set default format keys for a session. */

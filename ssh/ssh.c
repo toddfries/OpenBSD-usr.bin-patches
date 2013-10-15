@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.381 2013/07/25 00:29:10 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.384 2013/10/14 23:31:01 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -229,10 +229,9 @@ main(int ac, char **av)
 	char thishost[NI_MAXHOST], shorthost[NI_MAXHOST], portstr[NI_MAXSERV];
 	struct stat st;
 	struct passwd *pw;
-	int dummy, timeout_ms;
+	int timeout_ms;
 	extern int optind, optreset;
 	extern char *optarg;
-	struct servent *sp;
 	Forward fwd;
 
 	/* Ensure that fds 0, 1 and 2 are open or directed to /dev/null */
@@ -566,10 +565,9 @@ main(int ac, char **av)
 			options.request_tty = REQUEST_TTY_NO;
 			break;
 		case 'o':
-			dummy = 1;
 			line = xstrdup(optarg);
-			if (process_config_line(&options, host ? host : "",
-			    line, "command-line", 0, &dummy, SSHCONF_USERCONF)
+			if (process_config_line(&options, pw, host ? host : "",
+			    line, "command-line", 0, NULL, SSHCONF_USERCONF)
 			    != 0)
 				exit(255);
 			free(line);
@@ -674,18 +672,19 @@ main(int ac, char **av)
 	 */
 	if (config != NULL) {
 		if (strcasecmp(config, "none") != 0 &&
-		    !read_config_file(config, host, &options, SSHCONF_USERCONF))
+		    !read_config_file(config, pw, host, &options,
+		    SSHCONF_USERCONF))
 			fatal("Can't open user config file %.100s: "
 			    "%.100s", config, strerror(errno));
 	} else {
 		r = snprintf(buf, sizeof buf, "%s/%s", pw->pw_dir,
 		    _PATH_SSH_USER_CONFFILE);
 		if (r > 0 && (size_t)r < sizeof(buf))
-			(void)read_config_file(buf, host, &options,
+			(void)read_config_file(buf, pw, host, &options,
 			     SSHCONF_CHECKPERM|SSHCONF_USERCONF);
 
 		/* Read systemwide configuration file after user config. */
-		(void)read_config_file(_PATH_HOST_CONFIG_FILE, host,
+		(void)read_config_file(_PATH_HOST_CONFIG_FILE, pw, host,
 		    &options, 0);
 	}
 
@@ -693,6 +692,14 @@ main(int ac, char **av)
 	fill_default_options(&options);
 
 	channel_set_af(options.address_family);
+
+	/* Tidy and check options */
+	if (options.host_key_alias != NULL)
+		lowercase(options.host_key_alias);
+	if (options.proxy_command != NULL &&
+	    strcmp(options.proxy_command, "-") == 0 &&
+	    options.proxy_use_fdpass)
+		fatal("ProxyCommand=- and ProxyUseFDPass are incompatible");
 
 	/* reinit */
 	log_init(argv0, options.log_level, SYSLOG_FACILITY_USER, !use_syslog);
@@ -721,10 +728,8 @@ main(int ac, char **av)
 		options.user = xstrdup(pw->pw_name);
 
 	/* Get default port if port has not been set. */
-	if (options.port == 0) {
-		sp = getservbyname(SSH_SERVICE_NAME, "tcp");
-		options.port = sp ? ntohs(sp->s_port) : SSH_DEFAULT_PORT;
-	}
+	if (options.port == 0)
+		options.port = default_ssh_port();
 
 	/* preserve host name given on command line for %n expansion */
 	host_arg = host;
@@ -750,24 +755,6 @@ main(int ac, char **av)
 		free(cp);
 	}
 
-	/* force lowercase for hostkey matching */
-	if (options.host_key_alias != NULL) {
-		for (p = options.host_key_alias; *p; p++)
-			if (isupper(*p))
-				*p = (char)tolower(*p);
-	}
-
-	if (options.proxy_command != NULL &&
-	    strcmp(options.proxy_command, "none") == 0) {
-		free(options.proxy_command);
-		options.proxy_command = NULL;
-	}
-	if (options.control_path != NULL &&
-	    strcmp(options.control_path, "none") == 0) {
-		free(options.control_path);
-		options.control_path = NULL;
-	}
-
 	if (options.control_path != NULL) {
 		cp = tilde_expand_filename(options.control_path,
 		    original_real_uid);
@@ -788,7 +775,7 @@ main(int ac, char **av)
 	/* Open a connection to the remote host. */
 	if (ssh_connect(host, &hostaddr, options.port,
 	    options.address_family, options.connection_attempts, &timeout_ms,
-	    options.tcp_keep_alive, 
+	    options.tcp_keep_alive,
 	    original_effective_uid == 0 && options.use_privileged_port,
 	    options.proxy_command) != 0)
 		exit(255);
@@ -1040,7 +1027,7 @@ ssh_init_stdio_forwarding(void)
 
 	if (stdio_forward_host == NULL)
 		return;
-	if (!compat20) 
+	if (!compat20)
 		fatal("stdio forwarding require Protocol 2");
 
 	debug3("%s: %s:%d", __func__, stdio_forward_host, stdio_forward_port);
@@ -1212,7 +1199,7 @@ ssh_session(void)
 		char *proto, *data;
 		/* Get reasonable local authentication information. */
 		client_x11_get_proto(display, options.xauth_location,
-		    options.forward_x11_trusted, 
+		    options.forward_x11_trusted,
 		    options.forward_x11_timeout,
 		    &proto, &data);
 		/* Request forwarding with authentication spoofing. */
