@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.385 2013/10/16 02:31:46 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.389 2013/10/23 03:05:19 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -262,14 +262,14 @@ check_follow_cname(char **namep, const char *cname)
 	if (*cname == '\0' || options.num_permitted_cnames == 0 ||
 	    strcmp(*namep, cname) == 0)
 		return 0;
-	if (options.canonicalise_hostname == SSH_CANONICALISE_NO)
+	if (options.canonicalize_hostname == SSH_CANONICALISE_NO)
 		return 0;
 	/*
-	 * Don't attempt to canonicalise names that will be interpreted by
+	 * Don't attempt to canonicalize names that will be interpreted by
 	 * a proxy unless the user specifically requests so.
 	 */
 	if (options.proxy_command != NULL &&
-	    options.canonicalise_hostname != SSH_CANONICALISE_ALWAYS)
+	    options.canonicalize_hostname != SSH_CANONICALISE_ALWAYS)
 		return 0;
 	debug3("%s: check \"%s\" CNAME \"%s\"", __func__, *namep, cname);
 	for (i = 0; i < options.num_permitted_cnames; i++) {
@@ -279,7 +279,7 @@ check_follow_cname(char **namep, const char *cname)
 		    match_pattern_list(cname, rule->target_list,
 		    strlen(rule->target_list), 1) != 1)
 			continue;
-		verbose("Canonicalised DNS aliased hostname "
+		verbose("Canonicalized DNS aliased hostname "
 		    "\"%s\" => \"%s\"", *namep, cname);
 		free(*namep);
 		*namep = xstrdup(cname);
@@ -290,34 +290,34 @@ check_follow_cname(char **namep, const char *cname)
 
 /*
  * Attempt to resolve the supplied hostname after applying the user's
- * canonicalisation rules. Returns the address list for the host or NULL
- * if no name was found after canonicalisation.
+ * canonicalization rules. Returns the address list for the host or NULL
+ * if no name was found after canonicalization.
  */
 static struct addrinfo *
-resolve_canonicalise(char **hostp, u_int port)
+resolve_canonicalize(char **hostp, u_int port)
 {
 	int i, ndots;
 	char *cp, *fullhost, cname_target[NI_MAXHOST];
 	struct addrinfo *addrs;
 
-	if (options.canonicalise_hostname == SSH_CANONICALISE_NO)
+	if (options.canonicalize_hostname == SSH_CANONICALISE_NO)
 		return NULL;
 	/*
-	 * Don't attempt to canonicalise names that will be interpreted by
+	 * Don't attempt to canonicalize names that will be interpreted by
 	 * a proxy unless the user specifically requests so.
 	 */
 	if (options.proxy_command != NULL &&
-	    options.canonicalise_hostname != SSH_CANONICALISE_ALWAYS)
+	    options.canonicalize_hostname != SSH_CANONICALISE_ALWAYS)
 		return NULL;
-	/* Don't apply canonicalisation to sufficiently-qualified hostnames */
+	/* Don't apply canonicalization to sufficiently-qualified hostnames */
 	ndots = 0;
 	for (cp = *hostp; *cp != '\0'; cp++) {
 		if (*cp == '.')
 			ndots++;
 	}
-	if (ndots > options.canonicalise_max_dots) {
-		debug3("%s: not canonicalising hostname \"%s\" (max dots %d)",
-		    __func__, *hostp, options.canonicalise_max_dots);
+	if (ndots > options.canonicalize_max_dots) {
+		debug3("%s: not canonicalizing hostname \"%s\" (max dots %d)",
+		    __func__, *hostp, options.canonicalize_max_dots);
 		return NULL;
 	}
 	/* Attempt each supplied suffix */
@@ -334,14 +334,14 @@ resolve_canonicalise(char **hostp, u_int port)
 		fullhost[strlen(fullhost) - 1] = '\0';
 		/* Follow CNAME if requested */
 		if (!check_follow_cname(&fullhost, cname_target)) {
-			debug("Canonicalised hostname \"%s\" => \"%s\"",
+			debug("Canonicalized hostname \"%s\" => \"%s\"",
 			    *hostp, fullhost);
 		}
 		free(*hostp);
 		*hostp = fullhost;
 		return addrs;
 	}
-	if (!options.canonicalise_fallback_local)
+	if (!options.canonicalize_fallback_local)
 		fatal("%s: Could not resolve host \"%s\"", __progname, host);
 	return NULL;
 }
@@ -833,6 +833,8 @@ main(int ac, char **av)
 	    strcmp(options.proxy_command, "-") == 0 &&
 	    options.proxy_use_fdpass)
 		fatal("ProxyCommand=- and ProxyUseFDPass are incompatible");
+	if (original_effective_uid != 0)
+		options.use_privileged_port = 0;
 
 	/* reinit */
 	log_init(argv0, options.log_level, SYSLOG_FACILITY_USER, !use_syslog);
@@ -866,17 +868,18 @@ main(int ac, char **av)
 
 	/* preserve host name given on command line for %n expansion */
 	if (options.hostname != NULL) {
+		/* NB. Please keep in sync with readconf.c:match_cfg_line() */
 		cp = percent_expand(options.hostname,
 		    "h", host, (char *)NULL);
 		free(host);
 		host = cp;
 	}
 
-	/* If canonicalisation requested then try to apply it */
-	if (options.canonicalise_hostname != SSH_CANONICALISE_NO)
-		addrs = resolve_canonicalise(&host, options.port);
+	/* If canonicalization requested then try to apply it */
+	if (options.canonicalize_hostname != SSH_CANONICALISE_NO)
+		addrs = resolve_canonicalize(&host, options.port);
 	/*
-	 * If canonicalisation not requested, or if it failed then try to
+	 * If canonicalization not requested, or if it failed then try to
 	 * resolve the bare hostname name using the system resolver's usual
 	 * search rules.
 	 */
@@ -925,7 +928,7 @@ main(int ac, char **av)
 	if (ssh_connect(host, addrs, &hostaddr, options.port,
 	    options.address_family, options.connection_attempts,
 	    &timeout_ms, options.tcp_keep_alive,
-	    original_effective_uid == 0 && options.use_privileged_port) != 0)
+	    options.use_privileged_port) != 0)
 		exit(255);
 
 	freeaddrinfo(addrs);

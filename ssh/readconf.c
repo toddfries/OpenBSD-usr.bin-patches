@@ -1,4 +1,4 @@
-/* $OpenBSD: readconf.c,v 1.208 2013/10/16 02:31:45 djm Exp $ */
+/* $OpenBSD: readconf.c,v 1.212 2013/10/23 03:05:19 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -139,8 +139,8 @@ typedef enum {
 	oTunnel, oTunnelDevice, oLocalCommand, oPermitLocalCommand,
 	oVisualHostKey, oUseRoaming, oZeroKnowledgePasswordAuthentication,
 	oKexAlgorithms, oIPQoS, oRequestTTY, oIgnoreUnknown, oProxyUseFdpass,
-	oCanonicalDomains, oCanonicaliseHostname, oCanonicaliseMaxDots,
-	oCanonicaliseFallbackLocal, oCanonicalisePermittedCNAMEs,
+	oCanonicalDomains, oCanonicalizeHostname, oCanonicalizeMaxDots,
+	oCanonicalizeFallbackLocal, oCanonicalizePermittedCNAMEs,
 	oIgnoredUnknownOption, oDeprecated, oUnsupported
 } OpCodes;
 
@@ -255,10 +255,10 @@ static struct {
 	{ "requesttty", oRequestTTY },
 	{ "proxyusefdpass", oProxyUseFdpass },
 	{ "canonicaldomains", oCanonicalDomains },
-	{ "canonicalisefallbacklocal", oCanonicaliseFallbackLocal },
-	{ "canonicalisehostname", oCanonicaliseHostname },
-	{ "canonicalisemaxdots", oCanonicaliseMaxDots },
-	{ "canonicalisepermittedcnames", oCanonicalisePermittedCNAMEs },
+	{ "canonicalizefallbacklocal", oCanonicalizeFallbackLocal },
+	{ "canonicalizehostname", oCanonicalizeHostname },
+	{ "canonicalizemaxdots", oCanonicalizeMaxDots },
+	{ "canonicalizepermittedcnames", oCanonicalizePermittedCNAMEs },
 	{ "ignoreunknown", oIgnoreUnknown },
 
 	{ NULL, oBadOption }
@@ -451,8 +451,8 @@ static int
 match_cfg_line(Options *options, char **condition, struct passwd *pw,
     const char *host_arg, const char *filename, int linenum)
 {
-	char *arg, *attrib, *cmd, *cp = *condition;
-	const char *ruser, *host;
+	char *arg, *attrib, *cmd, *cp = *condition, *host;
+	const char *ruser;
 	int r, port, result = 1;
 	size_t len;
 	char thishost[NI_MAXHOST], shorthost[NI_MAXHOST], portstr[NI_MAXSERV];
@@ -463,13 +463,19 @@ match_cfg_line(Options *options, char **condition, struct passwd *pw,
 	 */
 	port = options->port <= 0 ? default_ssh_port() : options->port;
 	ruser = options->user == NULL ? pw->pw_name : options->user;
-	host = options->hostname == NULL ? host_arg : options->hostname;
+	if (options->hostname != NULL) {
+		/* NB. Please keep in sync with ssh.c:main() */
+		host = percent_expand(options->hostname,
+		    "h", host_arg, (char *)NULL);
+	} else
+		host = xstrdup(host_arg);
 
 	debug3("checking match for '%s' host %s", cp, host);
 	while ((attrib = strdelim(&cp)) && *attrib != '\0') {
 		if ((arg = strdelim(&cp)) == NULL || *arg == '\0') {
 			error("Missing Match criteria for %s", attrib);
-			return -1;
+			result = -1;
+			goto out;
 		}
 		len = strlen(arg);
 		if (strcasecmp(attrib, "host") == 0) {
@@ -498,7 +504,7 @@ match_cfg_line(Options *options, char **condition, struct passwd *pw,
 				debug("%.200s line %d: matched "
 				    "'LocalUser %.100s' ",
 				    filename, linenum, pw->pw_name);
-		} else if (strcasecmp(attrib, "command") == 0) {
+		} else if (strcasecmp(attrib, "exec") == 0) {
 			if (gethostname(thishost, sizeof(thishost)) == -1)
 				fatal("gethostname: %s", strerror(errno));
 			strlcpy(shorthost, thishost, sizeof(shorthost));
@@ -517,22 +523,25 @@ match_cfg_line(Options *options, char **condition, struct passwd *pw,
 			    (char *)NULL);
 			r = execute_in_shell(cmd);
 			if (r == -1) {
-				fatal("%.200s line %d: match command '%.100s' "
+				fatal("%.200s line %d: match exec '%.100s' "
 				    "error", filename, linenum, cmd);
 			} else if (r == 0) {
 				debug("%.200s line %d: matched "
-				    "'Command \"%.100s\"' ",
+				    "'exec \"%.100s\"' ",
 				    filename, linenum, cmd);
 			} else
 				result = 0;
 			free(cmd);
 		} else {
 			error("Unsupported Match attribute %s", attrib);
-			return -1;
+			result = -1;
+			goto out;
 		}
 	}
 	debug3("match %sfound", result ? "" : "not ");
 	*condition = cp;
+ out:
+	free(host);
 	return result;
 }
 
@@ -638,7 +647,7 @@ static const struct multistate multistate_requesttty[] = {
 	{ "auto",			REQUEST_TTY_AUTO },
 	{ NULL, -1 }
 };
-static const struct multistate multistate_canonicalisehostname[] = {
+static const struct multistate multistate_canonicalizehostname[] = {
 	{ "true",			SSH_CANONICALISE_YES },
 	{ "false",			SSH_CANONICALISE_NO },
 	{ "yes",			SSH_CANONICALISE_YES },
@@ -1315,7 +1324,7 @@ parse_int:
 		}
 		break;
 
-	case oCanonicalisePermittedCNAMEs:
+	case oCanonicalizePermittedCNAMEs:
 		value = options->num_permitted_cnames != 0;
 		while ((arg = strdelim(&s)) != NULL && *arg != '\0') {
 			/* Either '*' for everything or 'list:list' */
@@ -1344,17 +1353,17 @@ parse_int:
 		}
 		break;
 
-	case oCanonicaliseHostname:
-		intptr = &options->canonicalise_hostname;
-		multistate_ptr = multistate_canonicalisehostname;
+	case oCanonicalizeHostname:
+		intptr = &options->canonicalize_hostname;
+		multistate_ptr = multistate_canonicalizehostname;
 		goto parse_multistate;
 
-	case oCanonicaliseMaxDots:
-		intptr = &options->canonicalise_max_dots;
+	case oCanonicalizeMaxDots:
+		intptr = &options->canonicalize_max_dots;
 		goto parse_int;
 
-	case oCanonicaliseFallbackLocal:
-		intptr = &options->canonicalise_fallback_local;
+	case oCanonicalizeFallbackLocal:
+		intptr = &options->canonicalize_fallback_local;
 		goto parse_flag;
 
 	case oDeprecated:
@@ -1522,9 +1531,9 @@ initialize_options(Options * options)
 	options->ignored_unknown = NULL;
 	options->num_canonical_domains = 0;
 	options->num_permitted_cnames = 0;
-	options->canonicalise_max_dots = -1;
-	options->canonicalise_fallback_local = -1;
-	options->canonicalise_hostname = -1;
+	options->canonicalize_max_dots = -1;
+	options->canonicalize_fallback_local = -1;
+	options->canonicalize_hostname = -1;
 }
 
 /*
@@ -1676,12 +1685,12 @@ fill_default_options(Options * options)
 		options->request_tty = REQUEST_TTY_AUTO;
 	if (options->proxy_use_fdpass == -1)
 		options->proxy_use_fdpass = 0;
-	if (options->canonicalise_max_dots == -1)
-		options->canonicalise_max_dots = 1;
-	if (options->canonicalise_fallback_local == -1)
-		options->canonicalise_fallback_local = 1;
-	if (options->canonicalise_hostname == -1)
-		options->canonicalise_hostname = SSH_CANONICALISE_NO;
+	if (options->canonicalize_max_dots == -1)
+		options->canonicalize_max_dots = 1;
+	if (options->canonicalize_fallback_local == -1)
+		options->canonicalize_fallback_local = 1;
+	if (options->canonicalize_hostname == -1)
+		options->canonicalize_hostname = SSH_CANONICALISE_NO;
 #define CLEAR_ON_NONE(v) \
 	do { \
 		if (v != NULL && strcasecmp(v, "none") == 0) { \
