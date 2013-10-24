@@ -1,5 +1,5 @@
 
-/* $OpenBSD: servconf.c,v 1.241 2013/08/06 23:06:01 djm Exp $ */
+/* $OpenBSD: servconf.c,v 1.243 2013/10/24 00:51:48 dtucker Exp $ */
 /*
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
  *                    All rights reserved
@@ -600,13 +600,13 @@ out:
 
 /*
  * All of the attributes on a single Match line are ANDed together, so we need
- * to check every * attribute and set the result to zero if any attribute does
+ * to check every attribute and set the result to zero if any attribute does
  * not match.
  */
 static int
 match_cfg_line(char **condition, int line, struct connection_info *ci)
 {
-	int result = 1, port;
+	int result = 1, attributes = 0, port;
 	char *arg, *attrib, *cp = *condition;
 	size_t len;
 
@@ -620,6 +620,17 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 		    ci->laddress ? ci->laddress : "(null)", ci->lport);
 
 	while ((attrib = strdelim(&cp)) && *attrib != '\0') {
+		attributes++;
+		if (strcasecmp(attrib, "all") == 0) {
+			if (attributes != 1 ||
+			    ((arg = strdelim(&cp)) != NULL && *arg != '\0')) {
+				error("'all' cannot be combined with other "
+				    "Match attributes");
+				return -1;
+			}
+			*condition = cp;
+			return 1;
+		}
 		if ((arg = strdelim(&cp)) == NULL || *arg == '\0') {
 			error("Missing Match criteria for %s", attrib);
 			return -1;
@@ -712,6 +723,10 @@ match_cfg_line(char **condition, int line, struct connection_info *ci)
 			error("Unsupported Match attribute %s", attrib);
 			return -1;
 		}
+	}
+	if (attributes == 0) {
+		error("One or more attributes required for Match");
+		return -1;
 	}
 	if (ci != NULL)
 		debug3("match %sfound", result ? "" : "not ");
