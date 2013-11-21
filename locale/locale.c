@@ -1,4 +1,4 @@
-/*	$OpenBSD: locale.c,v 1.6 2013/07/01 00:39:14 fgsch Exp $	*/
+/*	$OpenBSD: locale.c,v 1.8 2013/11/15 22:20:04 millert Exp $	*/
 /*
  * Copyright (c) 2013 Stefan Sperling <stsp@openbsd.org>
  *
@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <locale.h>
+#include <unistd.h>
 
 extern char		*__progname;
 
@@ -35,7 +36,7 @@ struct category_name {
 	{ 0, 		NULL},
 };
 
-void
+static void
 put_assignment(const char *name, const char *value, int double_quoted)
 {
 	char c;
@@ -62,8 +63,8 @@ put_assignment(const char *name, const char *value, int double_quoted)
 	putchar('\n');
 }
 
-void
-show_current_locale()
+static void
+show_current_locale(void)
 {
 	char *lang, *lc_all;
 	int i;
@@ -260,7 +261,7 @@ const char * const some_locales[] = {
 	NULL
 };
 
-void
+static void
 show_locales(void)
 {
 	int i = 0;
@@ -269,7 +270,7 @@ show_locales(void)
 		puts(some_locales[i++]);
 }
 
-void
+static void
 show_charsets(void)
 {
 	char *charset;
@@ -284,7 +285,7 @@ show_charsets(void)
 	} while (charset);
 }
 
-void
+static void
 usage(void)
 {
 	fprintf(stderr, "usage: %s [-a | -m]\n", __progname);

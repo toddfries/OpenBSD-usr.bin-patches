@@ -1,4 +1,4 @@
-/*	$OpenBSD: w.c,v 1.52 2013/08/22 04:43:41 guenther Exp $	*/
+/*	$OpenBSD: w.c,v 1.54 2013/11/20 21:00:33 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1991, 1993, 1994
@@ -40,7 +40,6 @@
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/proc.h>
-#include <sys/user.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/tty.h>
@@ -351,7 +350,8 @@ pr_args(struct kinfo_proc *kp)
 			if ((str = strchr(*argv + 5, ':')) != NULL)
 				str = strchr(str + 1, ':');
 			if (str != NULL) {
-				if ((str[0] == ':') && isspace(str[1]))
+				if ((str[0] == ':') &&
+				    isspace((unsigned char)str[1]))
 					str += 2;
 				fmt_puts(str, &left);
 			} else

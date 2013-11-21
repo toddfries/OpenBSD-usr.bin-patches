@@ -1,4 +1,4 @@
-/*	$OpenBSD: lam.c,v 1.14 2009/10/27 23:59:39 deraadt Exp $	*/
+/*	$OpenBSD: lam.c,v 1.16 2013/11/20 21:22:17 deraadt Exp $	*/
 /*	$NetBSD: lam.c,v 1.2 1994/11/14 20:27:42 jtc Exp $	*/
 
 /*-
@@ -42,6 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define	BIGBUFSIZ	5 * BUFSIZ
 
@@ -109,7 +110,8 @@ getargs(int argc, char *argv[])
 			F = (ch == 'F');
 			/* Validate format string argument. */
 			for (p = optarg; *p != '\0'; p++)
-				if (!isdigit(*p) && *p != '.' && *p != '-')
+				if (!isdigit((unsigned char)*p) &&
+				    *p != '.' && *p != '-')
 					errx(1, "%s: invalid width specified",
 					     optarg);
 			/* '%' + width + 's' + '\0' */

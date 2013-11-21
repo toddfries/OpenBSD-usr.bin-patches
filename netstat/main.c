@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.96 2013/10/22 16:40:28 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.98 2013/11/20 21:34:25 deraadt Exp $	*/
 /*	$NetBSD: main.c,v 1.9 1996/05/07 02:55:02 thorpej Exp $	*/
 
 /*
@@ -317,7 +317,7 @@ main(int argc, char *argv[])
 #define	BACKWARD_COMPATIBILITY
 #ifdef	BACKWARD_COMPATIBILITY
 	if (*argv) {
-		if (isdigit(**argv)) {
+		if (isdigit((unsigned char)**argv)) {
 			interval = atoi(*argv);
 			if (interval <= 0)
 				usage();
@@ -571,7 +571,7 @@ gettable(const char *s)
 
 	len = sizeof(info);
 	if (sysctl(mib, 6, &info, &len, NULL, 0) == -1)
-		err(1, "routing table %i", tableid);
+		err(1, "routing table %d", tableid);
 
 	return (tableid);
 }
