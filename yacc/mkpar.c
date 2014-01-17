@@ -1,4 +1,4 @@
-/*	$OpenBSD: mkpar.c,v 1.15 2012/03/03 19:15:00 nicm Exp $	*/
+/*	$OpenBSD: mkpar.c,v 1.17 2014/01/13 23:14:18 millert Exp $	*/
 /*	$NetBSD: mkpar.c,v 1.4 1996/03/19 03:21:39 jtc Exp $	*/
 
 /*
@@ -54,7 +54,7 @@ extern action *get_shifts();
 extern action *add_reductions();
 extern action *add_reduce();
 
-int sole_reduction(int);
+short sole_reduction(int);
 void free_action_row(action *);
 
 void find_final_state(void);
@@ -213,7 +213,7 @@ unused_rules(void)
     int i;
     action *p;
 
-    rules_used = CALLOC(nrules, sizeof(short));
+    rules_used = calloc(nrules, sizeof(short));
     if (rules_used == NULL) no_space();
 
     for (i = 0; i < nstates; ++i)
@@ -338,10 +338,11 @@ total_conflicts(void)
 }
 
 
-int
+short
 sole_reduction(int stateno)
 {
-    int count, ruleno;
+    int count;
+    short ruleno;
     action *p;
 
     count = 0;
@@ -384,7 +385,7 @@ free_action_row(action *p)
   while (p)
     {
       q = p->next;
-      FREE(p);
+      free(p);
       p = q;
     }
 }
@@ -397,5 +398,5 @@ free_parser(void)
   for (i = 0; i < nstates; i++)
     free_action_row(parser[i]);
 
-  FREE(parser);
+  free(parser);
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.c,v 1.7 2013/11/18 17:37:45 ratchov Exp $	*/
+/*	$OpenBSD: dev.c,v 1.9 2013/12/31 12:27:49 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -335,7 +335,7 @@ dev_midi_full(struct dev *d)
 
 	x.start = SYSEX_START;
 	x.type = SYSEX_TYPE_RT;
-	x.dev = 0x7f;
+	x.dev = SYSEX_DEV_ANY;
 	x.id0 = SYSEX_MTC;
 	x.id1 = SYSEX_MTC_FULL;
 	x.u.full.hr = d->mtc.hr | (d->mtc.fps_id << 5);
@@ -372,6 +372,7 @@ dev_midi_master(struct dev *d)
 	memset(&x, 0, sizeof(struct sysex));
 	x.start = SYSEX_START;
 	x.type = SYSEX_TYPE_RT;
+	x.dev = SYSEX_DEV_ANY;
 	x.id0 = SYSEX_CONTROL;
 	x.id1 = SYSEX_MASTER;
 	x.u.master.fine = 0;
@@ -391,6 +392,7 @@ dev_midi_slotdesc(struct dev *d, struct slot *s)
 	memset(&x, 0, sizeof(struct sysex));
 	x.start = SYSEX_START;
 	x.type = SYSEX_TYPE_EDU;
+	x.dev = SYSEX_DEV_ANY;
 	x.id0 = SYSEX_AUCAT;
 	x.id1 = SYSEX_AUCAT_SLOTDESC;
 	if (*s->name != '\0') {
@@ -416,7 +418,7 @@ dev_midi_dump(struct dev *d)
 	}
 	x.start = SYSEX_START;
 	x.type = SYSEX_TYPE_EDU;
-	x.dev = 0;
+	x.dev = SYSEX_DEV_ANY;
 	x.id0 = SYSEX_AUCAT;
 	x.id1 = SYSEX_AUCAT_DUMPEND;
 	x.u.dumpend.end = SYSEX_END;
@@ -1968,6 +1970,8 @@ slot_stop(struct slot *s)
 void
 slot_write(struct slot *s)
 {
+	int drop;
+
 	if (s->pstate == SLOT_START && s->mix.buf.used == s->mix.buf.len) {
 #ifdef DEBUG
 		if (log_level >= 4) {
@@ -1978,6 +1982,18 @@ slot_write(struct slot *s)
 		s->pstate = SLOT_READY;
 		slot_ready(s);
 	}
+	drop = s->mix.drop;
+	slot_mix_drop(s);
+	while (drop > s->mix.drop) {
+#ifdef DEBUG
+		if (log_level >= 4) {
+			slot_log(s);
+			log_puts(": catching play block\n");
+		}
+#endif
+		s->ops->fill(s->arg);
+		drop--;
+	}
 }
 
 /*
@@ -1986,5 +2002,18 @@ slot_write(struct slot *s)
 void
 slot_read(struct slot *s)
 {
-	/* nothing yet */
+	int sil;
+
+	sil = s->sub.silence;
+	slot_sub_sil(s);
+	while (sil > s->sub.silence) {
+#ifdef DEBUG
+		if (log_level >= 4) {
+			slot_log(s);
+			log_puts(": catching rec block\n");
+		}
+#endif
+		s->ops->flush(s->arg);
+		sil--;
+	}
 }

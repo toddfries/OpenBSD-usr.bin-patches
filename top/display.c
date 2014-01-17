@@ -1,4 +1,4 @@
-/* $OpenBSD: display.c,v 1.45 2013/01/14 21:35:08 guenther Exp $	 */
+/* $OpenBSD: display.c,v 1.47 2014/01/14 02:44:57 guenther Exp $	 */
 
 /*
  *  Top users/processes display for Unix
@@ -610,7 +610,7 @@ readlinedumb(char *buffer, int size)
 			}
 		}
 		/* check for character validity and buffer overflow */
-		else if (cnt == size || !isprint(ch)) {
+		else if (cnt == size || !isprint((unsigned char)ch)) {
 			/* not legal */
 			if (putchar('\7') == EOF)
 				exit(1);
@@ -641,9 +641,12 @@ readline(char *buffer, int size)
 	/* allow room for null terminator */
 	size -= 1;
 
-	if (smart_terminal)
-		getnstr(buffer, size);
-	else
+	if (smart_terminal) {
+		int y, x;
+		getyx(stdscr, y, x);
+		while (getnstr(buffer, size) == KEY_RESIZE)
+			move(y, x);
+	} else
 		return readlinedumb(buffer, size);
 
 	cnt = strlen(buffer);
@@ -732,7 +735,7 @@ printable(char *str)
 
 	ptr = str;
 	while ((ch = *ptr) != '\0') {
-		if (!isprint(ch))
+		if (!isprint((unsigned char)ch))
 			*ptr = '?';
 		ptr++;
 	}

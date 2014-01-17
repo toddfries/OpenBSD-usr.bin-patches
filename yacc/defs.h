@@ -1,4 +1,4 @@
-/*	$OpenBSD: defs.h,v 1.12 2011/04/01 21:21:39 nicm Exp $	*/
+/*	$OpenBSD: defs.h,v 1.16 2014/01/10 23:01:29 millert Exp $	*/
 /*	$NetBSD: defs.h,v 1.6 1996/03/19 03:21:30 jtc Exp $	*/
 
 /*
@@ -125,7 +125,6 @@
 /*  character macros  */
 
 #define IS_IDENT(c)	(isalnum(c) || (c) == '_' || (c) == '.' || (c) == '$')
-#define	IS_OCTAL(c)	((c) >= '0' && (c) <= '7')
 #define	NUMERIC_VALUE(c)	((c) - '0')
 
 
@@ -137,12 +136,8 @@
 
 /*  storage allocation macros  */
 
-#define CALLOC(k,n)	(calloc((unsigned)(k),(unsigned)(n)))
-#define	FREE(x)		(free((char*)(x)))
-#define MALLOC(n)	(malloc((unsigned)(n)))
 #define	NEW(t)		((t*)allocate(sizeof(t)))
-#define	NEW2(n,t)	((t*)allocate((unsigned)((n)*sizeof(t))))
-#define REALLOC(p,n)	(realloc((char*)(p),(unsigned)(n)))
+#define	NEW2(n,t)	((t*)allocate((n)*sizeof(t)))
 
 
 /*  the structure of a symbol table entry  */
@@ -309,9 +304,9 @@ extern short final_state;
 
 /* global functions */
 
-extern char *allocate();
-extern bucket *lookup();
-extern bucket *make_bucket();
+extern void *allocate(size_t);
+extern bucket *lookup(char *);
+extern bucket *make_bucket(char *);
 extern void set_first_derives(void);
 extern void closure(short *, int);
 extern void finalize_closure(void);

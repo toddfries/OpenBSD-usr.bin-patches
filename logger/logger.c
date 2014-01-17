@@ -1,4 +1,4 @@
-/*	$OpenBSD: logger.c,v 1.11 2009/10/27 23:59:40 deraadt Exp $	*/
+/*	$OpenBSD: logger.c,v 1.13 2013/11/27 13:32:02 okan Exp $	*/
 /*	$NetBSD: logger.c,v 1.4 1994/12/22 06:27:00 jtc Exp $	*/
 
 /*
@@ -60,7 +60,7 @@ main(int argc, char *argv[])
 	pri = LOG_NOTICE;
 	logflags = 0;
 	while ((ch = getopt(argc, argv, "f:ip:st:")) != -1)
-		switch((char)ch) {
+		switch(ch) {
 		case 'f':		/* file to log */
 			if (freopen(optarg, "r", stdin) == NULL) {
 				(void)fprintf(stderr, "logger: %s: %s.\n",
@@ -157,7 +157,7 @@ decode(char *name, CODE *codetab)
 {
 	CODE *c;
 
-	if (isdigit(*name))
+	if (isdigit((unsigned char)*name))
 		return (atoi(name));
 
 	for (c = codetab; c->c_name; c++)

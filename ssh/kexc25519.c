@@ -1,4 +1,4 @@
-/* $OpenBSD: kexc25519.c,v 1.2 2013/11/02 22:02:14 markus Exp $ */
+/* $OpenBSD: kexc25519.c,v 1.4 2014/01/12 08:13:13 djm Exp $ */
 /*
  * Copyright (c) 2001, 2013 Markus Friedl.  All rights reserved.
  * Copyright (c) 2010 Damien Miller.  All rights reserved.
@@ -39,6 +39,7 @@
 #include "cipher.h"
 #include "kex.h"
 #include "log.h"
+#include "digest.h"
 
 extern int crypto_scalarmult_curve25519(u_char a[CURVE25519_SIZE],
     const u_char b[CURVE25519_SIZE], const u_char c[CURVE25519_SIZE])
@@ -55,28 +56,24 @@ kexc25519_keygen(u_char key[CURVE25519_SIZE], u_char pub[CURVE25519_SIZE])
 	crypto_scalarmult_curve25519(pub, key, basepoint);
 }
 
-BIGNUM *
+void
 kexc25519_shared_key(const u_char key[CURVE25519_SIZE],
-    const u_char pub[CURVE25519_SIZE])
+    const u_char pub[CURVE25519_SIZE], Buffer *out)
 {
 	u_char shared_key[CURVE25519_SIZE];
-	BIGNUM *shared_secret;
 
 	crypto_scalarmult_curve25519(shared_key, key, pub);
 #ifdef DEBUG_KEXECDH
 	dump_digest("shared secret", shared_key, CURVE25519_SIZE);
 #endif
-	if ((shared_secret = BN_new()) == NULL)
-		fatal("%s: BN_new failed", __func__);
-	if (BN_bin2bn(shared_key, sizeof(shared_key), shared_secret) == NULL)
-		fatal("%s: BN_bin2bn failed", __func__);
+	buffer_clear(out);
+	buffer_put_bignum2_from_string(out, shared_key, CURVE25519_SIZE);
 	memset(shared_key, 0, CURVE25519_SIZE);	/* XXX explicit_bzero() */
-	return (shared_secret);
 }
 
 void
 kex_c25519_hash(
-    const EVP_MD *evp_md,
+    int hash_alg,
     char *client_version_string,
     char *server_version_string,
     char *ckexinit, int ckexinitlen,
@@ -84,12 +81,11 @@ kex_c25519_hash(
     u_char *serverhostkeyblob, int sbloblen,
     const u_char client_dh_pub[CURVE25519_SIZE],
     const u_char server_dh_pub[CURVE25519_SIZE],
-    const BIGNUM *shared_secret,
+    const u_char *shared_secret, u_int secretlen,
     u_char **hash, u_int *hashlen)
 {
 	Buffer b;
-	EVP_MD_CTX md;
-	static u_char digest[EVP_MAX_MD_SIZE];
+	static u_char digest[SSH_DIGEST_MAX_LENGTH];
 
 	buffer_init(&b);
 	buffer_put_cstring(&b, client_version_string);
@@ -106,20 +102,19 @@ kex_c25519_hash(
 	buffer_put_string(&b, serverhostkeyblob, sbloblen);
 	buffer_put_string(&b, client_dh_pub, CURVE25519_SIZE);
 	buffer_put_string(&b, server_dh_pub, CURVE25519_SIZE);
-	buffer_put_bignum2(&b, shared_secret);
+	buffer_append(&b, shared_secret, secretlen);
 
 #ifdef DEBUG_KEX
 	buffer_dump(&b);
 #endif
-	EVP_DigestInit(&md, evp_md);
-	EVP_DigestUpdate(&md, buffer_ptr(&b), buffer_len(&b));
-	EVP_DigestFinal(&md, digest, NULL);
+	if (ssh_digest_buffer(hash_alg, &b, digest, sizeof(digest)) != 0)
+		fatal("%s: digest_buffer failed", __func__);
 
 	buffer_free(&b);
 
 #ifdef DEBUG_KEX
-	dump_digest("hash", digest, EVP_MD_size(evp_md));
+	dump_digest("hash", digest, ssh_digest_bytes(hash_alg));
 #endif
 	*hash = digest;
-	*hashlen = EVP_MD_size(evp_md);
+	*hashlen = ssh_digest_bytes(hash_alg);
 }

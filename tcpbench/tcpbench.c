@@ -290,8 +290,8 @@ static u_long
 kfind_tcb(int sock)
 {
 	struct inpcbtable tcbtab;
-	struct inpcb *head, *next, *prev;
-	struct inpcb inpcb;
+	struct inpcb *next, *prev;
+	struct inpcb inpcb, prevpcb;
 	struct tcpcb tcpcb;
 
 	struct sockaddr_storage me, them;
@@ -322,26 +322,28 @@ kfind_tcb(int sock)
 		fprintf(stderr, "Using PCB table at %lu\n", ptb->ktcbtab);
 retry:
 	kget(ptb->ktcbtab, &tcbtab, sizeof(tcbtab));
-	prev = head = (struct inpcb *)&CIRCLEQ_FIRST(
-	    &((struct inpcbtable *)ptb->ktcbtab)->inpt_queue);
-	next = CIRCLEQ_FIRST(&tcbtab.inpt_queue);
+	prev = NULL;
+	next = TAILQ_FIRST(&tcbtab.inpt_queue);
 
 	if (ptb->vflag >= 2)
-		fprintf(stderr, "PCB head at %p\n", head);
-	while (next != head) {
+		fprintf(stderr, "PCB start at %p\n", next);
+	while (next != NULL) {
 		if (ptb->vflag >= 2)
 			fprintf(stderr, "Checking PCB %p\n", next);
 		kget((u_long)next, &inpcb, sizeof(inpcb));
-		if (CIRCLEQ_PREV(&inpcb, inp_queue) != prev) {
-			if (nretry--) {
-				warnx("pcb prev pointer insane");
-				goto retry;
-			} else
-				errx(1, "pcb prev pointer insane,"
-				     " all attempts exausted");
+		if (prev != NULL) {
+			kget((u_long)prev, &prevpcb, sizeof(prevpcb));
+			if (TAILQ_NEXT(&prevpcb, inp_queue) != next) {
+				if (nretry--) {
+					warnx("PCB prev pointer insane");
+					goto retry;
+				} else
+					errx(1, "PCB prev pointer insane,"
+					    " all attempts exhaused");
+			}
 		}
 		prev = next;
-		next = CIRCLEQ_NEXT(&inpcb, inp_queue);
+		next = TAILQ_NEXT(&inpcb, inp_queue);
 
 		if (me.ss_family == AF_INET) {
 			if ((inpcb.inp_flags & INP_IPV6) != 0) {

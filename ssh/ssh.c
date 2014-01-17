@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh.c,v 1.393 2013/11/21 00:45:44 djm Exp $ */
+/* $OpenBSD: ssh.c,v 1.397 2013/12/29 05:42:16 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -186,11 +186,11 @@ usage(void)
 "usage: ssh [-1246AaCfgKkMNnqsTtVvXxYy] [-b bind_address] [-c cipher_spec]\n"
 "           [-D [bind_address:]port] [-E log_file] [-e escape_char]\n"
 "           [-F configfile] [-I pkcs11] [-i identity_file]\n"
-"           [-L [bind_address:]port:host:hostport] [-Q protocol_feature]\n"
-"           [-l login_name] [-m mac_spec] [-O ctl_cmd] [-o option] [-p port]\n"
-"           [-R [bind_address:]port:host:hostport] [-S ctl_path]\n"
-"           [-W host:port] [-w local_tun[:remote_tun]]\n"
-"           [user@]hostname [command]\n"
+"           [-L [bind_address:]port:host:hostport] [-l login_name] [-m mac_spec]\n"
+"           [-O ctl_cmd] [-o option] [-p port]\n"
+"           [-Q cipher | cipher-auth | mac | kex | key]\n"
+"           [-R [bind_address:]port:host:hostport] [-S ctl_path] [-W host:port]\n"
+"           [-w local_tun[:remote_tun]] [user@]hostname [command]\n"
 	);
 	exit(255);
 }
@@ -489,18 +489,22 @@ main(int ac, char **av)
 		case 'P':	/* deprecated */
 			options.use_privileged_port = 0;
 			break;
-		case 'Q':	/* deprecated */
+		case 'Q':
 			cp = NULL;
-			if (strcasecmp(optarg, "cipher") == 0)
+			if (strcmp(optarg, "cipher") == 0)
 				cp = cipher_alg_list('\n', 0);
-			else if (strcasecmp(optarg, "cipher-auth") == 0)
+			else if (strcmp(optarg, "cipher-auth") == 0)
 				cp = cipher_alg_list('\n', 1);
-			else if (strcasecmp(optarg, "mac") == 0)
+			else if (strcmp(optarg, "mac") == 0)
 				cp = mac_alg_list('\n');
-			else if (strcasecmp(optarg, "kex") == 0)
+			else if (strcmp(optarg, "kex") == 0)
 				cp = kex_alg_list('\n');
-			else if (strcasecmp(optarg, "key") == 0)
-				cp = key_alg_list();
+			else if (strcmp(optarg, "key") == 0)
+				cp = key_alg_list(0, 0);
+			else if (strcmp(optarg, "key-cert") == 0)
+				cp = key_alg_list(1, 0);
+			else if (strcmp(optarg, "key-plain") == 0)
+				cp = key_alg_list(0, 1);
 			if (cp == NULL)
 				fatal("Unsupported query \"%s\"", optarg);
 			printf("%s\n", cp);
@@ -957,7 +961,7 @@ main(int ac, char **av)
 	sensitive_data.external_keysign = 0;
 	if (options.rhosts_rsa_authentication ||
 	    options.hostbased_authentication) {
-		sensitive_data.nkeys = 7;
+		sensitive_data.nkeys = 9;
 		sensitive_data.keys = xcalloc(sensitive_data.nkeys,
 		    sizeof(Key));
 
@@ -970,31 +974,40 @@ main(int ac, char **av)
 		    _PATH_HOST_ECDSA_KEY_FILE, "", NULL);
 		sensitive_data.keys[3] = key_load_private_cert(KEY_RSA,
 		    _PATH_HOST_RSA_KEY_FILE, "", NULL);
-		sensitive_data.keys[4] = key_load_private_type(KEY_DSA,
+		sensitive_data.keys[4] = key_load_private_cert(KEY_ED25519,
+		    _PATH_HOST_ED25519_KEY_FILE, "", NULL);
+		sensitive_data.keys[5] = key_load_private_type(KEY_DSA,
 		    _PATH_HOST_DSA_KEY_FILE, "", NULL, NULL);
-		sensitive_data.keys[5] = key_load_private_type(KEY_ECDSA,
+		sensitive_data.keys[6] = key_load_private_type(KEY_ECDSA,
 		    _PATH_HOST_ECDSA_KEY_FILE, "", NULL, NULL);
-		sensitive_data.keys[6] = key_load_private_type(KEY_RSA,
+		sensitive_data.keys[7] = key_load_private_type(KEY_RSA,
 		    _PATH_HOST_RSA_KEY_FILE, "", NULL, NULL);
+		sensitive_data.keys[8] = key_load_private_type(KEY_ED25519,
+		    _PATH_HOST_ED25519_KEY_FILE, "", NULL, NULL);
 		PRIV_END;
 
 		if (options.hostbased_authentication == 1 &&
 		    sensitive_data.keys[0] == NULL &&
-		    sensitive_data.keys[4] == NULL &&
 		    sensitive_data.keys[5] == NULL &&
-		    sensitive_data.keys[6] == NULL) {
+		    sensitive_data.keys[6] == NULL &&
+		    sensitive_data.keys[7] == NULL &&
+		    sensitive_data.keys[8] == NULL) {
 			sensitive_data.keys[1] = key_load_cert(
 			    _PATH_HOST_DSA_KEY_FILE);
 			sensitive_data.keys[2] = key_load_cert(
 			    _PATH_HOST_ECDSA_KEY_FILE);
 			sensitive_data.keys[3] = key_load_cert(
 			    _PATH_HOST_RSA_KEY_FILE);
-			sensitive_data.keys[4] = key_load_public(
-			    _PATH_HOST_DSA_KEY_FILE, NULL);
+			sensitive_data.keys[4] = key_load_cert(
+			    _PATH_HOST_ED25519_KEY_FILE);
 			sensitive_data.keys[5] = key_load_public(
-			    _PATH_HOST_ECDSA_KEY_FILE, NULL);
+			    _PATH_HOST_DSA_KEY_FILE, NULL);
 			sensitive_data.keys[6] = key_load_public(
+			    _PATH_HOST_ECDSA_KEY_FILE, NULL);
+			sensitive_data.keys[7] = key_load_public(
 			    _PATH_HOST_RSA_KEY_FILE, NULL);
+			sensitive_data.keys[8] = key_load_public(
+			    _PATH_HOST_ED25519_KEY_FILE, NULL);
 			sensitive_data.external_keysign = 1;
 		}
 	}

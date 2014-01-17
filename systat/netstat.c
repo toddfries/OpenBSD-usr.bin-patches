@@ -1,4 +1,4 @@
-/*	$OpenBSD: netstat.c,v 1.36 2013/03/20 06:55:24 deraadt Exp $	*/
+/*	$OpenBSD: netstat.c,v 1.39 2013/12/25 01:46:00 tedu Exp $	*/
 /*	$NetBSD: netstat.c,v 1.3 1995/06/18 23:53:07 cgd Exp $	*/
 
 /*-
@@ -232,8 +232,8 @@ int
 read_ns(void)
 {
 	struct inpcbtable pcbtable;
-	struct inpcb *head, *prev, *next;
-	struct inpcb inpcb;
+	struct inpcb *next, *prev;
+	struct inpcb inpcb, prevpcb;
 	struct socket sockb;
 	struct tcpcb tcpcb;
 	void *off;
@@ -262,17 +262,20 @@ read_ns(void)
 again:
 	KREAD(off, &pcbtable, sizeof (struct inpcbtable));
 
-	prev = head = (struct inpcb *)&((struct inpcbtable *)off)->inpt_queue;
-	next = CIRCLEQ_FIRST(&pcbtable.inpt_queue);
+	prev = NULL;
+	next = TAILQ_FIRST(&pcbtable.inpt_queue);
 
-	while (next != head) {
+	while (next != NULL) {
 		KREAD(next, &inpcb, sizeof (inpcb));
-		if (CIRCLEQ_PREV(&inpcb, inp_queue) != prev) {
-			error("Kernel state in transition");
-			return 0;
+		if (prev != NULL) {
+			KREAD(prev, &prevpcb, sizeof (prevpcb));
+			if (TAILQ_NEXT(&prevpcb, inp_queue) != next) {
+				error("Kernel state in transition");
+				return 0;
+			}
 		}
 		prev = next;
-		next = CIRCLEQ_NEXT(&inpcb, inp_queue);
+		next = TAILQ_NEXT(&inpcb, inp_queue);
 
 		if (!aflag) {
 			if (!(inpcb.inp_flags & INP_IPV6) &&

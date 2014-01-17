@@ -1,4 +1,4 @@
-/*	$OpenBSD: inet.c,v 1.125 2013/10/24 09:33:20 deraadt Exp $	*/
+/*	$OpenBSD: inet.c,v 1.129 2013/12/25 01:46:00 tedu Exp $	*/
 /*	$NetBSD: inet.c,v 1.14 1995/10/03 21:42:37 thorpej Exp $	*/
 
 /*
@@ -110,8 +110,8 @@ void
 protopr(u_long off, char *name, int af, u_int tableid, u_long pcbaddr)
 {
 	struct inpcbtable table;
-	struct inpcb *head, *next, *prev;
-	struct inpcb inpcb;
+	struct inpcb *prev, *next;
+	struct inpcb inpcb, prevpcb;
 	int istcp, israw, isany;
 	int addrlen = 22;
 	int first = 1;
@@ -124,18 +124,20 @@ protopr(u_long off, char *name, int af, u_int tableid, u_long pcbaddr)
 	istcp = strcmp(name, "tcp") == 0;
 	israw = strncmp(name, "ip", 2) == 0;
 	kread(off, &table, sizeof table);
-	prev = head =
-	    (struct inpcb *)&CIRCLEQ_FIRST(&((struct inpcbtable *)off)->inpt_queue);
-	next = CIRCLEQ_FIRST(&table.inpt_queue);
+	prev = NULL;
+	next = TAILQ_FIRST(&table.inpt_queue);
 
-	while (next != head) {
+	while (next != NULL) {
 		kread((u_long)next, &inpcb, sizeof inpcb);
-		if (CIRCLEQ_PREV(&inpcb, inp_queue) != prev) {
-			printf("???\n");
-			break;
+		if (prev != NULL) {
+			kread((u_long)prev, &prevpcb, sizeof prevpcb);
+			if (TAILQ_NEXT(&prevpcb, inp_queue) != next) {
+				printf("PCB list changed\n");
+				break;
+			}
 		}
 		prev = next;
-		next = CIRCLEQ_NEXT(&inpcb, inp_queue);
+		next = TAILQ_NEXT(&inpcb, inp_queue);
 
 		switch (af) {
 		case AF_INET:

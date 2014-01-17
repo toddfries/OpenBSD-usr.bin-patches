@@ -1,7 +1,7 @@
-/*	$Id: roff.c,v 1.59 2013/10/22 20:37:54 schwarze Exp $ */
+/*	$Id: roff.c,v 1.64 2014/01/06 23:46:01 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -105,6 +105,7 @@ struct	roffreg {
 struct	roff {
 	enum mparset	 parsetype; /* requested parse type */
 	struct mparse	*parse; /* parse point */
+	int		 quick; /* skip standard macro deletion */
 	struct roffnode	*last; /* leaf of stack */
 	enum roffrule	 rstack[RSTACK_MAX]; /* stack of !`ie' rules */
 	char		 control; /* control character */
@@ -443,14 +444,9 @@ roff_free1(struct roff *r)
 void
 roff_reset(struct roff *r)
 {
-	int		 i;
 
 	roff_free1(r);
-
 	r->control = 0;
-
-	for (i = 0; i < PREDEFS_MAX; i++) 
-		roff_setstr(r, predefs[i].name, predefs[i].str, 0);
 }
 
 
@@ -464,20 +460,17 @@ roff_free(struct roff *r)
 
 
 struct roff *
-roff_alloc(enum mparset type, struct mparse *parse)
+roff_alloc(enum mparset type, struct mparse *parse, int quick)
 {
 	struct roff	*r;
-	int		 i;
 
 	r = mandoc_calloc(1, sizeof(struct roff));
 	r->parsetype = type;
 	r->parse = parse;
+	r->quick = quick;
 	r->rstackpos = -1;
 	
 	roffhash_init();
-
-	for (i = 0; i < PREDEFS_MAX; i++) 
-		roff_setstr(r, predefs[i].name, predefs[i].str, 0);
 
 	return(r);
 }
@@ -642,8 +635,7 @@ roff_parsetext(char **bufp, size_t *szp, int pos, int *offs)
 		if ('\\' == *p) {
 			/* Skip over escapes. */
 			p++;
-			esc = mandoc_escape
-				((const char const **)&p, NULL, NULL);
+			esc = mandoc_escape((const char **)&p, NULL, NULL);
 			if (ESCAPE_ERROR == esc)
 				break;
 			continue;
@@ -1356,7 +1348,7 @@ roff_ds(ROFF_ARGS)
 }
 
 void
-roff_setreg(struct roff *r, const char *name, int val)
+roff_setreg(struct roff *r, const char *name, int val, char sign)
 {
 	struct roffreg	*reg;
 
@@ -1371,11 +1363,17 @@ roff_setreg(struct roff *r, const char *name, int val)
 		reg = mandoc_malloc(sizeof(struct roffreg));
 		reg->key.p = mandoc_strdup(name);
 		reg->key.sz = strlen(name);
+		reg->val = 0;
 		reg->next = r->regtab;
 		r->regtab = reg;
 	}
 
-	reg->val = val;
+	if ('+' == sign)
+		reg->val += val;
+	else if ('-' == sign)
+		reg->val -= val;
+	else
+		reg->val = val;
 }
 
 int
@@ -1422,14 +1420,21 @@ roff_nr(ROFF_ARGS)
 {
 	const char	*key;
 	char		*val;
+	size_t		 sz;
 	int		 iv;
+	char		 sign;
 
 	val = *bufp + pos;
 	key = roff_getname(r, &val, ln, pos);
 
-	iv = mandoc_strntoi(val, strlen(val), 10);
+	sign = *val;
+	if ('+' == sign || '-' == sign)
+		val++;
 
-	roff_setreg(r, key, iv);
+	sz = strspn(val, "0123456789");
+	iv = sz ? mandoc_strntoi(val, sz, 10) : 0;
+
+	roff_setreg(r, key, iv, sign);
 
 	return(ROFF_IGN);
 }
@@ -1481,7 +1486,7 @@ roff_Dd(ROFF_ARGS)
 {
 	const char *const	*cp;
 
-	if (MPARSE_MDOC != r->parsetype)
+	if (0 == r->quick && MPARSE_MDOC != r->parsetype)
 		for (cp = __mdoc_reserved; *cp; cp++)
 			roff_setstr(r, *cp, NULL, 0);
 
@@ -1494,7 +1499,7 @@ roff_TH(ROFF_ARGS)
 {
 	const char *const	*cp;
 
-	if (MPARSE_MDOC != r->parsetype)
+	if (0 == r->quick && MPARSE_MDOC != r->parsetype)
 		for (cp = __man_reserved; *cp; cp++)
 			roff_setstr(r, *cp, NULL, 0);
 
@@ -1716,7 +1721,7 @@ roff_userdef(ROFF_ARGS)
 
 	/*
 	 * Collect pointers to macro argument strings
-	 * and null-terminate them.
+	 * and NUL-terminate them.
 	 */
 	cp = *bufp + pos;
 	for (i = 0; i < 9; i++)
@@ -1885,11 +1890,17 @@ static const char *
 roff_getstrn(const struct roff *r, const char *name, size_t len)
 {
 	const struct roffkv *n;
+	int i;
 
 	for (n = r->strtab; n; n = n->next)
 		if (0 == strncmp(name, n->key.p, len) && 
 				'\0' == n->key.p[(int)len])
 			return(n->val.p);
+
+	for (i = 0; i < PREDEFS_MAX; i++)
+		if (0 == strncmp(name, predefs[i].name, len) &&
+				'\0' == predefs[i].name[(int)len])
+			return(predefs[i].str);
 
 	return(NULL);
 }

@@ -1,4 +1,4 @@
-/* $OpenBSD: key.h,v 1.38 2013/10/29 09:42:11 djm Exp $ */
+/* $OpenBSD: key.h,v 1.41 2014/01/09 23:20:00 djm Exp $ */
 
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
@@ -37,9 +37,11 @@ enum types {
 	KEY_RSA,
 	KEY_DSA,
 	KEY_ECDSA,
+	KEY_ED25519,
 	KEY_RSA_CERT,
 	KEY_DSA_CERT,
 	KEY_ECDSA_CERT,
+	KEY_ED25519_CERT,
 	KEY_RSA_CERT_V00,
 	KEY_DSA_CERT_V00,
 	KEY_UNSPEC
@@ -80,7 +82,12 @@ struct Key {
 	int	 ecdsa_nid;	/* NID of curve */
 	EC_KEY	*ecdsa;
 	struct KeyCert *cert;
+	u_char	*ed25519_sk;
+	u_char	*ed25519_pk;
 };
+
+#define	ED25519_SK_SZ	crypto_sign_ed25519_SECRETKEYBYTES
+#define	ED25519_PK_SZ	crypto_sign_ed25519_PUBLICKEYBYTES
 
 Key		*key_new(int);
 void		 key_add_private(Key *);
@@ -117,10 +124,10 @@ const char	*key_curve_nid_to_name(int);
 u_int		 key_curve_nid_to_bits(int);
 int		 key_ecdsa_bits_to_nid(int);
 int		 key_ecdsa_key_to_nid(EC_KEY *);
-const EVP_MD	*key_ec_nid_to_evpmd(int nid);
+int		 key_ec_nid_to_hash_alg(int nid);
 int		 key_ec_validate_public(const EC_GROUP *, const EC_POINT *);
 int		 key_ec_validate_private(const EC_KEY *);
-char		*key_alg_list(void);
+char		*key_alg_list(int, int);
 
 Key		*key_from_blob(const u_char *, u_int);
 int		 key_to_blob(const Key *, u_char **, u_int *);
@@ -137,10 +144,15 @@ int	 ssh_ecdsa_sign(const Key *, u_char **, u_int *, const u_char *, u_int);
 int	 ssh_ecdsa_verify(const Key *, const u_char *, u_int, const u_char *, u_int);
 int	 ssh_rsa_sign(const Key *, u_char **, u_int *, const u_char *, u_int);
 int	 ssh_rsa_verify(const Key *, const u_char *, u_int, const u_char *, u_int);
+int	 ssh_ed25519_sign(const Key *, u_char **, u_int *, const u_char *, u_int);
+int	 ssh_ed25519_verify(const Key *, const u_char *, u_int, const u_char *, u_int);
 
 #if defined(DEBUG_KEXECDH) || defined(DEBUG_PK)
 void	key_dump_ec_point(const EC_GROUP *, const EC_POINT *);
 void	key_dump_ec_key(const EC_KEY *);
 #endif
+
+void     key_private_serialize(const Key *, Buffer *);
+Key	*key_private_deserialize(Buffer *);
 
 #endif

@@ -1,4 +1,4 @@
-/*	$OpenBSD: suff.c,v 1.85 2013/04/23 14:32:53 espie Exp $ */
+/*	$OpenBSD: suff.c,v 1.87 2014/01/06 12:08:18 espie Exp $ */
 /*	$NetBSD: suff.c,v 1.13 1996/11/06 17:59:25 christos Exp $	*/
 
 /*
@@ -971,13 +971,13 @@ SuffExpandVarChildren(LstNode after, GNode *cgn, GNode *pgn)
 		for (start = cp; *start == ' ' || *start == '\t'; start++)
 			continue;
 		for (cp2 = start; *cp2 != '\0';) {
-			if (isspace(*cp2)) {
+			if (ISSPACE(*cp2)) {
 				/* White-space -- terminate element, find the
 				 * node, add it, skip any further spaces.  */
 				gn = Targ_FindNodei(start, cp2, TARG_CREATE);
 				cp2++;
 				Lst_AtEnd(&members, gn);
-				while (isspace(*cp2))
+				while (ISSPACE(*cp2))
 					cp2++;
 				/* Adjust cp2 for increment at start of loop,
 				 * but set start to first non-space.  */
@@ -1668,10 +1668,12 @@ SuffFindDeps(GNode *gn, Lst slst)
 	if (DEBUG(SUFF))
 		printf("SuffFindDeps (%s)\n", gn->name);
 
+	current_node = gn;
 	if (gn->type & OP_ARCHV)
 		SuffFindArchiveDeps(gn, slst);
 	else
 		SuffFindNormalDeps(gn, slst);
+	current_node = NULL;
 }
 
 /*-

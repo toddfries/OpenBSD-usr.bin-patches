@@ -1,4 +1,4 @@
-/*	$OpenBSD: gs.h,v 1.9 2006/01/08 21:05:39 miod Exp $	*/
+/*	$OpenBSD: gs.h,v 1.11 2013/12/01 20:22:34 krw Exp $	*/
 
 /*-
  * Copyright (c) 1993, 1994
@@ -21,7 +21,7 @@
  * The read-only bit follows the file name, not the file itself.
  */
 struct _fref {
-	CIRCLEQ_ENTRY(_fref) q;		/* Linked list of file references. */
+	TAILQ_ENTRY(_fref) q;		/* Linked list of file references. */
 	char	*name;			/* File name. */
 	char	*tname;			/* Backing temporary file name. */
 
@@ -58,8 +58,8 @@ struct _gs {
 	char	*progname;		/* Programe name. */
 
 	int	 id;			/* Last allocated screen id. */
-	CIRCLEQ_HEAD(_dqh, _scr) dq;	/* Displayed screens. */
-	CIRCLEQ_HEAD(_hqh, _scr) hq;	/* Hidden screens. */
+	TAILQ_HEAD(_dqh, _scr) dq;	/* Displayed screens. */
+	TAILQ_HEAD(_hqh, _scr) hq;	/* Hidden screens. */
 
 	SCR	*ccl_sp;		/* Colon command-line screen. */
 
@@ -71,7 +71,7 @@ struct _gs {
 	void	*tk_private;		/* Tk/Tcl support private area. */
 
 					/* File references. */
-	CIRCLEQ_HEAD(_frefh, _fref) frefq;
+	TAILQ_HEAD(_frefh, _fref) frefq;
 
 #define	GO_COLUMNS	0		/* Global options: columns. */
 #define	GO_LINES	1		/* Global options: lines. */

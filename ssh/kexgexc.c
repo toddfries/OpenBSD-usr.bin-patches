@@ -1,4 +1,4 @@
-/* $OpenBSD: kexgexc.c,v 1.13 2013/05/17 00:13:13 djm Exp $ */
+/* $OpenBSD: kexgexc.c,v 1.15 2014/01/12 08:13:13 djm Exp $ */
 /*
  * Copyright (c) 2000 Niels Provos.  All rights reserved.
  * Copyright (c) 2001 Markus Friedl.  All rights reserved.
@@ -167,7 +167,7 @@ kexgex_client(Kex *kex)
 
 	/* calc and verify H */
 	kexgex_hash(
-	    kex->evp_md,
+	    kex->hash_alg,
 	    kex->client_version_string,
 	    kex->server_version_string,
 	    buffer_ptr(&kex->my), buffer_len(&kex->my),
@@ -197,7 +197,7 @@ kexgex_client(Kex *kex)
 		kex->session_id = xmalloc(kex->session_id_len);
 		memcpy(kex->session_id, hash, kex->session_id_len);
 	}
-	kex_derive_keys(kex, hash, hashlen, shared_secret);
+	kex_derive_keys_bn(kex, hash, hashlen, shared_secret);
 	BN_clear_free(shared_secret);
 
 	kex_finish(kex);

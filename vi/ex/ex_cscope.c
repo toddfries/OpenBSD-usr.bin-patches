@@ -1,4 +1,4 @@
-/*	$OpenBSD: ex_cscope.c,v 1.17 2013/08/22 04:43:40 guenther Exp $	*/
+/*	$OpenBSD: ex_cscope.c,v 1.20 2013/12/01 19:26:37 krw Exp $	*/
 
 /*-
  * Copyright (c) 1994, 1996
@@ -459,14 +459,14 @@ cscope_find(sp, cmdp, pattern)
 	 */
 	rtp = NULL;
 	rtqp = NULL;
-	if (CIRCLEQ_FIRST(&exp->tq) == CIRCLEQ_END(&exp->tq)) {
+	if (TAILQ_EMPTY(&exp->tq)) {
 		/* Initialize the `local context' tag queue structure. */
 		CALLOC_GOTO(sp, rtqp, TAGQ *, 1, sizeof(TAGQ));
-		CIRCLEQ_INIT(&rtqp->tagq);
+		TAILQ_INIT(&rtqp->tagq);
 
 		/* Initialize and link in its tag structure. */
 		CALLOC_GOTO(sp, rtp, TAG *, 1, sizeof(TAG));
-		CIRCLEQ_INSERT_HEAD(&rtqp->tagq, rtp, q);
+		TAILQ_INSERT_HEAD(&rtqp->tagq, rtp, q);
 		rtqp->current = rtp; 
 	}
 
@@ -513,7 +513,7 @@ cscope_find(sp, cmdp, pattern)
 		return (0);
 	}
 
-	tqp->current = CIRCLEQ_FIRST(&tqp->tagq);
+	tqp->current = TAILQ_FIRST(&tqp->tagq);
 
 	/* Try to switch to the first tag. */
 	force = FL_ISSET(cmdp->iflags, E_C_FORCE);
@@ -533,13 +533,13 @@ cscope_find(sp, cmdp, pattern)
 	 * in place, so we can pop all the way back to the current mark.
 	 * Note, it doesn't point to much of anything, it's a placeholder.
 	 */
-	if (CIRCLEQ_FIRST(&exp->tq) == CIRCLEQ_END(&exp->tq)) {
-		CIRCLEQ_INSERT_HEAD(&exp->tq, rtqp, q);
+	if (TAILQ_EMPTY(&exp->tq)) {
+		TAILQ_INSERT_HEAD(&exp->tq, rtqp, q);
 	} else
-		rtqp = CIRCLEQ_FIRST(&exp->tq);
+		rtqp = TAILQ_FIRST(&exp->tq);
 
 	/* Link the current TAGQ structure into place. */
-	CIRCLEQ_INSERT_HEAD(&exp->tq, tqp, q);
+	TAILQ_INSERT_HEAD(&exp->tq, tqp, q);
 
 	(void)cscope_search(sp, tqp, tqp->current);
 
@@ -625,8 +625,8 @@ usage:		(void)csc_help(sp, "find");
 	if (p[0] == '"' && p[1] != '\0' && p[2] == '\0')
 		CBNAME(sp, cbp, p[1]);
 	if (cbp != NULL) {
-		p = CIRCLEQ_FIRST(&cbp->textq)->lb;
-		tlen = CIRCLEQ_FIRST(&cbp->textq)->len;
+		p = TAILQ_FIRST(&cbp->textq)->lb;
+		tlen = TAILQ_FIRST(&cbp->textq)->len;
 	} else
 		tlen = strlen(p);
 
@@ -634,7 +634,7 @@ usage:		(void)csc_help(sp, "find");
 	CALLOC(sp, tqp, TAGQ *, 1, sizeof(TAGQ) + tlen + 3);
 	if (tqp == NULL)
 		return (NULL);
-	CIRCLEQ_INIT(&tqp->tagq);
+	TAILQ_INIT(&tqp->tagq);
 	tqp->tag = tqp->buf;
 	tqp->tag[0] = pattern[0];
 	tqp->tag[1] = ' ';
@@ -751,7 +751,7 @@ parse(sp, csc, tqp, matchesp)
 			tp->search = tp->fname + tp->fnlen + 1;
 			memcpy(tp->search, search, (tp->slen = slen) + 1);
 		}
-		CIRCLEQ_INSERT_TAIL(&tqp->tagq, tp, q);
+		TAILQ_INSERT_TAIL(&tqp->tagq, tp, q);
 
 		++*matchesp;
 	}

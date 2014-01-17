@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.19 2009/10/27 23:59:47 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.22 2013/12/01 20:22:34 krw Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -78,15 +78,15 @@ editor(gp, argc, argv)
 		gp->scr_msg = vs_msg;
 
 	/* Common global structure initialization. */
-	CIRCLEQ_INIT(&gp->dq);
-	CIRCLEQ_INIT(&gp->hq);
+	TAILQ_INIT(&gp->dq);
+	TAILQ_INIT(&gp->hq);
 	LIST_INIT(&gp->ecq);
 	LIST_INSERT_HEAD(&gp->ecq, &gp->excmd, q);
 	gp->noprint = DEFAULT_NOPRINT;
 
 	/* Structures shared by screens so stored in the GS structure. */
-	CIRCLEQ_INIT(&gp->frefq);
-	CIRCLEQ_INIT(&gp->dcb_store.textq);
+	TAILQ_INIT(&gp->frefq);
+	TAILQ_INIT(&gp->dcb_store.textq);
 	LIST_INIT(&gp->cutq);
 	LIST_INIT(&gp->seqq);
 
@@ -244,11 +244,11 @@ editor(gp, argc, argv)
 	 */
 	if (screen_init(gp, NULL, &sp)) {
 		if (sp != NULL)
-			CIRCLEQ_INSERT_HEAD(&gp->dq, sp, q);
+			TAILQ_INSERT_HEAD(&gp->dq, sp, q);
 		goto err;
 	}
 	F_SET(sp, SC_EX);
-	CIRCLEQ_INSERT_HEAD(&gp->dq, sp, q);
+	TAILQ_INSERT_HEAD(&gp->dq, sp, q);
 
 	if (v_key_init(sp))		/* Special key initialization. */
 		goto err;
@@ -456,10 +456,10 @@ v_end(gp)
 		(void)file_end(gp->ccl_sp, NULL, 1);
 		(void)screen_end(gp->ccl_sp);
 	}
-	while ((sp = CIRCLEQ_FIRST(&gp->dq)) != CIRCLEQ_END(&gp->dq))
-		(void)screen_end(sp);
-	while ((sp = CIRCLEQ_FIRST(&gp->hq)) != CIRCLEQ_END(&gp->hq))
-		(void)screen_end(sp);
+	while ((sp = TAILQ_FIRST(&gp->dq)))
+		(void)screen_end(sp);	/* Removes sp from the queue. */
+	while ((sp = TAILQ_FIRST(&gp->hq)))
+		(void)screen_end(sp);	/* Removes sp from the queue. */
 
 #ifdef HAVE_PERL_INTERP
 	perl_end(gp);
@@ -468,8 +468,8 @@ v_end(gp)
 #if defined(DEBUG) || defined(PURIFY) || defined(LIBRARY)
 	{ FREF *frp;
 		/* Free FREF's. */
-		while ((frp = CIRCLEQ_FIRST(&gp->frefq)) != CIRCLEQ_END(&gp->frefq)) {
-			CIRCLEQ_REMOVE(&gp->frefq, frp, q);
+		while ((frp = TAILQ_FIRST(&gp->frefq))) {
+			TAILQ_REMOVE(&gp->frefq, frp, q);
 			if (frp->name != NULL)
 				free(frp->name);
 			if (frp->tname != NULL)

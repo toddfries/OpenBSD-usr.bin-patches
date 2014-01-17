@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.80 2013/10/21 23:32:32 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.84 2013/12/30 00:52:18 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
@@ -557,6 +557,9 @@ rew_sub(enum mdoc_type t, struct mdoc *mdoc,
 		case (REWIND_NONE):
 			return(1);
 		case (REWIND_THIS):
+			n->lastline = line -
+			    (MDOC_NEWLINE & mdoc->flags &&
+			     ! (MDOC_EXPLICIT & mdoc_macros[tok].flags));
 			break;
 		case (REWIND_FORCE):
 			mandoc_vmsg(MANDOCERR_SCOPEBROKEN, mdoc->parse, 
@@ -565,6 +568,8 @@ rew_sub(enum mdoc_type t, struct mdoc *mdoc,
 					mdoc_macronames[n->tok]);
 			/* FALLTHROUGH */
 		case (REWIND_MORE):
+			n->lastline = line -
+			    (MDOC_NEWLINE & mdoc->flags ? 1 : 0);
 			n = n->parent;
 			continue;
 		case (REWIND_LATER):
@@ -674,7 +679,7 @@ append_delims(struct mdoc *mdoc, int line, int *pos, char *buf)
 		 * knowing which symbols break this behaviour, for
 		 * example, `.  ;' shouldn't propagate the double-space.
 		 */
-		if (mandoc_eos(p, strlen(p), 0))
+		if (mandoc_eos(p, strlen(p)))
 			mdoc->last->flags |= MDOC_EOS;
 	}
 
@@ -704,8 +709,7 @@ blk_exp_close(MACRO_PROT_ARGS)
 		maxargs = 1;
 		break;
 	case (MDOC_Ek):
-		if ( ! (MDOC_SYNOPSIS & mdoc->flags))
-			mdoc->flags &= ~MDOC_KEEP;
+		mdoc->flags &= ~MDOC_KEEP;
 	default:
 		maxargs = 0;
 		break;
@@ -1339,25 +1343,6 @@ blk_part_imp(MACRO_PROT_ARGS)
 		if ( ! mdoc_body_alloc(mdoc, line, ppos, tok))
 			return(0);
 		body = mdoc->last;
-	}
-
-	for (n = body->child; n && n->next; n = n->next)
-		/* Do nothing. */ ;
-	
-	/* 
-	 * End of sentence spacing: if the last node is a text node and
-	 * has a trailing period, then mark it as being end-of-sentence.
-	 */
-
-	if (n && MDOC_TEXT == n->type && n->string)
-		if (mandoc_eos(n->string, strlen(n->string), 1))
-			n->flags |= MDOC_EOS;
-
-	/* Up-propagate the end-of-space flag. */
-
-	if (n && (MDOC_EOS & n->flags)) {
-		body->flags |= MDOC_EOS;
-		body->parent->flags |= MDOC_EOS;
 	}
 
 	/*

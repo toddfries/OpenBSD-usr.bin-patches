@@ -1,4 +1,4 @@
-/*	$OpenBSD: lr0.c,v 1.12 2012/03/03 19:15:00 nicm Exp $	*/
+/*	$OpenBSD: lr0.c,v 1.16 2014/01/13 23:14:17 millert Exp $	*/
 /*	$NetBSD: lr0.c,v 1.4 1996/03/19 03:21:35 jtc Exp $	*/
 
 /*
@@ -44,7 +44,7 @@ core *first_state;
 shifts *first_shift;
 reductions *first_reduction;
 
-int get_state(int);
+short get_state(int);
 core *new_state(int);
 
 void allocate_itemsets(void);
@@ -159,13 +159,13 @@ append_states(void)
 void
 free_storage(void)
 {
-    FREE(shift_symbol);
-    FREE(redset);
-    FREE(shiftset);
-    FREE(kernel_base);
-    FREE(kernel_end);
-    FREE(kernel_items);
-    FREE(state_set);
+    free(shift_symbol);
+    free(redset);
+    free(shiftset);
+    free(kernel_base);
+    free(kernel_end);
+    free(kernel_items);
+    free(state_set);
 }
 
 
@@ -197,7 +197,7 @@ generate_states(void)
 
 
 
-int
+short
 get_state(int symbol)
 {
     int key;
@@ -271,7 +271,7 @@ initialize_states(void)
     for (i = 0; start_derives[i] >= 0; ++i)
 	continue;
 
-    p = (core *) MALLOC(sizeof(core) + i*sizeof(short));
+    p = (core *) malloc(sizeof(core) + i*sizeof(short));
     if (p == 0) no_space();
 
     p->next = 0;
@@ -343,7 +343,7 @@ new_state(int symbol)
     iend = kernel_end[symbol];
     n = iend - isp1;
 
-    p = (core *) allocate((unsigned) (sizeof(core) + (n - 1) * sizeof(short)));
+    p = allocate(sizeof(core) + (n - 1) * sizeof(short));
     p->accessing_symbol = symbol;
     p->number = nstates;
     p->nitems = n;
@@ -369,8 +369,7 @@ save_shifts(void)
     short *sp2;
     short *send;
 
-    p = (shifts *) allocate((unsigned) (sizeof(shifts) +
-			(nshifts - 1) * sizeof(short)));
+    p = allocate(sizeof(shifts) + (nshifts - 1) * sizeof(short));
 
     p->number = this_state->number;
     p->nshifts = nshifts;
@@ -418,8 +417,7 @@ save_reductions(void)
 
     if (count)
     {
-	p = (reductions *) allocate((unsigned) (sizeof(reductions) +
-					(count - 1) * sizeof(short)));
+	p = allocate(sizeof(reductions) + (count - 1) * sizeof(short));
 
 	p->number = this_state->number;
 	p->nreds = count;
@@ -478,8 +476,8 @@ set_derives(void)
 void
 free_derives(void)
 {
-    FREE(derives[start_symbol]);
-    FREE(derives);
+    free(derives[start_symbol]);
+    free(derives);
 }
 
 #ifdef	DEBUG
@@ -512,10 +510,8 @@ set_nullable(void)
     int empty;
     int done;
 
-    nullable = MALLOC(nsyms);
+    nullable = calloc(1, nsyms);
     if (nullable == 0) no_space();
-
-    memset(nullable, 0, nsyms);
 
     done = 0;
     while (!done)
@@ -556,7 +552,7 @@ set_nullable(void)
 void
 free_nullable(void)
 {
-    FREE(nullable);
+    free(nullable);
 }
 
 void

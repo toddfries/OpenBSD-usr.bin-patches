@@ -1,4 +1,4 @@
-/* $OpenBSD: sshd.c,v 1.411 2013/11/20 02:19:01 djm Exp $ */
+/* $OpenBSD: sshd.c,v 1.414 2014/01/09 23:26:48 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -471,16 +471,23 @@ sshd_exchange_identification(int sock_in, int sock_out)
 
 	compat_datafellows(remote_version);
 
-	if (datafellows & SSH_BUG_PROBE) {
+	if ((datafellows & SSH_BUG_PROBE) != 0) {
 		logit("probed from %s with %s.  Don't panic.",
 		    get_remote_ipaddr(), client_version_string);
 		cleanup_exit(255);
 	}
-
-	if (datafellows & SSH_BUG_SCANNER) {
+	if ((datafellows & SSH_BUG_SCANNER) != 0) {
 		logit("scanned from %s with %s.  Don't panic.",
 		    get_remote_ipaddr(), client_version_string);
 		cleanup_exit(255);
+	}
+	if ((datafellows & SSH_BUG_RSASIGMD5) != 0) {
+		logit("Client version \"%.100s\" uses unsafe RSA signature "
+		    "scheme; disabling use of RSA keys", remote_version);
+	}
+	if ((datafellows & SSH_BUG_DERIVEKEY) != 0) {
+		fatal("Client version \"%.100s\" uses unsafe key agreement; "
+		    "refusing connection", remote_version);
 	}
 
 	mismatch = 0;
@@ -765,6 +772,7 @@ list_hostkey_types(void)
 		case KEY_RSA:
 		case KEY_DSA:
 		case KEY_ECDSA:
+		case KEY_ED25519:
 			if (buffer_len(&b) > 0)
 				buffer_append(&b, ",", 1);
 			p = key_ssh_name(key);
@@ -781,6 +789,7 @@ list_hostkey_types(void)
 		case KEY_RSA_CERT:
 		case KEY_DSA_CERT:
 		case KEY_ECDSA_CERT:
+		case KEY_ED25519_CERT:
 			if (buffer_len(&b) > 0)
 				buffer_append(&b, ",", 1);
 			p = key_ssh_name(key);
@@ -808,6 +817,7 @@ get_hostkey_by_type(int type, int need_private)
 		case KEY_RSA_CERT:
 		case KEY_DSA_CERT:
 		case KEY_ECDSA_CERT:
+		case KEY_ED25519_CERT:
 			key = sensitive_data.host_certificates[i];
 			break;
 		default:
@@ -1615,6 +1625,7 @@ main(int ac, char **av)
 		case KEY_RSA:
 		case KEY_DSA:
 		case KEY_ECDSA:
+		case KEY_ED25519:
 			sensitive_data.have_ssh2_key = 1;
 			break;
 		}
@@ -2296,7 +2307,8 @@ do_ssh2_kex(void)
 		packet_set_rekey_limits((u_int32_t)options.rekey_limit,
 		    (time_t)options.rekey_interval);
 
-	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = list_hostkey_types();
+	myproposal[PROPOSAL_SERVER_HOST_KEY_ALGS] = compat_pkalg_proposal(
+	    list_hostkey_types());
 
 	/* start key exchange */
 	kex = kex_setup(myproposal);

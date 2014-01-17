@@ -1,7 +1,8 @@
-/*	$Id: main.c,v 1.84 2012/11/19 08:46:24 jmc Exp $ */
+/*	$Id: main.c,v 1.86 2014/01/06 00:53:14 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -141,7 +142,7 @@ main(int argc, char *argv[])
 			/* NOTREACHED */
 		}
 
-	curp.mp = mparse_alloc(type, curp.wlevel, mmsg, &curp, defos);
+	curp.mp = mparse_alloc(type, curp.wlevel, mmsg, defos, 0);
 
 	/*
 	 * Conditionally start up the lookaside buffer before parsing.

@@ -1,7 +1,8 @@
-/*	$Id: mdoc_validate.c,v 1.115 2013/10/21 23:32:33 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.120 2014/01/11 22:16:03 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -1889,7 +1890,7 @@ post_hyph(POST_ARGS)
 		if (MDOC_TEXT != nch->type)
 			continue;
 		cp = nch->string;
-		if (3 > strnlen(cp, 3))
+		if ('\0' == *cp)
 			continue;
 		while ('\0' != *(++cp))
 			if ('-' == *cp &&
@@ -1987,10 +1988,10 @@ post_sh_head(POST_ARGS)
 	/* The SYNOPSIS gets special attention in other areas. */
 
 	if (SEC_SYNOPSIS == sec) {
-		roff_setreg(mdoc->roff, "nS", 1);
+		roff_setreg(mdoc->roff, "nS", 1, '=');
 		mdoc->flags |= MDOC_SYNOPSIS;
 	} else {
-		roff_setreg(mdoc->roff, "nS", 0);
+		roff_setreg(mdoc->roff, "nS", 0, '=');
 		mdoc->flags &= ~MDOC_SYNOPSIS;
 	}
 
@@ -2179,8 +2180,8 @@ post_dd(POST_ARGS)
 
 	n = mdoc->last;
 	if (NULL == n->child || '\0' == n->child->string[0]) {
-		mdoc->meta.date = mandoc_normdate
-			(mdoc->parse, NULL, n->line, n->pos);
+		mdoc->meta.date = mdoc->quick ? mandoc_strdup("") :
+		    mandoc_normdate(mdoc->parse, NULL, n->line, n->pos);
 		return(1);
 	}
 
@@ -2191,8 +2192,8 @@ post_dd(POST_ARGS)
 	}
 
 	assert(c);
-	mdoc->meta.date = mandoc_normdate
-		(mdoc->parse, buf, n->line, n->pos);
+	mdoc->meta.date = mdoc->quick ? mandoc_strdup(buf) :
+	    mandoc_normdate(mdoc->parse, buf, n->line, n->pos);
 
 	return(1);
 }
@@ -2343,12 +2344,13 @@ post_bx(POST_ARGS)
 static int
 post_os(POST_ARGS)
 {
-	struct mdoc_node *n;
 	char		  buf[BUFSIZ];
-	int		  c;
 #ifndef OSNAME
 	struct utsname	  utsname;
+	static char	 *defbuf;
 #endif
+	struct mdoc_node *n;
+	int		  c;
 
 	n = mdoc->last;
 
@@ -2371,39 +2373,31 @@ post_os(POST_ARGS)
 
 	assert(c);
 
-	if ('\0' == buf[0]) {
-		if (mdoc->defos) {
-			mdoc->meta.os = mandoc_strdup(mdoc->defos);
-			return(1);
-		}
-#ifdef OSNAME
-		if (strlcat(buf, OSNAME, BUFSIZ) >= BUFSIZ) {
-			mdoc_nmsg(mdoc, n, MANDOCERR_MEM);
-			return(0);
-		}
-#else /*!OSNAME */
-		if (-1 == uname(&utsname)) {
-			mdoc_nmsg(mdoc, n, MANDOCERR_UNAME);
-                        mdoc->meta.os = mandoc_strdup("UNKNOWN");
-                        return(post_prol(mdoc));
-                }
-
-		if (strlcat(buf, utsname.sysname, BUFSIZ) >= BUFSIZ) {
-			mdoc_nmsg(mdoc, n, MANDOCERR_MEM);
-			return(0);
-		}
-		if (strlcat(buf, " ", BUFSIZ) >= BUFSIZ) {
-			mdoc_nmsg(mdoc, n, MANDOCERR_MEM);
-			return(0);
-		}
-		if (strlcat(buf, utsname.release, BUFSIZ) >= BUFSIZ) {
-			mdoc_nmsg(mdoc, n, MANDOCERR_MEM);
-			return(0);
-		}
-#endif /*!OSNAME*/
+	if ('\0' != *buf) {
+		mdoc->meta.os = mandoc_strdup(buf);
+		return(1);
 	}
 
-	mdoc->meta.os = mandoc_strdup(buf);
+	if (mdoc->defos) {
+		mdoc->meta.os = mandoc_strdup(mdoc->defos);
+		return(1);
+	}
+
+#ifdef OSNAME
+	mdoc->meta.os = mandoc_strdup(OSNAME);
+#else /*!OSNAME */
+	if (NULL == defbuf) {
+		if (-1 == uname(&utsname)) {
+			mdoc_nmsg(mdoc, n, MANDOCERR_UNAME);
+                        defbuf = mandoc_strdup("UNKNOWN");
+                } else if (-1 == asprintf(&defbuf, "%s %s",
+		    utsname.sysname, utsname.release)) {
+			perror(NULL);
+			exit((int)MANDOCLEVEL_SYSERR);
+		}
+	}
+	mdoc->meta.os = mandoc_strdup(defbuf);
+#endif /*!OSNAME*/
 	return(1);
 }
 

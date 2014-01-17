@@ -1,4 +1,4 @@
-/*	$OpenBSD: output.c,v 1.16 2012/03/03 19:15:00 nicm Exp $	*/
+/*	$OpenBSD: output.c,v 1.19 2014/01/08 22:55:59 millert Exp $	*/
 /*	$NetBSD: output.c,v 1.4 1996/03/19 03:21:41 jtc Exp $	*/
 
 /*
@@ -269,15 +269,15 @@ output_actions(void)
     width = NEW2(nvectors, short);
 
     token_actions();
-    FREE(lookaheads);
-    FREE(LA);
-    FREE(LAruleno);
-    FREE(accessing_symbol);
+    free(lookaheads);
+    free(LA);
+    free(LAruleno);
+    free(accessing_symbol);
 
     goto_actions();
-    FREE(goto_map + ntokens);
-    FREE(from_state);
-    FREE(to_state);
+    free(goto_map + ntokens);
+    free(from_state);
+    free(to_state);
 
     sort_actions();
     pack_table();
@@ -369,7 +369,7 @@ token_actions(void)
 	    }
 	}
     }
-    FREE(actionrow);
+    free(actionrow);
 }
 
 void
@@ -408,7 +408,7 @@ goto_actions(void)
 
     if (!rflag) outline += 2;
     fprintf(output_file, "\n};\n");
-    FREE(state_count);
+    free(state_count);
 }
 
 int
@@ -559,14 +559,14 @@ pack_table(void)
     for (i = 0; i < nvectors; i++)
     {
 	if (froms[i])
-	    FREE(froms[i]);
+	    free(froms[i]);
 	if (tos[i])
-	    FREE(tos[i]);
+	    free(tos[i]);
     }
 
-    FREE(froms);
-    FREE(tos);
-    FREE(pos);
+    free(froms);
+    free(tos);
+    free(pos);
 }
 
 
@@ -663,9 +663,9 @@ pack_vector(int vector)
 
 		newmax = maxtable;
 		do { newmax += 200; } while (newmax <= loc);
-		table = (short *) REALLOC(table, newmax*sizeof(short));
+		table = (short *) realloc(table, newmax*sizeof(short));
 		if (table == 0) no_space();
-		check = (short *) REALLOC(check, newmax*sizeof(short));
+		check = (short *) realloc(check, newmax*sizeof(short));
 		if (check == 0) no_space();
 		for (l  = maxtable; l < newmax; ++l)
 		{
@@ -783,7 +783,7 @@ output_base(void)
 
     if (!rflag) outline += 2;
     fprintf(output_file, "\n};\n");
-    FREE(base);
+    free(base);
 }
 
 
@@ -820,7 +820,7 @@ output_table(void)
 
     if (!rflag) outline += 2;
     fprintf(output_file, "\n};\n");
-    FREE(table);
+    free(table);
 }
 
 
@@ -855,7 +855,7 @@ output_check(void)
 
     if (!rflag) outline += 2;
     fprintf(output_file, "\n};\n");
-    FREE(check);
+    free(check);
 }
 
 
@@ -866,13 +866,13 @@ is_C_identifier(char *name)
     int c;
 
     s = name;
-    c = *s;
+    c = (unsigned char)*s;
     if (c == '"')
     {
-	c = *++s;
+	c = (unsigned char)*++s;
 	if (!isalpha(c) && c != '_' && c != '$')
 	    return (0);
-	while ((c = *++s) != '"')
+	while ((c = (unsigned char)*++s) != '"')
 	{
 	    if (!isalnum(c) && c != '_' && c != '$')
 		return (0);
@@ -882,7 +882,7 @@ is_C_identifier(char *name)
 
     if (!isalpha(c) && c != '_' && c != '$')
 	return (0);
-    while ((c = *++s))
+    while ((c = (unsigned char)*++s))
     {
 	if (!isalnum(c) && c != '_' && c != '$')
 	    return (0);
@@ -904,10 +904,10 @@ output_defines(void)
 	{
 	    fprintf(code_file, "#define ");
 	    if (dflag) fprintf(defines_file, "#define ");
-	    c = *s;
+	    c = (unsigned char)*s;
 	    if (c == '"')
 	    {
-		while ((c = *++s) != '"')
+		while ((c = (unsigned char)*++s) != '"')
 		{
 		    putc(c, code_file);
 		    if (dflag) putc(c, defines_file);
@@ -920,7 +920,7 @@ output_defines(void)
 		    putc(c, code_file);
 		    if (dflag) putc(c, defines_file);
 		}
-		while ((c = *++s));
+		while ((c = (unsigned char)*++s));
 	    }
 	    ++outline;
 	    fprintf(code_file, " %d\n", symbol_value[i]);
@@ -996,12 +996,9 @@ output_debug(void)
     ++outline;
     fprintf(code_file, "#define YYMAXTOKEN %d\n", max);
 
-    symnam = (char **) MALLOC((max+1)*sizeof(char *));
+    symnam = (char **) calloc(max+1, sizeof(char *));
     if (symnam == 0) no_space();
 
-    /* Note that it is  not necessary to initialize the element		*/
-    /* symnam[max].							*/
-    memset(symnam, 0, max * sizeof(char *));
     for (i = ntokens - 1; i >= 2; --i)
 	symnam[symbol_value[i]] = symbol_name[i];
     symnam[0] = "end-of-file";
@@ -1137,7 +1134,7 @@ output_debug(void)
     }
     if (!rflag) outline += 2;
     fprintf(output_file, "\n};\n");
-    FREE(symnam);
+    free(symnam);
 
     if (!rflag) ++outline;
     fprintf(output_file,
@@ -1223,7 +1220,7 @@ output_trailing_text(void)
 
     in = input_file;
     out = code_file;
-    c = *cptr;
+    c = (unsigned char)*cptr;
     if (c == '\n')
     {
 	++lineno;
@@ -1246,7 +1243,7 @@ output_trailing_text(void)
 	    ++outline;
 	    fprintf(out, line_format, lineno, input_file_name);
 	}
-	do { putc(c, out); } while ((c = *++cptr) != '\n');
+	do { putc(c, out); } while ((c = (unsigned char)*++cptr) != '\n');
 	++outline;
 	putc('\n', out);
 	last = '\n';
@@ -1313,11 +1310,11 @@ free_itemsets(void)
 {
     core *cp, *next;
 
-    FREE(state_table);
+    free(state_table);
     for (cp = first_state; cp; cp = next)
     {
 	next = cp->next;
-	FREE(cp);
+	free(cp);
     }
 }
 
@@ -1327,11 +1324,11 @@ free_shifts(void)
 {
     shifts *sp, *next;
 
-    FREE(shift_table);
+    free(shift_table);
     for (sp = first_shift; sp; sp = next)
     {
 	next = sp->next;
-	FREE(sp);
+	free(sp);
     }
 }
 
@@ -1342,10 +1339,10 @@ free_reductions(void)
 {
     reductions *rp, *next;
 
-    FREE(reduction_table);
+    free(reduction_table);
     for (rp = first_reduction; rp; rp = next)
     {
 	next = rp->next;
-	FREE(rp);
+	free(rp);
     }
 }

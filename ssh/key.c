@@ -1,4 +1,4 @@
-/* $OpenBSD: key.c,v 1.105 2013/10/29 09:42:11 djm Exp $ */
+/* $OpenBSD: key.c,v 1.115 2014/01/09 23:20:00 djm Exp $ */
 /*
  * read_bignum():
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -38,6 +38,7 @@
 #include <sys/types.h>
 
 #include <openssl/evp.h>
+#include "crypto_api.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -50,6 +51,7 @@
 #include "log.h"
 #include "misc.h"
 #include "ssh2.h"
+#include "digest.h"
 
 static int to_blob(const Key *, u_char **, u_int *, int);
 static Key *key_from_blob2(const u_char *, u_int, int);
@@ -82,6 +84,8 @@ key_new(int type)
 	k->dsa = NULL;
 	k->rsa = NULL;
 	k->cert = NULL;
+	k->ed25519_sk = NULL;
+	k->ed25519_pk = NULL;
 	switch (k->type) {
 	case KEY_RSA1:
 	case KEY_RSA:
@@ -113,6 +117,10 @@ key_new(int type)
 	case KEY_ECDSA:
 	case KEY_ECDSA_CERT:
 		/* Cannot do anything until we know the group */
+		break;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		/* no need to prealloc */
 		break;
 	case KEY_UNSPEC:
 		break;
@@ -157,6 +165,10 @@ key_add_private(Key *k)
 	case KEY_ECDSA:
 	case KEY_ECDSA_CERT:
 		/* Cannot do anything until we know the group */
+		break;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		/* no need to prealloc */
 		break;
 	case KEY_UNSPEC:
 		break;
@@ -217,6 +229,19 @@ key_free(Key *k)
 		if (k->ecdsa != NULL)
 			EC_KEY_free(k->ecdsa);
 		k->ecdsa = NULL;
+		break;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		if (k->ed25519_pk) {
+			memset(k->ed25519_pk, 0, ED25519_PK_SZ);
+			free(k->ed25519_pk);
+			k->ed25519_pk = NULL;
+		}
+		if (k->ed25519_sk) {
+			memset(k->ed25519_sk, 0, ED25519_SK_SZ);
+			free(k->ed25519_sk);
+			k->ed25519_sk = NULL;
+		}
 		break;
 	case KEY_UNSPEC:
 		break;
@@ -295,6 +320,10 @@ key_equal_public(const Key *a, const Key *b)
 		}
 		BN_CTX_free(bnctx);
 		return 1;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		return a->ed25519_pk != NULL && b->ed25519_pk != NULL &&
+		    memcmp(a->ed25519_pk, b->ed25519_pk, ED25519_PK_SZ) == 0;
 	default:
 		fatal("key_equal: bad key type %d", a->type);
 	}
@@ -317,28 +346,26 @@ u_char*
 key_fingerprint_raw(const Key *k, enum fp_type dgst_type,
     u_int *dgst_raw_length)
 {
-	const EVP_MD *md = NULL;
-	EVP_MD_CTX ctx;
 	u_char *blob = NULL;
 	u_char *retval = NULL;
 	u_int len = 0;
-	int nlen, elen;
+	int nlen, elen, hash_alg = -1;
 
 	*dgst_raw_length = 0;
 
+	/* XXX switch to DIGEST_* directly? */
 	switch (dgst_type) {
 	case SSH_FP_MD5:
-		md = EVP_md5();
+		hash_alg = SSH_DIGEST_MD5;
 		break;
 	case SSH_FP_SHA1:
-		md = EVP_sha1();
+		hash_alg = SSH_DIGEST_SHA1;
 		break;
 	case SSH_FP_SHA256:
-		md = EVP_sha256();
+		hash_alg = SSH_DIGEST_SHA256;
 		break;
 	default:
-		fatal("key_fingerprint_raw: bad digest type %d",
-		    dgst_type);
+		fatal("%s: bad digest type %d", __func__, dgst_type);
 	}
 	switch (k->type) {
 	case KEY_RSA1:
@@ -352,6 +379,7 @@ key_fingerprint_raw(const Key *k, enum fp_type dgst_type,
 	case KEY_DSA:
 	case KEY_ECDSA:
 	case KEY_RSA:
+	case KEY_ED25519:
 		key_to_blob(k, &blob, &len);
 		break;
 	case KEY_DSA_CERT_V00:
@@ -359,24 +387,26 @@ key_fingerprint_raw(const Key *k, enum fp_type dgst_type,
 	case KEY_DSA_CERT:
 	case KEY_ECDSA_CERT:
 	case KEY_RSA_CERT:
+	case KEY_ED25519_CERT:
 		/* We want a fingerprint of the _key_ not of the cert */
 		to_blob(k, &blob, &len, 1);
 		break;
 	case KEY_UNSPEC:
 		return retval;
 	default:
-		fatal("key_fingerprint_raw: bad key type %d", k->type);
+		fatal("%s: bad key type %d", __func__, k->type);
 		break;
 	}
 	if (blob != NULL) {
-		retval = xmalloc(EVP_MAX_MD_SIZE);
-		EVP_DigestInit(&ctx, md);
-		EVP_DigestUpdate(&ctx, blob, len);
-		EVP_DigestFinal(&ctx, retval, dgst_raw_length);
+		retval = xmalloc(SSH_DIGEST_MAX_LENGTH);
+		if ((ssh_digest_memory(hash_alg, blob, len,
+		    retval, SSH_DIGEST_MAX_LENGTH)) != 0)
+			fatal("%s: digest_memory failed", __func__);
 		memset(blob, 0, len);
 		free(blob);
+		*dgst_raw_length = ssh_digest_bytes(hash_alg);
 	} else {
-		fatal("key_fingerprint_raw: blob is null");
+		fatal("%s: blob is null", __func__);
 	}
 	return retval;
 }
@@ -682,11 +712,13 @@ key_read(Key *ret, char **cpp)
 	case KEY_RSA:
 	case KEY_DSA:
 	case KEY_ECDSA:
+	case KEY_ED25519:
 	case KEY_DSA_CERT_V00:
 	case KEY_RSA_CERT_V00:
 	case KEY_DSA_CERT:
 	case KEY_ECDSA_CERT:
 	case KEY_RSA_CERT:
+	case KEY_ED25519_CERT:
 		space = strchr(cp, ' ');
 		if (space == NULL) {
 			debug3("key_read: missing whitespace");
@@ -782,6 +814,14 @@ key_read(Key *ret, char **cpp)
 			key_dump_ec_key(ret->ecdsa);
 #endif
 		}
+		if (key_type_plain(ret->type) == KEY_ED25519) {
+			free(ret->ed25519_pk);
+			ret->ed25519_pk = k->ed25519_pk;
+			k->ed25519_pk = NULL;
+#ifdef DEBUG_PK
+			/* XXX */
+#endif
+		}
 		success = 1;
 /*XXXX*/
 		key_free(k);
@@ -843,6 +883,11 @@ key_write(const Key *key, FILE *f)
 		if (key->ecdsa == NULL)
 			return 0;
 		break;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		if (key->ed25519_pk == NULL)
+			return 0;
+		break;
 	case KEY_RSA:
 	case KEY_RSA_CERT_V00:
 	case KEY_RSA_CERT:
@@ -890,6 +935,7 @@ static const struct keytype keytypes[] = {
 	{ NULL, "RSA1", KEY_RSA1, 0, 0 },
 	{ "ssh-rsa", "RSA", KEY_RSA, 0, 0 },
 	{ "ssh-dss", "DSA", KEY_DSA, 0, 0 },
+	{ "ssh-ed25519", "ED25519", KEY_ED25519, 0, 0 },
 	{ "ecdsa-sha2-nistp256", "ECDSA", KEY_ECDSA, NID_X9_62_prime256v1, 0 },
 	{ "ecdsa-sha2-nistp384", "ECDSA", KEY_ECDSA, NID_secp384r1, 0 },
 	{ "ecdsa-sha2-nistp521", "ECDSA", KEY_ECDSA, NID_secp521r1, 0 },
@@ -905,6 +951,8 @@ static const struct keytype keytypes[] = {
 	    KEY_RSA_CERT_V00, 0, 1 },
 	{ "ssh-dss-cert-v00@openssh.com", "DSA-CERT-V00",
 	    KEY_DSA_CERT_V00, 0, 1 },
+	{ "ssh-ed25519-cert-v01@openssh.com", "ED25519-CERT",
+	    KEY_ED25519_CERT, 0, 1 },
 	{ NULL, NULL, -1, -1, 0 }
 };
 
@@ -976,7 +1024,7 @@ key_ecdsa_nid_from_name(const char *name)
 }
 
 char *
-key_alg_list(void)
+key_alg_list(int certs_only, int plain_only)
 {
 	char *ret = NULL;
 	size_t nlen, rlen = 0;
@@ -984,6 +1032,8 @@ key_alg_list(void)
 
 	for (kt = keytypes; kt->type != -1; kt++) {
 		if (kt->name == NULL)
+			continue;
+		if ((certs_only && !kt->cert) || (plain_only && kt->cert))
 			continue;
 		if (ret != NULL)
 			ret[rlen++] = '\n';
@@ -1007,6 +1057,20 @@ key_type_is_cert(int type)
 	return 0;
 }
 
+static int
+key_type_is_valid_ca(int type)
+{
+	switch (type) {
+	case KEY_RSA:
+	case KEY_DSA:
+	case KEY_ECDSA:
+	case KEY_ED25519:
+		return 1;
+	default:
+		return 0;
+	}
+}
+
 u_int
 key_size(const Key *k)
 {
@@ -1020,6 +1084,8 @@ key_size(const Key *k)
 	case KEY_DSA_CERT_V00:
 	case KEY_DSA_CERT:
 		return BN_num_bits(k->dsa->p);
+	case KEY_ED25519:
+		return 256;	/* XXX */
 	case KEY_ECDSA:
 	case KEY_ECDSA_CERT:
 		return key_curve_nid_to_bits(k->ecdsa_nid);
@@ -1151,6 +1217,11 @@ key_generate(int type, u_int bits)
 	case KEY_RSA1:
 		k->rsa = rsa_generate_private_key(bits);
 		break;
+	case KEY_ED25519:
+		k->ed25519_pk = xmalloc(ED25519_PK_SZ);
+		k->ed25519_sk = xmalloc(ED25519_SK_SZ);
+		crypto_sign_ed25519_keypair(k->ed25519_pk, k->ed25519_sk);
+		break;
 	case KEY_RSA_CERT_V00:
 	case KEY_DSA_CERT_V00:
 	case KEY_RSA_CERT:
@@ -1241,6 +1312,14 @@ key_from_private(const Key *k)
 		if ((BN_copy(n->rsa->n, k->rsa->n) == NULL) ||
 		    (BN_copy(n->rsa->e, k->rsa->e) == NULL))
 			fatal("key_from_private: BN_copy failed");
+		break;
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		n = key_new(k->type);
+		if (k->ed25519_pk != NULL) {
+			n->ed25519_pk = xmalloc(ED25519_PK_SZ);
+			memcpy(n->ed25519_pk, k->ed25519_pk, ED25519_PK_SZ);
+		}
 		break;
 	default:
 		fatal("key_from_private: unknown type %d", k->type);
@@ -1366,9 +1445,7 @@ cert_parse(Buffer *b, Key *key, const u_char *blob, u_int blen)
 		error("%s: Signature key invalid", __func__);
 		goto out;
 	}
-	if (key->cert->signature_key->type != KEY_RSA &&
-	    key->cert->signature_key->type != KEY_DSA &&
-	    key->cert->signature_key->type != KEY_ECDSA) {
+	if (!key_type_is_valid_ca(key->cert->signature_key->type)) {
 		error("%s: Invalid signature key type %s (%d)", __func__,
 		    key_type(key->cert->signature_key),
 		    key->cert->signature_key->type);
@@ -1404,7 +1481,9 @@ key_from_blob2(const u_char *blob, u_int blen, int allow_cert)
 {
 	Buffer b;
 	int rlen, type, nid = -1;
+	u_int len;
 	char *ktype = NULL, *curve = NULL;
+	u_char *pk = NULL;
 	Key *key = NULL;
 	EC_POINT *q = NULL;
 
@@ -1496,6 +1575,23 @@ key_from_blob2(const u_char *blob, u_int blen, int allow_cert)
 		key_dump_ec_point(EC_KEY_get0_group(key->ecdsa), q);
 #endif
 		break;
+	case KEY_ED25519_CERT:
+		(void)buffer_get_string_ptr_ret(&b, NULL); /* Skip nonce */
+		/* FALLTHROUGH */
+	case KEY_ED25519:
+		if ((pk = buffer_get_string_ret(&b, &len)) == NULL) {
+			error("key_from_blob: can't read ed25519 key");
+			goto badkey;
+		}
+		if (len != ED25519_PK_SZ) {
+			error("key_from_blob: ed25519 len %d != %d",
+			    len, ED25519_PK_SZ);
+			goto badkey;
+		}
+		key = key_new(type);
+		key->ed25519_pk = pk;
+		pk = NULL;
+		break;
 	case KEY_UNSPEC:
 		key = key_new(type);
 		break;
@@ -1513,6 +1609,7 @@ key_from_blob2(const u_char *blob, u_int blen, int allow_cert)
  out:
 	free(ktype);
 	free(curve);
+	free(pk);
 	if (q != NULL)
 		EC_POINT_free(q);
 	buffer_free(&b);
@@ -1531,6 +1628,10 @@ to_blob(const Key *key, u_char **blobp, u_int *lenp, int force_plain)
 	Buffer b;
 	int len, type;
 
+	if (blobp != NULL)
+		*blobp = NULL;
+	if (lenp != NULL)
+		*lenp = 0;
 	if (key == NULL) {
 		error("key_to_blob: key == NULL");
 		return 0;
@@ -1543,6 +1644,7 @@ to_blob(const Key *key, u_char **blobp, u_int *lenp, int force_plain)
 	case KEY_DSA_CERT:
 	case KEY_ECDSA_CERT:
 	case KEY_RSA_CERT:
+	case KEY_ED25519_CERT:
 		/* Use the existing blob */
 		buffer_append(&b, buffer_ptr(&key->cert->certblob),
 		    buffer_len(&key->cert->certblob));
@@ -1567,6 +1669,11 @@ to_blob(const Key *key, u_char **blobp, u_int *lenp, int force_plain)
 		    key_ssh_name_from_type_nid(type, key->ecdsa_nid));
 		buffer_put_bignum2(&b, key->rsa->e);
 		buffer_put_bignum2(&b, key->rsa->n);
+		break;
+	case KEY_ED25519:
+		buffer_put_cstring(&b,
+		    key_ssh_name_from_type_nid(type, key->ecdsa_nid));
+		buffer_put_string(&b, key->ed25519_pk, ED25519_PK_SZ);
 		break;
 	default:
 		error("key_to_blob: unsupported key type %d", key->type);
@@ -1609,6 +1716,9 @@ key_sign(
 	case KEY_RSA_CERT:
 	case KEY_RSA:
 		return ssh_rsa_sign(key, sigp, lenp, data, datalen);
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		return ssh_ed25519_sign(key, sigp, lenp, data, datalen);
 	default:
 		error("key_sign: invalid key type %d", key->type);
 		return -1;
@@ -1640,6 +1750,9 @@ key_verify(
 	case KEY_RSA_CERT:
 	case KEY_RSA:
 		return ssh_rsa_verify(key, signature, signaturelen, data, datalen);
+	case KEY_ED25519:
+	case KEY_ED25519_CERT:
+		return ssh_ed25519_verify(key, signature, signaturelen, data, datalen);
 	default:
 		error("key_verify: invalid key type %d", key->type);
 		return -1;
@@ -1659,6 +1772,8 @@ key_demote(const Key *k)
 	pk->dsa = NULL;
 	pk->ecdsa = NULL;
 	pk->rsa = NULL;
+	pk->ed25519_pk = NULL;
+	pk->ed25519_sk = NULL;
 
 	switch (k->type) {
 	case KEY_RSA_CERT_V00:
@@ -1700,8 +1815,17 @@ key_demote(const Key *k)
 		    EC_KEY_get0_public_key(k->ecdsa)) != 1)
 			fatal("key_demote: EC_KEY_set_public_key failed");
 		break;
+	case KEY_ED25519_CERT:
+		key_cert_copy(k, pk);
+		/* FALLTHROUGH */
+	case KEY_ED25519:
+		if (k->ed25519_pk != NULL) {
+			pk->ed25519_pk = xmalloc(ED25519_PK_SZ);
+			memcpy(pk->ed25519_pk, k->ed25519_pk, ED25519_PK_SZ);
+		}
+		break;
 	default:
-		fatal("key_free: bad key type %d", k->type);
+		fatal("key_demote: bad key type %d", k->type);
 		break;
 	}
 
@@ -1729,12 +1853,14 @@ key_type_plain(int type)
 		return KEY_DSA;
 	case KEY_ECDSA_CERT:
 		return KEY_ECDSA;
+	case KEY_ED25519_CERT:
+		return KEY_ED25519;
 	default:
 		return type;
 	}
 }
 
-/* Convert a KEY_RSA or KEY_DSA to their _CERT equivalent */
+/* Convert a plain key to their _CERT equivalent */
 int
 key_to_certified(Key *k, int legacy)
 {
@@ -1754,41 +1880,34 @@ key_to_certified(Key *k, int legacy)
 		k->cert = cert_new();
 		k->type = KEY_ECDSA_CERT;
 		return 0;
+	case KEY_ED25519:
+		if (legacy)
+			fatal("%s: legacy ED25519 certificates are not "
+			    "supported", __func__);
+		k->cert = cert_new();
+		k->type = KEY_ED25519_CERT;
+		return 0;
 	default:
 		error("%s: key has incorrect type %s", __func__, key_type(k));
 		return -1;
 	}
 }
 
-/* Convert a KEY_RSA_CERT or KEY_DSA_CERT to their raw key equivalent */
+/* Convert a certificate to its raw key equivalent */
 int
 key_drop_cert(Key *k)
 {
-	switch (k->type) {
-	case KEY_RSA_CERT_V00:
-	case KEY_RSA_CERT:
-		cert_free(k->cert);
-		k->type = KEY_RSA;
-		return 0;
-	case KEY_DSA_CERT_V00:
-	case KEY_DSA_CERT:
-		cert_free(k->cert);
-		k->type = KEY_DSA;
-		return 0;
-	case KEY_ECDSA_CERT:
-		cert_free(k->cert);
-		k->type = KEY_ECDSA;
-		return 0;
-	default:
+	if (!key_type_is_cert(k->type)) {
 		error("%s: key has incorrect type %s", __func__, key_type(k));
 		return -1;
 	}
+	cert_free(k->cert);
+	k->cert = NULL;
+	k->type = key_type_plain(k->type);
+	return 0;
 }
 
-/*
- * Sign a KEY_RSA_CERT, KEY_DSA_CERT or KEY_ECDSA_CERT, (re-)generating
- * the signed certblob
- */
+/* Sign a certified key, (re-)generating the signed certblob. */
 int
 key_certify(Key *k, Key *ca)
 {
@@ -1807,8 +1926,7 @@ key_certify(Key *k, Key *ca)
 		return -1;
 	}
 
-	if (ca->type != KEY_RSA && ca->type != KEY_DSA &&
-	    ca->type != KEY_ECDSA) {
+	if (!key_type_is_valid_ca(ca->type)) {
 		error("%s: CA key has unsupported type %s", __func__,
 		    key_type(ca));
 		return -1;
@@ -1824,6 +1942,7 @@ key_certify(Key *k, Key *ca)
 	if (!key_cert_is_legacy(k))
 		buffer_put_string(&k->cert->certblob, nonce, sizeof(nonce));
 
+	/* XXX this substantially duplicates to_blob(); refactor */
 	switch (k->type) {
 	case KEY_DSA_CERT_V00:
 	case KEY_DSA_CERT:
@@ -1843,6 +1962,10 @@ key_certify(Key *k, Key *ca)
 	case KEY_RSA_CERT:
 		buffer_put_bignum2(&k->cert->certblob, k->rsa->e);
 		buffer_put_bignum2(&k->cert->certblob, k->rsa->n);
+		break;
+	case KEY_ED25519_CERT:
+		buffer_put_string(&k->cert->certblob,
+		    k->ed25519_pk, ED25519_PK_SZ);
 		break;
 	default:
 		error("%s: key has incorrect type %s", __func__, key_type(k));
@@ -2009,8 +2132,8 @@ key_curve_nid_to_name(int nid)
 	return NULL;
 }
 
-const EVP_MD *
-key_ec_nid_to_evpmd(int nid)
+int
+key_ec_nid_to_hash_alg(int nid)
 {
 	int kbits = key_curve_nid_to_bits(nid);
 
@@ -2018,11 +2141,11 @@ key_ec_nid_to_evpmd(int nid)
 		fatal("%s: invalid nid %d", __func__, nid);
 	/* RFC5656 section 6.2.1 */
 	if (kbits <= 256)
-		return EVP_sha256();
+		return SSH_DIGEST_SHA256;
 	else if (kbits <= 384)
-		return EVP_sha384();
+		return SSH_DIGEST_SHA384;
 	else
-		return EVP_sha512();
+		return SSH_DIGEST_SHA512;
 }
 
 int
@@ -2194,3 +2317,224 @@ key_dump_ec_key(const EC_KEY *key)
 }
 #endif /* defined(DEBUG_KEXECDH) || defined(DEBUG_PK) */
 
+void
+key_private_serialize(const Key *key, Buffer *b)
+{
+	buffer_put_cstring(b, key_ssh_name(key));
+	switch (key->type) {
+	case KEY_RSA:
+		buffer_put_bignum2(b, key->rsa->n);
+		buffer_put_bignum2(b, key->rsa->e);
+		buffer_put_bignum2(b, key->rsa->d);
+		buffer_put_bignum2(b, key->rsa->iqmp);
+		buffer_put_bignum2(b, key->rsa->p);
+		buffer_put_bignum2(b, key->rsa->q);
+		break;
+	case KEY_RSA_CERT_V00:
+	case KEY_RSA_CERT:
+		if (key->cert == NULL || buffer_len(&key->cert->certblob) == 0)
+			fatal("%s: no cert/certblob", __func__);
+		buffer_put_string(b, buffer_ptr(&key->cert->certblob),
+		    buffer_len(&key->cert->certblob));
+		buffer_put_bignum2(b, key->rsa->d);
+		buffer_put_bignum2(b, key->rsa->iqmp);
+		buffer_put_bignum2(b, key->rsa->p);
+		buffer_put_bignum2(b, key->rsa->q);
+		break;
+	case KEY_DSA:
+		buffer_put_bignum2(b, key->dsa->p);
+		buffer_put_bignum2(b, key->dsa->q);
+		buffer_put_bignum2(b, key->dsa->g);
+		buffer_put_bignum2(b, key->dsa->pub_key);
+		buffer_put_bignum2(b, key->dsa->priv_key);
+		break;
+	case KEY_DSA_CERT_V00:
+	case KEY_DSA_CERT:
+		if (key->cert == NULL || buffer_len(&key->cert->certblob) == 0)
+			fatal("%s: no cert/certblob", __func__);
+		buffer_put_string(b, buffer_ptr(&key->cert->certblob),
+		    buffer_len(&key->cert->certblob));
+		buffer_put_bignum2(b, key->dsa->priv_key);
+		break;
+	case KEY_ECDSA:
+		buffer_put_cstring(b, key_curve_nid_to_name(key->ecdsa_nid));
+		buffer_put_ecpoint(b, EC_KEY_get0_group(key->ecdsa),
+		    EC_KEY_get0_public_key(key->ecdsa));
+		buffer_put_bignum2(b, EC_KEY_get0_private_key(key->ecdsa));
+		break;
+	case KEY_ECDSA_CERT:
+		if (key->cert == NULL || buffer_len(&key->cert->certblob) == 0)
+			fatal("%s: no cert/certblob", __func__);
+		buffer_put_string(b, buffer_ptr(&key->cert->certblob),
+		    buffer_len(&key->cert->certblob));
+		buffer_put_bignum2(b, EC_KEY_get0_private_key(key->ecdsa));
+		break;
+	case KEY_ED25519:
+		buffer_put_string(b, key->ed25519_pk, ED25519_PK_SZ);
+		buffer_put_string(b, key->ed25519_sk, ED25519_SK_SZ);
+		break;
+	case KEY_ED25519_CERT:
+		if (key->cert == NULL || buffer_len(&key->cert->certblob) == 0)
+			fatal("%s: no cert/certblob", __func__);
+		buffer_put_string(b, buffer_ptr(&key->cert->certblob),
+		    buffer_len(&key->cert->certblob));
+		buffer_put_string(b, key->ed25519_pk, ED25519_PK_SZ);
+		buffer_put_string(b, key->ed25519_sk, ED25519_SK_SZ);
+		break;
+	}
+}
+
+Key *
+key_private_deserialize(Buffer *blob)
+{
+	char *type_name, *curve;
+	Key *k = NULL;
+	BIGNUM *exponent;
+	EC_POINT *q;
+	u_char *cert;
+	u_int len, pklen, sklen;
+	int type;
+
+	type_name = buffer_get_string(blob, NULL);
+	type = key_type_from_name(type_name);
+	switch (type) {
+	case KEY_DSA:
+		k = key_new_private(type);
+		buffer_get_bignum2(blob, k->dsa->p);
+		buffer_get_bignum2(blob, k->dsa->q);
+		buffer_get_bignum2(blob, k->dsa->g);
+		buffer_get_bignum2(blob, k->dsa->pub_key);
+		buffer_get_bignum2(blob, k->dsa->priv_key);
+		break;
+	case KEY_DSA_CERT_V00:
+	case KEY_DSA_CERT:
+		cert = buffer_get_string(blob, &len);
+		if ((k = key_from_blob(cert, len)) == NULL)
+			fatal("Certificate parse failed");
+		free(cert);
+		key_add_private(k);
+		buffer_get_bignum2(blob, k->dsa->priv_key);
+		break;
+	case KEY_ECDSA:
+		k = key_new_private(type);
+		k->ecdsa_nid = key_ecdsa_nid_from_name(type_name);
+		curve = buffer_get_string(blob, NULL);
+		if (k->ecdsa_nid != key_curve_name_to_nid(curve))
+			fatal("%s: curve names mismatch", __func__);
+		free(curve);
+		k->ecdsa = EC_KEY_new_by_curve_name(k->ecdsa_nid);
+		if (k->ecdsa == NULL)
+			fatal("%s: EC_KEY_new_by_curve_name failed",
+			    __func__);
+		q = EC_POINT_new(EC_KEY_get0_group(k->ecdsa));
+		if (q == NULL)
+			fatal("%s: BN_new failed", __func__);
+		if ((exponent = BN_new()) == NULL)
+			fatal("%s: BN_new failed", __func__);
+		buffer_get_ecpoint(blob,
+			EC_KEY_get0_group(k->ecdsa), q);
+		buffer_get_bignum2(blob, exponent);
+		if (EC_KEY_set_public_key(k->ecdsa, q) != 1)
+			fatal("%s: EC_KEY_set_public_key failed",
+			    __func__);
+		if (EC_KEY_set_private_key(k->ecdsa, exponent) != 1)
+			fatal("%s: EC_KEY_set_private_key failed",
+			    __func__);
+		if (key_ec_validate_public(EC_KEY_get0_group(k->ecdsa),
+		    EC_KEY_get0_public_key(k->ecdsa)) != 0)
+			fatal("%s: bad ECDSA public key", __func__);
+		if (key_ec_validate_private(k->ecdsa) != 0)
+			fatal("%s: bad ECDSA private key", __func__);
+		BN_clear_free(exponent);
+		EC_POINT_free(q);
+		break;
+	case KEY_ECDSA_CERT:
+		cert = buffer_get_string(blob, &len);
+		if ((k = key_from_blob(cert, len)) == NULL)
+			fatal("Certificate parse failed");
+		free(cert);
+		key_add_private(k);
+		if ((exponent = BN_new()) == NULL)
+			fatal("%s: BN_new failed", __func__);
+		buffer_get_bignum2(blob, exponent);
+		if (EC_KEY_set_private_key(k->ecdsa, exponent) != 1)
+			fatal("%s: EC_KEY_set_private_key failed",
+			    __func__);
+		if (key_ec_validate_public(EC_KEY_get0_group(k->ecdsa),
+		    EC_KEY_get0_public_key(k->ecdsa)) != 0 ||
+		    key_ec_validate_private(k->ecdsa) != 0)
+			fatal("%s: bad ECDSA key", __func__);
+		BN_clear_free(exponent);
+		break;
+	case KEY_RSA:
+		k = key_new_private(type);
+		buffer_get_bignum2(blob, k->rsa->n);
+		buffer_get_bignum2(blob, k->rsa->e);
+		buffer_get_bignum2(blob, k->rsa->d);
+		buffer_get_bignum2(blob, k->rsa->iqmp);
+		buffer_get_bignum2(blob, k->rsa->p);
+		buffer_get_bignum2(blob, k->rsa->q);
+
+		/* Generate additional parameters */
+		rsa_generate_additional_parameters(k->rsa);
+		break;
+	case KEY_RSA_CERT_V00:
+	case KEY_RSA_CERT:
+		cert = buffer_get_string(blob, &len);
+		if ((k = key_from_blob(cert, len)) == NULL)
+			fatal("Certificate parse failed");
+		free(cert);
+		key_add_private(k);
+		buffer_get_bignum2(blob, k->rsa->d);
+		buffer_get_bignum2(blob, k->rsa->iqmp);
+		buffer_get_bignum2(blob, k->rsa->p);
+		buffer_get_bignum2(blob, k->rsa->q);
+		break;
+	case KEY_ED25519:
+		k = key_new_private(type);
+		k->ed25519_pk = buffer_get_string(blob, &pklen);
+		k->ed25519_sk = buffer_get_string(blob, &sklen);
+		if (pklen != ED25519_PK_SZ)
+			fatal("%s: ed25519 pklen %d != %d",
+			    __func__, pklen, ED25519_PK_SZ);
+		if (sklen != ED25519_SK_SZ)
+			fatal("%s: ed25519 sklen %d != %d",
+			    __func__, sklen, ED25519_SK_SZ);
+		break;
+	case KEY_ED25519_CERT:
+		cert = buffer_get_string(blob, &len);
+		if ((k = key_from_blob(cert, len)) == NULL)
+			fatal("Certificate parse failed");
+		free(cert);
+		key_add_private(k);
+		k->ed25519_pk = buffer_get_string(blob, &pklen);
+		k->ed25519_sk = buffer_get_string(blob, &sklen);
+		if (pklen != ED25519_PK_SZ)
+			fatal("%s: ed25519 pklen %d != %d",
+			    __func__, pklen, ED25519_PK_SZ);
+		if (sklen != ED25519_SK_SZ)
+			fatal("%s: ed25519 sklen %d != %d",
+			    __func__, sklen, ED25519_SK_SZ);
+		break;
+	default:
+		free(type_name);
+		buffer_clear(blob);
+		return NULL;
+	}
+	free(type_name);
+
+	/* enable blinding */
+	switch (k->type) {
+	case KEY_RSA:
+	case KEY_RSA_CERT_V00:
+	case KEY_RSA_CERT:
+	case KEY_RSA1:
+		if (RSA_blinding_on(k->rsa, NULL) != 1) {
+			error("%s: RSA_blinding_on failed", __func__);
+			key_free(k);
+			return NULL;
+		}
+		break;
+	}
+	return k;
+}

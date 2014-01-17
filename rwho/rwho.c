@@ -1,4 +1,4 @@
-/*	$OpenBSD: rwho.c,v 1.17 2013/04/16 18:57:39 deraadt Exp $	*/
+/*	$OpenBSD: rwho.c,v 1.19 2014/01/09 05:07:37 martynas Exp $	*/
 
 /*
  * Copyright (c) 1983 The Regents of the University of California.
@@ -83,7 +83,7 @@ main(int argc, char **argv)
 	int nhosts = 0;
 
 	while ((ch = getopt(argc, argv, "a")) != -1)
-		switch((char)ch) {
+		switch(ch) {
 		case 'a':
 			aflg = 1;
 			break;
@@ -124,7 +124,7 @@ main(int argc, char **argv)
 			}
 			if (nusers >= NUSERS)
 				errx(1, "too many users");
-			memcpy(mp->myhost, w->wd_hostname,
+			strncpy(mp->myhost, w->wd_hostname,
 			    sizeof(mp->myhost)-1);
 			mp->myhost[sizeof(mp->myhost)-1] = '\0';
 			mp->myidle = we->we_idle;

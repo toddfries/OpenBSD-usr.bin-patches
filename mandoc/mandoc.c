@@ -1,4 +1,4 @@
-/*	$Id: mandoc.c,v 1.39 2013/11/10 20:17:14 schwarze Exp $ */
+/*	$Id: mandoc.c,v 1.44 2013/12/30 18:27:15 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
@@ -36,7 +36,7 @@ static	char	*time2a(time_t);
 
 
 enum mandoc_esc
-mandoc_escape(const char const **end, const char const **start, int *sz)
+mandoc_escape(const char **end, const char **start, int *sz)
 {
 	const char	*local_start;
 	int		 local_sz;
@@ -98,6 +98,14 @@ mandoc_escape(const char const **end, const char const **start, int *sz)
 		break;
 
 	/*
+	 * Escapes taking no arguments at all.
+	 */
+	case ('d'):
+		/* FALLTHROUGH */
+	case ('u'):
+		return(ESCAPE_IGNORE);
+
+	/*
 	 * The \z escape is supposed to output the following
 	 * character without advancing the cursor position.  
 	 * Since we are mostly dealing with terminal mode,
@@ -153,11 +161,15 @@ mandoc_escape(const char const **end, const char const **start, int *sz)
 		/* FALLTHROUGH */
 	case ('b'):
 		/* FALLTHROUGH */
+	case ('B'):
+		/* FALLTHROUGH */
 	case ('D'):
 		/* FALLTHROUGH */
 	case ('o'):
 		/* FALLTHROUGH */
 	case ('R'):
+		/* FALLTHROUGH */
+	case ('w'):
 		/* FALLTHROUGH */
 	case ('X'):
 		/* FALLTHROUGH */
@@ -173,8 +185,6 @@ mandoc_escape(const char const **end, const char const **start, int *sz)
 	 * These escapes are of the form \X'N', where 'X' is the trigger
 	 * and 'N' resolves to a numerical expression.
 	 */
-	case ('B'):
-		/* FALLTHROUGH */
 	case ('h'):
 		/* FALLTHROUGH */
 	case ('H'):
@@ -182,19 +192,15 @@ mandoc_escape(const char const **end, const char const **start, int *sz)
 	case ('L'):
 		/* FALLTHROUGH */
 	case ('l'):
-		gly = ESCAPE_NUMBERED;
 		/* FALLTHROUGH */
 	case ('S'):
 		/* FALLTHROUGH */
 	case ('v'):
 		/* FALLTHROUGH */
-	case ('w'):
-		/* FALLTHROUGH */
 	case ('x'):
 		if ('\'' != **start)
 			return(ESCAPE_ERROR);
-		if (ESCAPE_ERROR == gly)
-			gly = ESCAPE_IGNORE;
+		gly = ESCAPE_IGNORE;
 		*start = ++*end;
 		term = '\'';
 		break;
@@ -415,10 +421,10 @@ mandoc_strdup(const char *ptr)
  * Parse a quoted or unquoted roff-style request or macro argument.
  * Return a pointer to the parsed argument, which is either the original
  * pointer or advanced by one byte in case the argument is quoted.
- * Null-terminate the argument in place.
+ * NUL-terminate the argument in place.
  * Collapse pairs of quotes inside quoted arguments.
  * Advance the argument pointer to the next argument,
- * or to the null byte terminating the argument line.
+ * or to the NUL byte terminating the argument line.
  */
 char *
 mandoc_getarg(struct mparse *parse, char **cpp, int ln, int *pos)
@@ -489,7 +495,7 @@ mandoc_getarg(struct mparse *parse, char **cpp, int ln, int *pos)
 	if (1 == quoted)
 		mandoc_msg(MANDOCERR_BADQUOTE, parse, ln, *pos, NULL);
 
-	/* Null-terminate this argument and move to the next one. */
+	/* NUL-terminate this argument and move to the next one. */
 	if (pairs)
 		cp[-pairs] = '\0';
 	if ('\0' != *cp) {
@@ -581,10 +587,10 @@ mandoc_normdate(struct mparse *parse, char *in, int ln, int pos)
 }
 
 int
-mandoc_eos(const char *p, size_t sz, int enclosed)
+mandoc_eos(const char *p, size_t sz)
 {
-	const char *q;
-	int found;
+	const char	*q;
+	int		 enclosed, found;
 
 	if (0 == sz)
 		return(0);
@@ -595,7 +601,7 @@ mandoc_eos(const char *p, size_t sz, int enclosed)
 	 * propagate outward.
 	 */
 
-	found = 0;
+	enclosed = found = 0;
 	for (q = p + (int)sz - 1; q >= p; q--) {
 		switch (*q) {
 		case ('\"'):

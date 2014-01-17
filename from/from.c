@@ -1,4 +1,4 @@
-/*	$OpenBSD: from.c,v 1.14 2009/10/27 23:59:38 deraadt Exp $	*/
+/*	$OpenBSD: from.c,v 1.16 2013/11/27 13:32:02 okan Exp $	*/
 /*	$NetBSD: from.c,v 1.6 1995/09/01 01:39:10 jtc Exp $	*/
 
 /*
@@ -56,15 +56,15 @@ main(int argc, char *argv[])
 
 	file = sender = NULL;
 	while ((ch = getopt(argc, argv, "f:s:")) != -1)
-		switch((char)ch) {
+		switch(ch) {
 		case 'f':
 			file = optarg;
 			break;
 		case 's':
 			sender = optarg;
 			for (p = sender; *p; ++p)
-				if (isupper(*p))
-					*p = tolower(*p);
+				if (isupper((unsigned char)*p))
+					*p = tolower((unsigned char)*p);
 			break;
 		case '?':
 		default:
@@ -122,18 +122,18 @@ match(char *line, char *sender)
 	char ch, pch, first, *p, *t;
 
 	for (first = *sender++;;) {
-		if (isspace(ch = *line))
+		if (isspace((unsigned char)(ch = *line)))
 			return(0);
 		++line;
-		if (isupper(ch))
-			ch = tolower(ch);
+		if (isupper((unsigned char)ch))
+			ch = tolower((unsigned char)ch);
 		if (ch != first)
 			continue;
 		for (p = sender, t = line;;) {
 			if (!(pch = *p++))
 				return(1);
-			if (isupper(ch = *t++))
-				ch = tolower(ch);
+			if (isupper((unsigned char)(ch = *t++)))
+				ch = tolower((unsigned char)ch);
 			if (ch != pch)
 				break;
 		}
