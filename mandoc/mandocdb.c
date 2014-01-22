@@ -1,4 +1,4 @@
-/*	$Id: mandocdb.c,v 1.64 2014/01/06 20:53:36 schwarze Exp $ */
+/*	$Id: mandocdb.c,v 1.70 2014/01/19 22:48:00 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -39,6 +39,9 @@
 #include "mandoc.h"
 #include "manpath.h"
 #include "mansearch.h"
+
+extern int mansearch_keymax;
+extern const char *const mansearch_keynames[];
 
 #define	SQL_EXEC(_v) \
 	if (SQLITE_OK != sqlite3_exec(db, (_v), NULL, NULL, NULL)) \
@@ -146,8 +149,7 @@ static	int	 parse_mdoc_Nd(struct mpage *, const struct mdoc_node *);
 static	int	 parse_mdoc_Nm(struct mpage *, const struct mdoc_node *);
 static	int	 parse_mdoc_Sh(struct mpage *, const struct mdoc_node *);
 static	int	 parse_mdoc_Xr(struct mpage *, const struct mdoc_node *);
-static	void	 putkey(const struct mpage *,
-			const char *, uint64_t);
+static	void	 putkey(const struct mpage *, char *, uint64_t);
 static	void	 putkeys(const struct mpage *,
 			const char *, size_t, uint64_t);
 static	void	 putmdockey(const struct mpage *,
@@ -946,12 +948,13 @@ mlink_check(struct mpage *mpage, struct mlink *mlink)
 static void
 mpages_merge(struct mchars *mc, struct mparse *mp)
 {
+	char			 any[] = "any";
 	struct ohash_info	 str_info;
 	struct mpage		*mpage;
 	struct mlink		*mlink;
 	struct mdoc		*mdoc;
 	struct man		*man;
-	const char		*cp;
+	char			*cp;
 	int			 match;
 	unsigned int		 pslot;
 	enum mandoclevel	 lvl;
@@ -1017,7 +1020,7 @@ mpages_merge(struct mchars *mc, struct mparse *mp)
 		}
 		putkey(mpage, mpage->sec, TYPE_sec);
 		putkey(mpage, '\0' == *mpage->arch ?
-		    "any" : mpage->arch, TYPE_arch);
+		    any : mpage->arch, TYPE_arch);
 
 		for (mlink = mpage->mlinks; mlink; mlink = mlink->next) {
 			if ('\0' != *mlink->dsec)
@@ -1025,7 +1028,7 @@ mpages_merge(struct mchars *mc, struct mparse *mp)
 			if ('\0' != *mlink->fsec)
 				putkey(mpage, mlink->fsec, TYPE_sec);
 			putkey(mpage, '\0' == *mlink->arch ?
-			    "any" : mlink->arch, TYPE_arch);
+			    any : mlink->arch, TYPE_arch);
 			putkey(mpage, mlink->name, TYPE_Nm);
 		}
 
@@ -1175,10 +1178,15 @@ parse_cat(struct mpage *mpage)
  * Put a type/word pair into the word database for this particular file.
  */
 static void
-putkey(const struct mpage *mpage, const char *value, uint64_t type)
+putkey(const struct mpage *mpage, char *value, uint64_t type)
 {
+	char	 *cp;
 
 	assert(NULL != value);
+	if (TYPE_arch == type)
+		for (cp = value; *cp; cp++)
+			if (isupper((unsigned char)*cp))
+				*cp = _tolower((unsigned char)*cp);
 	putkeys(mpage, value, strlen(value), type);
 }
 
@@ -1293,6 +1301,15 @@ parse_man(struct mpage *mpage, const struct man_node *n)
 
 				byte = start[sz];
 				start[sz] = '\0';
+
+				/*
+				 * Assume a stray trailing comma in the
+				 * name list if a name begins with a dash.
+				 */
+
+				if ('-' == start[0] ||
+				    ('\\' == start[0] && '-' == start[1]))
+					break;
 
 				putkey(mpage, start, TYPE_Nm);
 
@@ -1423,7 +1440,7 @@ parse_mdoc_Fd(struct mpage *mpage, const struct mdoc_node *n)
 static int
 parse_mdoc_Fn(struct mpage *mpage, const struct mdoc_node *n)
 {
-	const char	*cp;
+	char	*cp;
 
 	if (NULL == (n = n->child) || MDOC_TEXT != n->type)
 		return(0);
@@ -1545,11 +1562,23 @@ putkeys(const struct mpage *mpage,
 	const char *cp, size_t sz, uint64_t v)
 {
 	struct str	*s;
-	unsigned int	 slot;
 	const char	*end;
+	uint64_t	 mask;
+	unsigned int	 slot;
+	int		 i;
 
 	if (0 == sz)
 		return;
+
+	if (verb > 1) {
+		for (i = 0, mask = 1;
+		     i < mansearch_keymax;
+		     i++, mask <<= 1)
+			if (mask & v)
+				break;
+		say(mpage->mlinks->file, "Adding key %s=%*s",
+		    mansearch_keynames[i], sz, cp);
+	}
 
 	end = cp + sz;
 	slot = ohash_qlookupi(&strings, cp, &end);
@@ -1906,19 +1935,15 @@ dbopen(int real)
 	      " \"arch\" TEXT NOT NULL,\n"
 	      " \"name\" TEXT NOT NULL,\n"
 	      " \"pageid\" INTEGER NOT NULL REFERENCES mpages(id) "
-		"ON DELETE CASCADE,\n"
-	      " \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL\n"
+		"ON DELETE CASCADE\n"
 	      ");\n"
 	      "\n"
 	      "CREATE TABLE \"keys\" (\n"
 	      " \"bits\" INTEGER NOT NULL,\n"
 	      " \"key\" TEXT NOT NULL,\n"
 	      " \"pageid\" INTEGER NOT NULL REFERENCES mpages(id) "
-		"ON DELETE CASCADE,\n"
-	      " \"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL\n"
-	      ");\n"
-	      "\n"
-	      "CREATE INDEX \"key_index\" ON keys (key);\n";
+		"ON DELETE CASCADE\n"
+	      ");\n";
 
 	if (SQLITE_OK != sqlite3_exec(db, sql, NULL, NULL, NULL)) {
 		exitcode = (int)MANDOCLEVEL_SYSERR;
