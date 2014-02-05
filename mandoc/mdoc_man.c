@@ -1,6 +1,6 @@
-/*	$Id: mdoc_man.c,v 1.56 2013/12/25 22:00:34 schwarze Exp $ */
+/*	$Id: mdoc_man.c,v 1.58 2014/01/24 11:56:34 schwarze Exp $ */
 /*
- * Copyright (c) 2011, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -361,6 +361,9 @@ print_word(const char *s)
 		case (ASCII_HYPH):
 			putchar('-');
 			break;
+		case (ASCII_BREAK):
+			printf("\\:");
+			break;
 		case (' '):
 			if (MMAN_nbrword & outflags) {
 				printf("\\ ");
@@ -591,7 +594,7 @@ print_node(DECL_ARGS)
 		 */
 		act = manacts + n->tok;
 		cond = NULL == act->cond || (*act->cond)(meta, n);
-		if (cond && act->pre)
+		if (cond && act->pre && ENDBODY_NOT == n->end)
 			do_sub = (*act->pre)(meta, n);
 	}
 
@@ -607,8 +610,17 @@ print_node(DECL_ARGS)
 	/*
 	 * Lastly, conditionally run the post-node handler.
 	 */
+	if (MDOC_ENDED & n->flags)
+		return;
+
 	if (cond && act->post)
 		(*act->post)(meta, n);
+
+	if (ENDBODY_NOT != n->end)
+		n->pending->flags |= MDOC_ENDED;
+
+	if (ENDBODY_NOSPACE == n->end)
+		outflags &= ~(MMAN_spc | MMAN_nl);
 }
 
 static int
@@ -646,7 +658,7 @@ post_enc(DECL_ARGS)
 	suffix = manacts[n->tok].suffix;
 	if (NULL == suffix)
 		return;
-	outflags &= ~MMAN_spc;
+	outflags &= ~(MMAN_spc | MMAN_nl);
 	print_word(suffix);
 }
 

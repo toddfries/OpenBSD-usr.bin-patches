@@ -1,4 +1,4 @@
-/* $OpenBSD: cipher.c,v 1.93 2013/12/06 13:34:54 markus Exp $ */
+/* $OpenBSD: cipher.c,v 1.96 2014/02/02 03:44:31 djm Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -37,8 +37,6 @@
 
 #include <sys/types.h>
 
-#include <openssl/md5.h>
-
 #include <string.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -47,6 +45,8 @@
 #include "log.h"
 #include "misc.h"
 #include "cipher.h"
+#include "buffer.h"
+#include "digest.h"
 
 extern const EVP_CIPHER *evp_ssh1_bf(void);
 extern const EVP_CIPHER *evp_ssh1_3des(void);
@@ -133,6 +133,14 @@ u_int
 cipher_keylen(const Cipher *c)
 {
 	return (c->key_len);
+}
+
+u_int
+cipher_seclen(const Cipher *c)
+{
+	if (strcmp("3des-cbc", c->name) == 0)
+		return 14;
+	return cipher_keylen(c);
 }
 
 u_int
@@ -309,7 +317,7 @@ cipher_init(CipherContext *cc, const Cipher *cipher,
 		if (EVP_Cipher(&cc->evp, discard, junk,
 		    cipher->discard_len) == 0)
 			fatal("evp_crypt: EVP_Cipher failed during discard");
-		memset(discard, 0, cipher->discard_len);
+		explicit_bzero(discard, cipher->discard_len);
 		free(junk);
 		free(discard);
 	}
@@ -394,7 +402,7 @@ void
 cipher_cleanup(CipherContext *cc)
 {
 	if ((cc->cipher->flags & CFLAG_CHACHAPOLY) != 0)
-		memset(&cc->cp_ctx, 0, sizeof(cc->cp_ctx));
+		explicit_bzero(&cc->cp_ctx, sizeof(cc->cp_ctx));
 	else if (EVP_CIPHER_CTX_cleanup(&cc->evp) == 0)
 		error("cipher_cleanup: EVP_CIPHER_CTX_cleanup failed");
 }
@@ -408,17 +416,15 @@ void
 cipher_set_key_string(CipherContext *cc, const Cipher *cipher,
     const char *passphrase, int do_encrypt)
 {
-	MD5_CTX md;
 	u_char digest[16];
 
-	MD5_Init(&md);
-	MD5_Update(&md, (const u_char *)passphrase, strlen(passphrase));
-	MD5_Final(digest, &md);
+	if (ssh_digest_memory(SSH_DIGEST_MD5, passphrase, strlen(passphrase),
+	    digest, sizeof(digest)) < 0)
+		fatal("%s: md5 failed", __func__);
 
 	cipher_init(cc, cipher, digest, 16, NULL, 0, do_encrypt);
 
-	memset(digest, 0, sizeof(digest));
-	memset(&md, 0, sizeof(md));
+	explicit_bzero(digest, sizeof(digest));
 }
 
 /*

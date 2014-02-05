@@ -1,4 +1,4 @@
-/* $OpenBSD: kex.c,v 1.95 2014/01/12 08:13:13 djm Exp $ */
+/* $OpenBSD: kex.c,v 1.98 2014/02/02 03:44:31 djm Exp $ */
 /*
  * Copyright (c) 2000, 2001 Markus Friedl.  All rights reserved.
  *
@@ -438,7 +438,7 @@ kex_choose_conf(Kex *kex)
 	char **my, **peer;
 	char **cprop, **sprop;
 	int nenc, nmac, ncomp;
-	u_int mode, ctos, need, authlen;
+	u_int mode, ctos, need, dh_need, authlen;
 	int first_kex_follows, type;
 
 	my   = kex_buf2prop(&kex->my, NULL);
@@ -486,20 +486,21 @@ kex_choose_conf(Kex *kex)
 	choose_kex(kex, cprop[PROPOSAL_KEX_ALGS], sprop[PROPOSAL_KEX_ALGS]);
 	choose_hostkeyalg(kex, cprop[PROPOSAL_SERVER_HOST_KEY_ALGS],
 	    sprop[PROPOSAL_SERVER_HOST_KEY_ALGS]);
-	need = 0;
+	need = dh_need = 0;
 	for (mode = 0; mode < MODE_MAX; mode++) {
 		newkeys = kex->newkeys[mode];
-		if (need < newkeys->enc.key_len)
-			need = newkeys->enc.key_len;
-		if (need < newkeys->enc.block_size)
-			need = newkeys->enc.block_size;
-		if (need < newkeys->enc.iv_len)
-			need = newkeys->enc.iv_len;
-		if (need < newkeys->mac.key_len)
-			need = newkeys->mac.key_len;
+		need = MAX(need, newkeys->enc.key_len);
+		need = MAX(need, newkeys->enc.block_size);
+		need = MAX(need, newkeys->enc.iv_len);
+		need = MAX(need, newkeys->mac.key_len);
+		dh_need = MAX(dh_need, cipher_seclen(newkeys->enc.cipher));
+		dh_need = MAX(dh_need, newkeys->enc.block_size);
+		dh_need = MAX(dh_need, newkeys->enc.iv_len);
+		dh_need = MAX(dh_need, newkeys->mac.key_len);
 	}
 	/* XXX need runden? */
 	kex->we_need = need;
+	kex->dh_need = dh_need;
 
 	/* ignore the next message if the proposals do not match */
 	if (first_kex_follows && !proposals_match(my, peer) &&
@@ -645,8 +646,8 @@ derive_ssh1_session_id(BIGNUM *host_modulus, BIGNUM *server_modulus,
 		fatal("%s: ssh_digest_final failed", __func__);
 	memcpy(id, obuf, ssh_digest_bytes(SSH_DIGEST_MD5));
 
-	memset(nbuf, 0, sizeof(nbuf));
-	memset(obuf, 0, sizeof(obuf));
+	explicit_bzero(nbuf, sizeof(nbuf));
+	explicit_bzero(obuf, sizeof(obuf));
 }
 
 #if defined(DEBUG_KEX) || defined(DEBUG_KEXDH) || defined(DEBUG_KEXECDH)

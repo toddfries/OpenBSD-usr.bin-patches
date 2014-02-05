@@ -1,4 +1,4 @@
-.\"	$OpenBSD: gzip.1,v 1.10 2013/12/29 21:38:29 jmc Exp $
+.\"	$OpenBSD: gzip.1,v 1.13 2014/01/28 17:49:05 sobrado Exp $
 .\"
 .\" Copyright (c) 1986, 1990, 1993
 .\"	The Regents of the University of California.  All rights reserved.
@@ -33,7 +33,7 @@
 .\"
 .\"     @(#)compress.1	8.2 (Berkeley) 4/18/94
 .\"
-.Dd $Mdocdate: December 29 2013 $
+.Dd $Mdocdate: January 28 2014 $
 .Dt GZIP 1
 .Os
 .Sh NAME
@@ -43,17 +43,17 @@
 .Nd compress and expand data (deflate mode)
 .Sh SYNOPSIS
 .Nm gzip
-.Op Fl 123456789cdfghLlNnOqrtVv
+.Op Fl 123456789cdfhLlNnOqrtVv
 .Op Fl b Ar bits
 .Op Fl o Ar filename
 .Op Fl S Ar suffix
 .Op Ar
 .Nm gunzip
-.Op Fl cfhlNnqrtVv
+.Op Fl cfhLlNnqrtVv
 .Op Fl o Ar filename
 .Op Ar
 .Nm gzcat
-.Op Fl fghqr
+.Op Fl fhqr
 .Op Ar
 .Sh DESCRIPTION
 The
@@ -153,8 +153,6 @@ Compression factor
 provides the best level of compression, but is relatively slow.
 The default is
 .Fl 6 .
-This option implies
-.Fl g .
 .It Fl b Ar bits
 Specify the
 .Ar bits
@@ -183,13 +181,11 @@ to the standard output: let
 .Nm gzcat
 behave as
 .Xr cat 1 .
-.It Fl g
-Use the deflate scheme, which reportedly provides better compression rates
-(the default).
 .It Fl h
 Print a short help message.
 .It Fl L
-In other compatible programs, this displays program license.
+A no-op which exists for compatibility only.
+On GNU gzip, it displays the program's license.
 .It Fl l
 List information for the specified compressed files.
 The following information is listed:
@@ -248,7 +244,8 @@ Set the suffix for compressed files.
 .It Fl t
 Test the integrity of each file leaving any files intact.
 .It Fl V
-In other compatible programs, this displays version information.
+A no-op which exists for compatibility only.
+On GNU gzip, it displays version information.
 .It Fl v
 Print the percentage reduction of each file and other information.
 .El
@@ -317,12 +314,29 @@ automatically.
 .El
 .Sh EXIT STATUS
 The
-.Nm gzip ,
-.Nm gunzip ,
+.Nm gzip
+utility exits with one of the following values:
+.Pp
+.Bl -tag -width Ds -offset indent -compact
+.It 0
+Success.
+.It 1
+An error occurred.
+.It 2
+At least one of the specified files was not compressed since
+.Fl f
+was not specified and compression would have resulted in a size
+increase.
+.It \*(Gt2
+An error occurred.
+.El
+.Pp
+The
+.Nm gunzip
 and
 .Nm gzcat
-utilities exit with 0 on success; 1 if an error occurred;
-or 2 if a warning occurred.
+utilities exit 0 on success,
+and >0 if an error occurs.
 .Sh SEE ALSO
 .Xr compress 1 ,
 .Xr gzexe 1 ,
