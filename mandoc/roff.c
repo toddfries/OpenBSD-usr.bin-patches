@@ -1,4 +1,4 @@
-/*	$Id: roff.c,v 1.64 2014/01/06 23:46:01 schwarze Exp $ */
+/*	$Id: roff.c,v 1.67 2014/02/14 23:24:17 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -36,7 +36,9 @@ enum	rofft {
 	ROFF_am,
 	ROFF_ami,
 	ROFF_am1,
+	ROFF_as,
 	ROFF_cc,
+	ROFF_ce,
 	ROFF_de,
 	ROFF_dei,
 	ROFF_de1,
@@ -188,6 +190,7 @@ static	int		 roff_getnum(const char *, int *, int *);
 static	int		 roff_getop(const char *, int *, char *);
 static	int		 roff_getregn(const struct roff *,
 				const char *, size_t);
+static	int		 roff_getregro(const char *name);
 static	const char	*roff_getstrn(const struct roff *, 
 				const char *, size_t);
 static	enum rofferr	 roff_it(ROFF_ARGS);
@@ -228,7 +231,9 @@ static	struct roffmac	 roffs[ROFF_MAX] = {
 	{ "am", roff_block, roff_block_text, roff_block_sub, 0, NULL },
 	{ "ami", roff_block, roff_block_text, roff_block_sub, 0, NULL },
 	{ "am1", roff_block, roff_block_text, roff_block_sub, 0, NULL },
+	{ "as", roff_ds, NULL, NULL, 0, NULL },
 	{ "cc", roff_cc, NULL, NULL, 0, NULL },
+	{ "ce", roff_line_ignore, NULL, NULL, 0, NULL },
 	{ "de", roff_block, roff_block_text, roff_block_sub, 0, NULL },
 	{ "dei", roff_block, roff_block_text, roff_block_sub, 0, NULL },
 	{ "de1", roff_block, roff_block_text, roff_block_sub, 0, NULL },
@@ -934,7 +939,7 @@ roff_block(ROFF_ARGS)
 	/*
 	 * At the beginning of a `de' macro, clear the existing string
 	 * with the same name, if there is one.  New content will be
-	 * added from roff_block_text() in multiline mode.
+	 * appended from roff_block_text() in multiline mode.
 	 */
 
 	if (ROFF_de == tok)
@@ -1024,7 +1029,7 @@ roff_block_sub(ROFF_ARGS)
 	 */
 	if (ROFF_cblock != t) {
 		if (ROFF_de == tok)
-			roff_setstr(r, r->last->name, *bufp + ppos, 1);
+			roff_setstr(r, r->last->name, *bufp + ppos, 2);
 		return(ROFF_IGN);
 	}
 
@@ -1040,7 +1045,7 @@ roff_block_text(ROFF_ARGS)
 {
 
 	if (ROFF_de == tok)
-		roff_setstr(r, r->last->name, *bufp + pos, 1);
+		roff_setstr(r, r->last->name, *bufp + pos, 2);
 
 	return(ROFF_IGN);
 }
@@ -1343,7 +1348,7 @@ roff_ds(ROFF_ARGS)
 		string++;
 
 	/* The rest is the value. */
-	roff_setstr(r, name, string, 0);
+	roff_setstr(r, name, string, ROFF_as == tok);
 	return(ROFF_IGN);
 }
 
@@ -1376,10 +1381,45 @@ roff_setreg(struct roff *r, const char *name, int val, char sign)
 		reg->val = val;
 }
 
+/*
+ * Handle some predefined read-only number registers.
+ * For now, return -1 if the requested register is not predefined;
+ * in case a predefined read-only register having the value -1
+ * were to turn up, another special value would have to be chosen.
+ */
+static int
+roff_getregro(const char *name)
+{
+
+	switch (*name) {
+	case ('A'):  /* ASCII approximation mode is always off. */
+		return(0);
+	case ('g'):  /* Groff compatibility mode is always on. */
+		return(1);
+	case ('H'):  /* Fixed horizontal resolution. */
+		return (24);
+	case ('j'):  /* Always adjust left margin only. */
+		return(0);
+	case ('T'):  /* Some output device is always defined. */
+		return(1);
+	case ('V'):  /* Fixed vertical resolution. */
+		return (40);
+	default:
+		return (-1);
+	}
+}
+
 int
 roff_getreg(const struct roff *r, const char *name)
 {
 	struct roffreg	*reg;
+	int		 val;
+
+	if ('.' == name[0] && '\0' != name[1] && '\0' == name[2]) {
+		val = roff_getregro(name + 1);
+		if (-1 != val)
+			return (val);
+	}
 
 	for (reg = r->regtab; reg; reg = reg->next)
 		if (0 == strcmp(name, reg->key.p))
@@ -1392,6 +1432,13 @@ static int
 roff_getregn(const struct roff *r, const char *name, size_t len)
 {
 	struct roffreg	*reg;
+	int		 val;
+
+	if ('.' == name[0] && 2 == len) {
+		val = roff_getregro(name + 1);
+		if (-1 != val)
+			return (val);
+	}
 
 	for (reg = r->regtab; reg; reg = reg->next)
 		if (len == reg->key.sz &&
@@ -1801,22 +1848,23 @@ roff_getname(struct roff *r, char **cpp, int ln, int pos)
 
 /*
  * Store *string into the user-defined string called *name.
- * In multiline mode, append to an existing entry and append '\n';
- * else replace the existing entry, if there is one.
  * To clear an existing entry, call with (*r, *name, NULL, 0).
+ * append == 0: replace mode
+ * append == 1: single-line append mode
+ * append == 2: multiline append mode, append '\n' after each call
  */
 static void
 roff_setstr(struct roff *r, const char *name, const char *string,
-	int multiline)
+	int append)
 {
 
 	roff_setstrn(&r->strtab, name, strlen(name), string,
-			string ? strlen(string) : 0, multiline);
+			string ? strlen(string) : 0, append);
 }
 
 static void
 roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
-		const char *string, size_t stringsz, int multiline)
+		const char *string, size_t stringsz, int append)
 {
 	struct roffkv	*n;
 	char		*c;
@@ -1838,8 +1886,7 @@ roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
 		n->val.sz = 0;
 		n->next = *r;
 		*r = n;
-	} else if (0 == multiline) {
-		/* In multiline mode, append; else replace. */
+	} else if (0 == append) {
 		free(n->val.p);
 		n->val.p = NULL;
 		n->val.sz = 0;
@@ -1852,7 +1899,7 @@ roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
 	 * One additional byte for the '\n' in multiline mode,
 	 * and one for the terminating '\0'.
 	 */
-	newch = stringsz + (multiline ? 2u : 1u);
+	newch = stringsz + (1 < append ? 2u : 1u);
 
 	if (NULL == n->val.p) {
 		n->val.p = mandoc_malloc(newch);
@@ -1879,7 +1926,7 @@ roff_setstrn(struct roffkv **r, const char *name, size_t namesz,
 	}
 
 	/* Append terminating bytes. */
-	if (multiline)
+	if (1 < append)
 		*c++ = '\n';
 
 	*c = '\0';

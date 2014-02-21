@@ -1,4 +1,4 @@
-/*	$OpenBSD: nice.c,v 1.12 2013/11/20 20:52:12 deraadt Exp $	*/
+/*	$OpenBSD: nice.c,v 1.14 2014/02/13 20:51:10 tedu Exp $	*/
 /*	$NetBSD: nice.c,v 1.9 1995/08/31 23:30:58 jtc Exp $	*/
 
 /*
@@ -30,7 +30,6 @@
  * SUCH DAMAGE.
  */
 
-#include <sys/time.h>
 #include <sys/resource.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,14 +47,18 @@ static void usage(void);
 int
 main(int argc, char *argv[])
 {
-	int niceness = DEFNICE;
+	const char *errstr;
+	int prio = DEFNICE;
 	int c;
 
 	setlocale(LC_ALL, "");
 
 	/* handle obsolete -number syntax */
-	if (argc > 1 && argv[1][0] == '-' && isdigit((unsigned char)argv[1][1])) {
-		niceness = atoi(argv[1] + 1);
+	if (argc > 1 && argv[1][0] == '-' &&
+	    isdigit((unsigned char)argv[1][1])) {
+		prio = strtonum(argv[1] + 1, PRIO_MIN, PRIO_MAX, &errstr);
+		if (errstr)
+			errx(1, "increment is %s", errstr);
 		argc--;
 		argv++;
 	}
@@ -63,27 +66,29 @@ main(int argc, char *argv[])
 	while ((c = getopt (argc, argv, "n:")) != -1) {
 		switch (c) {
 		case 'n':
-			niceness = atoi(optarg);
+			prio = strtonum(optarg, PRIO_MIN, PRIO_MAX, &errstr);
+			if (errstr)
+				errx(1, "increment is %s", errstr);
 			break;
-
 		case '?':
 		default:
 			usage();
 			break;
 		}
 	}
-	argc -= optind; argv += optind;
+	argc -= optind;
+	argv += optind;
 
 	if (argc == 0)
 		usage();
 
 	errno = 0;
-	niceness += getpriority(PRIO_PROCESS, 0);
+	prio += getpriority(PRIO_PROCESS, 0);
 	if (errno) {
 		err(1, "getpriority");
 		/* NOTREACHED */
 	}
-	if (setpriority(PRIO_PROCESS, 0, niceness))
+	if (setpriority(PRIO_PROCESS, 0, prio))
 		warn("setpriority");
 
 	execvp(argv[0], &argv[0]);
