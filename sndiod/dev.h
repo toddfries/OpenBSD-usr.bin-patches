@@ -1,4 +1,4 @@
-/*	$OpenBSD: dev.h,v 1.3 2013/09/28 18:49:32 ratchov Exp $	*/
+/*	$OpenBSD: dev.h,v 1.8 2014/03/17 17:16:06 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -27,14 +27,11 @@
 
 struct slotops
 {
-	void (*onmove)(void *, int);		/* clock tick */
+	void (*onmove)(void *);			/* clock tick */
 	void (*onvol)(void *, unsigned int);	/* tell client vol changed */
 	void (*fill)(void *);			/* request to fill a play block */
 	void (*flush)(void *);			/* request to flush a rec block */
 	void (*eof)(void *);			/* notify that play drained */
-	void (*mmcstart)(void *);		/* request to start */
-	void (*mmcstop)(void *);		/* request to stop */
-	void (*mmcloc)(void *, unsigned int);	/* relocate to new position */
 	void (*exit)(void *);			/* delete client */
 };
 
@@ -48,7 +45,6 @@ struct slot {
 		int weight;			/* dynamic range */	
 		int maxweight;			/* max dynamic range allowed */
 		unsigned int vol;		/* volume within the vol */
-		int drop;			/* to drop on next read */
 		struct abuf buf;		/* socket side buffer */
 		int bpf;			/* byte per frame */
 		int slot_cmin, slot_cmax;	/* slot source chans */
@@ -61,8 +57,8 @@ struct slot {
 		void *resampbuf, *decbuf;	/* tmp buffers */
 	} mix;
 	struct {
-		int silence;			/* to add on next write */
 		struct abuf buf;		/* socket side buffer */
+		int prime;			/* initial cycles to skip */
 		int bpf;			/* byte per frame */
 		int slot_cmin, slot_cmax;	/* slot destination chans */
 		int dev_cmin, dev_cmax;		/* device source chans */
@@ -74,6 +70,7 @@ struct slot {
 		void *resampbuf, *encbuf;	/* tmp buffers */
 	} sub;
 	int xrun;				/* underrun policy */
+	int skip;				/* cycles to skip (for xrun) */
 	int dup;				/* mono-to-stereo and alike */
 #define SLOT_BUFSZ(s) \
 	((s)->appbufsz + (s)->dev->bufsz / (s)->dev->round * (s)->round)
@@ -116,6 +113,7 @@ struct dev {
 	adata_t *pbuf;				/* array of play buffers */
 #define DEV_PBUF(d) ((d)->pbuf + (d)->poffs * (d)->pchan)
 	int poffs;				/* index of current play buf */
+	int psize;				/* size of play buffer */
 	struct conv enc;			/* native->device format */
 	struct conv dec;			/* device->native format */
 	unsigned char *encbuf;			/* buffer for encoding */
@@ -129,6 +127,11 @@ struct dev {
 	unsigned int serial;			/* for slot allocation */
 
 	/*
+	 * current position, relative to the current cycle
+	 */
+	int delta;
+
+	/*
 	 * desired parameters
 	 */
 	unsigned int reqmode;			/* mode */
@@ -139,7 +142,6 @@ struct dev {
 	unsigned int reqrate;			/* sample rate */
 	unsigned int hold;			/* hold the device open ? */
 	unsigned int autovol;			/* auto adjust playvol ? */
-	unsigned int autostart;			/* don't wait for MMC start */
 	unsigned int refcnt;			/* number of openers */
 #define DEV_NMAX	16			/* max number of devices */
 	unsigned int num;			/* device serial number */

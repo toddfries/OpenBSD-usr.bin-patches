@@ -1,4 +1,4 @@
-# $OpenBSD: Library.pm,v 1.8 2012/07/13 11:56:12 espie Exp $
+# $OpenBSD: Library.pm,v 1.11 2014/04/16 14:39:05 zhuk Exp $
 
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -67,7 +67,7 @@ sub resolve_library
 		my $oldlib = $lainfo->{old_library};
 		my $libdir = $lainfo->{libdir};
 		my $installed = $lainfo->{installed};
- 		my $d = abs_dir($self->{lafile});
+		my $d = abs_dir($self->{lafile});
 		# get the name we need (this may include a -release)
 		if (!$dlname && !$oldlib) {
 			die "Link error: neither static nor shared library found in $self->{lafile}\n";
@@ -91,29 +91,24 @@ sub resolve_library
 			$libfile = "$d/$oldlib";
 		}
 		if (! -f $libfile) {
-			tsay {".la file ", $self->{lafile}, 
+			tsay {".la file ", $self->{lafile},
 			    "points to nonexistent file ", $libfile, " !"};
 		}
 	} else {
-		# otherwise, search the filesystem
-		# sort dir search order by priority
-		# XXX not fully correct yet
-		my @sdirs = sort { $dirs->{$b} <=> $dirs->{$a} } keys %$dirs;
 		# search in .libs when priority is high
-		map { $_ = "$_/$ltdir" if (exists $dirs->{$_} && $dirs->{$_} > 3) } @sdirs;
-		push @sdirs, $gp->libsearchdirs if $gp;
+		push @$dirs, $gp->libsearchdirs if $gp;
 		tsay {"searching for $libtofind"};
-		tsay {"search path= ", join(':', @sdirs)};
+		tsay {"search path= ", join(':', @$dirs)};
 		tsay {"search type= ", $shared ? 'shared' : 'static'};
-		foreach my $sd (@sdirs) {
-		       if ($shared) {
+		foreach my $sd (@$dirs) {
+			if ($shared) {
 				# select correct library by sorting by version number only
 				my $bestlib = $self->findbest($sd, $libtofind);
 				if ($bestlib) {
 					tsay {"found $libtofind in $sd"};
 					$libfile = $bestlib;
 					last;
-				} else {	
+				} else {
 					# XXX find static library instead?
 					my $spath = "$sd/lib$libtofind$pic.a";
 					if (-f $spath) {
@@ -122,7 +117,7 @@ sub resolve_library
 						last;
 					}
 				}
-		       } else {
+			} else {
 				# look for a static library
 				my $spath = "$sd/lib$libtofind.a";
 				if (-f $spath) {
@@ -130,7 +125,7 @@ sub resolve_library
 					$libfile = $spath;
 					last;
 				}
-		       }
+			}
 		}
 	}
 	if (!$libfile) {
@@ -143,7 +138,7 @@ sub resolve_library
 		}
 	} else {
 		$self->{fullpath} = $libfile;
-		tsay {"\$libs->{$self->{key}}->{fullpath} = ", 
+		tsay {"\$libs->{$self->{key}}->{fullpath} = ",
 		    $self->{fullpath}};
 	}
 }
@@ -154,11 +149,11 @@ sub findbest
 	my $best = undef;
 	if (opendir(my $dir, $sd)) {
 		my ($major, $minor) = (-1, -1);
-		while (my $_ = readdir($dir)) {
-			next unless m/^lib\Q$name\E\.so\.(\d+)\.(\d+)$/;
+		while (my $e = readdir($dir)) {
+			next unless $e =~ m/^lib\Q$name\E\.so\.(\d+)\.(\d+)$/;
 			if ($1 > $major || ($1 == $major && $2 > $minor)) {
 				($major, $minor) = ($1, $2);
-				$best = "$sd/$_";
+				$best = "$sd/$e";
 			}
 		}
 		closedir($dir);

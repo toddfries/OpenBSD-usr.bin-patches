@@ -1,6 +1,7 @@
-/*	$Id: man.h,v 1.41 2013/10/17 20:51:29 schwarze Exp $ */
+/*	$Id: man.h,v 1.43 2014/03/30 19:47:32 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
+ * Copyright (c) 2014 Ingo Schwarze <schwarze@openbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -56,6 +57,7 @@ enum	mant {
 	MAN_EE,
 	MAN_UR,
 	MAN_UE,
+	MAN_ll,
 	MAN_MAX
 };
 
@@ -111,6 +113,7 @@ struct	man;
 const struct man_node *man_node(const struct man *);
 const struct man_meta *man_meta(const struct man *);
 const struct mparse   *man_mparse(const struct man *);
+void man_deroff(char **, const struct man_node *);
 
 __END_DECLS
 

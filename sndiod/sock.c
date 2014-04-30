@@ -1,4 +1,4 @@
-/*	$OpenBSD: sock.c,v 1.9 2014/02/08 15:15:31 ratchov Exp $	*/
+/*	$OpenBSD: sock.c,v 1.12 2014/03/07 10:23:05 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -37,15 +37,12 @@ void sock_close(struct sock *);
 void sock_slot_fill(void *);
 void sock_slot_flush(void *);
 void sock_slot_eof(void *);
-void sock_slot_onmove(void *, int);
+void sock_slot_onmove(void *);
 void sock_slot_onvol(void *, unsigned int);
 void sock_midi_imsg(void *, unsigned char *, int);
 void sock_midi_omsg(void *, unsigned char *, int);
 void sock_midi_fill(void *, int);
 struct sock *sock_new(int);
-void sock_slot_mmcstart(void *);
-void sock_slot_mmcstop(void *);
-void sock_slot_mmcloc(void *, unsigned int);
 void sock_exit(void *);
 int sock_fdwrite(struct sock *, void *, int);
 int sock_fdread(struct sock *, void *, int);
@@ -81,9 +78,6 @@ struct slotops sock_slotops = {
 	sock_slot_fill,
 	sock_slot_flush,
 	sock_slot_eof,
-	sock_slot_mmcstart,
-	sock_slot_mmcstop,
-	sock_slot_mmcloc,
 	sock_exit
 };
 
@@ -212,7 +206,7 @@ sock_slot_eof(void *arg)
 }
 
 void
-sock_slot_onmove(void *arg, int delta)
+sock_slot_onmove(void *arg)
 {
 	struct sock *f = (struct sock *)arg;
 	struct slot *s = f->slot;
@@ -300,45 +294,6 @@ sock_new(int fd)
 	f->next = sock_list;
 	sock_list = f;
 	return f;
-}
-
-void
-sock_slot_mmcstart(void *arg)
-{
-#ifdef DEBUG
-	struct sock *f = (struct sock *)arg;
-
-	if (log_level >= 3) {
-		sock_log(f);
-		log_puts(": ignored mmc start signal\n");
-	}
-#endif
-}
-
-void
-sock_slot_mmcstop(void *arg)
-{
-#ifdef DEBUG
-	struct sock *f = (struct sock *)arg;
-
-	if (log_level >= 3) {
-		sock_log(f);
-		log_puts(": ignored mmc stop signal\n");
-	}
-#endif
-}
-
-void
-sock_slot_mmcloc(void *arg, unsigned int mmcpos)
-{
-#ifdef DEBUG
-	struct sock *f = (struct sock *)arg;
-
-	if (log_level >= 3) {
-		sock_log(f);
-		log_puts(": ignored mmc relocate signal\n");
-	}
-#endif
 }
 
 void
@@ -1413,7 +1368,7 @@ sock_buildmsg(struct sock *f)
 	/*
 	 * If data available, build a DATA message.
 	 */
-	if (f->slot != NULL && f->slot->sub.buf.used > 0 && f->wmax > 0) {
+	if (f->slot != NULL && f->wmax > 0 && f->slot->sub.buf.used > 0) {
 		size = f->slot->sub.buf.used;
 		if (size > AMSG_DATAMAX)
 			size = AMSG_DATAMAX;

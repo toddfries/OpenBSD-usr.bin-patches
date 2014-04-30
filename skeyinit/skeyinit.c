@@ -1,4 +1,4 @@
-/*	$OpenBSD: skeyinit.c,v 1.52 2013/11/28 18:24:55 deraadt Exp $	*/
+/*	$OpenBSD: skeyinit.c,v 1.54 2014/04/23 18:24:23 ajacoutot Exp $	*/
 
 /* OpenBSD S/Key (skeyinit.c)
  *
@@ -184,7 +184,7 @@ main(int argc, char **argv)
 "secure mode this is normally done via an existing S/Key key.  However, since\n"
 "you do not have an entry in the S/Key database you will have to specify an\n"
 "alternate authentication type via the `-a' flag, e.g.\n"
-"    \"skeyinit -s -a krb5\" or \"skeyinit -s -a passwd\"\n\n"
+"    \"skeyinit -s -a passwd\"\n\n"
 "Note that entering a plaintext password over a non-secure link defeats the\n"
 "purpose of using S/Key in the fist place.\n");
 			exit(1);
@@ -513,12 +513,11 @@ convert_db(void)
 			continue;
 		if ((cp = strtok(NULL, " \t")) == NULL)
 			continue;
-		if (isalpha((unsigned char)*cp)) {
-			hashtype = cp;
-			if ((cp = strtok(NULL, " \t")) == NULL)
-				continue;
-		} else
-			hashtype = "md4";
+		if (!isalpha((unsigned char)*cp))
+			continue;
+		hashtype = cp;
+		if ((cp = strtok(NULL, " \t")) == NULL)
+			continue;
 		n = atoi(cp);
 		if ((seed = strtok(NULL, " \t")) == NULL)
 			continue;
@@ -559,6 +558,6 @@ usage(void)
 	extern char *__progname;
 
 	(void)fprintf(stderr, "usage: %s [-CDErsx] [-a auth-type] [-n count]"
-	    "\n\t[-md4 | -md5 | -rmd160 | -sha1] [user]\n", __progname);
+	    "\n\t[-md5 | -rmd160 | -sha1] [user]\n", __progname);
 	exit(1);
 }

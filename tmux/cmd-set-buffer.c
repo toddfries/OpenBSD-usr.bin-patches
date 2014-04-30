@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-set-buffer.c,v 1.14 2013/10/10 12:00:23 nicm Exp $ */
+/* $OpenBSD: cmd-set-buffer.c,v 1.17 2014/04/24 09:14:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -24,15 +24,15 @@
 #include "tmux.h"
 
 /*
- * Add or set a paste buffer.
+ * Add, set, or append to a paste buffer.
  */
 
 enum cmd_retval	 cmd_set_buffer_exec(struct cmd *, struct cmd_q *);
 
 const struct cmd_entry cmd_set_buffer_entry = {
 	"set-buffer", "setb",
-	"b:", 1, 1,
-	CMD_BUFFER_USAGE " data",
+	"ab:", 1, 1,
+	"[-a] " CMD_BUFFER_USAGE " data",
 	0,
 	NULL,
 	cmd_set_buffer_exec
@@ -41,35 +41,56 @@ const struct cmd_entry cmd_set_buffer_entry = {
 enum cmd_retval
 cmd_set_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 {
-	struct args	*args = self->args;
-	u_int		 limit;
-	char		*pdata, *cause;
-	size_t		 psize;
-	int		 buffer;
+	struct args		*args = self->args;
+	struct paste_buffer	*pb;
+	u_int			 limit;
+	char			*pdata, *cause;
+	size_t			 psize, newsize;
+	int			 buffer;
 
 	limit = options_get_number(&global_options, "buffer-limit");
 
-	pdata = xstrdup(args->argv[0]);
-	psize = strlen(pdata);
+	psize = 0;
+	pdata = NULL;
 
-	if (!args_has(args, 'b')) {
-		paste_add(&global_buffers, pdata, psize, limit);
+	pb = NULL;
+	buffer = -1;
+
+	if ((newsize = strlen(args->argv[0])) == 0)
 		return (CMD_RETURN_NORMAL);
+
+	if (args_has(args, 'b')) {
+		buffer = args_strtonum(args, 'b', 0, INT_MAX, &cause);
+		if (cause != NULL) {
+			cmdq_error(cmdq, "buffer %s", cause);
+			free(cause);
+			return (CMD_RETURN_ERROR);
+		}
+		pb = paste_get_index(buffer);
+		if (pb == NULL) {
+			cmdq_error(cmdq, "no buffer %d", buffer);
+			return (CMD_RETURN_ERROR);
+		}
+	} else if (args_has(args, 'a')) {
+		pb = paste_get_top();
+		if (pb != NULL)
+			buffer = 0;
 	}
 
-	buffer = args_strtonum(args, 'b', 0, INT_MAX, &cause);
-	if (cause != NULL) {
-		cmdq_error(cmdq, "buffer %s", cause);
-		free(cause);
-		free(pdata);
-		return (CMD_RETURN_ERROR);
+	if (args_has(args, 'a') && pb != NULL) {
+		psize = pb->size;
+		pdata = xmalloc(psize);
+		memcpy(pdata, pb->data, psize);
 	}
 
-	if (paste_replace(&global_buffers, buffer, pdata, psize) != 0) {
-		cmdq_error(cmdq, "no buffer %d", buffer);
-		free(pdata);
-		return (CMD_RETURN_ERROR);
-	}
+	pdata = xrealloc(pdata, 1, psize + newsize);
+	memcpy(pdata + psize, args->argv[0], newsize);
+	psize += newsize;
+
+	if (buffer == -1)
+		paste_add(pdata, psize, limit);
+	else
+		paste_replace(buffer, pdata, psize);
 
 	return (CMD_RETURN_NORMAL);
 }

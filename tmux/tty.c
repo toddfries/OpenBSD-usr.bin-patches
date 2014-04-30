@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.166 2014/02/23 00:53:06 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.169 2014/04/25 12:45:16 jsg Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -193,7 +193,7 @@ tty_init_termios(int fd, struct termios *orig_tio, struct bufferevent *bufev)
 	tio.c_iflag |= IGNBRK;
 	tio.c_oflag &= ~(OPOST|ONLCR|OCRNL|ONLRET);
 	tio.c_lflag &= ~(IEXTEN|ICANON|ECHO|ECHOE|ECHONL|ECHOCTL|
-	    ECHOPRT|ECHOKE|ECHOCTL|ISIG);
+	    ECHOPRT|ECHOKE|ISIG);
 	tio.c_cc[VMIN] = 1;
 	tio.c_cc[VTIME] = 0;
 	if (tcsetattr(fd, TCSANOW, &tio) == 0)
@@ -388,7 +388,8 @@ tty_putcode_ptr1(struct tty *tty, enum tty_code_code code, const void *a)
 }
 
 void
-tty_putcode_ptr2(struct tty *tty, enum tty_code_code code, const void *a, const void *b)
+tty_putcode_ptr2(struct tty *tty, enum tty_code_code code, const void *a,
+    const void *b)
 {
 	if (a != NULL && b != NULL)
 		tty_puts(tty, tty_term_ptr2(tty->term, code, a, b));
@@ -547,8 +548,8 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 }
 
 void
-tty_emulate_repeat(
-    struct tty *tty, enum tty_code_code code, enum tty_code_code code1, u_int n)
+tty_emulate_repeat(struct tty *tty, enum tty_code_code code,
+    enum tty_code_code code1, u_int n)
 {
 	if (tty_term_has(tty->term, code))
 		tty_putcode1(tty, code, n);

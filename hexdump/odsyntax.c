@@ -1,4 +1,4 @@
-/*	$OpenBSD: odsyntax.c,v 1.22 2013/11/20 21:21:50 deraadt Exp $	*/
+/*	$OpenBSD: odsyntax.c,v 1.25 2014/04/19 09:28:20 sobrado Exp $	*/
 /*	$NetBSD: odsyntax.c,v 1.15 2001/12/07 15:14:29 bjh21 Exp $	*/
 
 /*-
@@ -42,7 +42,7 @@
 
 #define PADDING	"         "
 
-int deprecated;
+int odmode;
 
 static void odoffset(int, char ***);
 static void posixtypes(char *);
@@ -87,10 +87,10 @@ oldsyntax(int argc, char ***argvp)
 	add("\"%07.7_Ao\n\"");
 	add("\"%07.7_ao  \"");
 
-	deprecated = 1;
+	odmode = 1;
 	argv = *argvp;
 	while ((ch = getopt(argc, argv,
-	    "A:aBbcDdeFfHhIij:LlN:OoPpst:wvXx")) != -1)
+	    "A:aBbcDdeFfHhIij:LlN:Oost:vXx")) != -1)
 		switch (ch) {
 		case 'A':
 			switch (*optarg) {
@@ -171,24 +171,16 @@ oldsyntax(int argc, char ***argvp)
 		case 'O':
 			odadd("4/4 \"    %011o \" \"\\n\"");
 			break;
+		case 's':
+			odadd("8/2 \"  %05d \" \"\\n\"");
+			break;
 		case 't':
 			posixtypes(optarg);
 			break;
 		case 'v':
 			vflag = ALL;
 			break;
-		case 'P':
-		case 'p':
-		case 's':
-		case 'w':
-		case '?':
 		default:
-			warnx("od(1) has been deprecated for hexdump(1).");
-			if (ch != '?')
-				warnx(
-				    "hexdump(1) compatibility doesn't"
-				    " support the -%c option%s",
-				    ch, ch == 's' ? "; see strings(1)." : ".");
 			oldusage();
 		}
 
@@ -305,7 +297,7 @@ void
 oldusage(void)
 {
 	extern char *__progname;
-	fprintf(stderr, "usage: %s [-aBbcDdeFfHhIiLlOovXx] [-A base] "
+	fprintf(stderr, "usage: %s [-aBbcDdeFfHhIiLlOosvXx] [-A base] "
 	    "[-j offset] [-N length]\n"
 	    "\t[-t type_string] [[+]offset[.][Bb]] [file ...]\n", __progname);
 	exit(1);

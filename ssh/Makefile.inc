@@ -1,8 +1,9 @@
-#	$OpenBSD: Makefile.inc,v 1.44 2014/02/28 22:46:54 deraadt Exp $
+#	$OpenBSD: Makefile.inc,v 1.46 2014/04/29 18:01:49 markus Exp $
 
 .include <bsd.own.mk>
 
 CFLAGS+=	-I${.CURDIR}/..
+CFLAGS+=	-fstack-protector-all
 
 CDIAGFLAGS=	-Wall
 CDIAGFLAGS+=	-Wchar-subscripts
@@ -37,6 +38,11 @@ CDIAGFLAGS+=	-Wno-unused-parameter # Not clean for this yet
 #DEBUG=-g
 
 WARNINGS=yes
+
+OPENSSL?=	yes
+.if (${OPENSSL:L} == "yes")
+CFLAGS+=	-DWITH_OPENSSL -DWITH_SSH1
+.endif
 
 CFLAGS+=	-DENABLE_PKCS11
 .ifndef NOPIC

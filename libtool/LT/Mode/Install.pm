@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Install.pm,v 1.5 2012/07/09 10:52:26 espie Exp $
+# $OpenBSD: Install.pm,v 1.7 2014/03/19 02:16:22 afresh1 Exp $
 #
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -42,7 +42,7 @@ sub run
 	my @argvcopy = @ARGV;
 	my %install_opts;
 	tsay {"ltprog[-1]  = $$ltprog[-1]"};
-	if ($$ltprog[-1] =~ m/install([.-]sh)?$/) {
+	if ($$ltprog[-1] =~ m/install([.-](sh|check))?$/) {
 		getopts('BbCcdf:g:m:o:pSs', \%install_opts);
 		if (@ARGV < 2 && (!defined $install_opts{'d'} && @ARGV == 1)) {
 			die "Wrong number of arguments for install\n";
@@ -101,12 +101,12 @@ sub is_wrapper
 	my $program = shift;
 
 	open(my $pw, '<', $program) or die "Cannot open $program: $!\n";
-	my $_ = <$pw>;
+	my $line = <$pw>;
 	# if the first line isn't a shell, don't even bother
-	return 0 unless m/^\#\!/;
+	return 0 unless $line =~ m/^\#\!/;
 	my $i = 0;
-	while (<$pw>) {
-		return 1 if m/wrapper\sfor/;
+	while (my $line = <$pw>) {
+		return 1 if $line =~ m/wrapper\sfor/;
 		last if $i++ > 10;
 	}
 	return 0;

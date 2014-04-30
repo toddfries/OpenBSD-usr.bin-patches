@@ -1,11 +1,10 @@
 /*
- * Copyright (C) 1984-2011  Mark Nudelman
+ * Copyright (C) 1984-2012  Mark Nudelman
  *
  * You may distribute under the terms of either the GNU General Public
  * License or the Less License, as specified in the README file.
  *
- * For more information about less, or for information on how to 
- * contact the author, see the README file.
+ * For more information, see the README file.
  */
 
 
@@ -29,7 +28,6 @@ public int know_dumb;		/* Don't complain about dumb terminals */
 public int quit_at_eof;		/* Quit after hitting end of file twice */
 public int quit_if_one_screen;	/* Quit if EOF on first screen */
 public int squeeze;		/* Squeeze multiple blank lines into one */
-public int be_helpful;		/* more(1) style -d */
 public int tabstop;		/* Tab settings */
 public int back_scroll;		/* Repaint screen on backwards movement */
 public int forw_scroll;		/* Repaint screen on forward movement */
@@ -54,6 +52,7 @@ public int use_lessopen;	/* Use the LESSOPEN filter */
 public int quit_on_intr;	/* Quit on interrupt */
 public int follow_mode;		/* F cmd Follows file desc or file name? */
 public int oldbot;		/* Old bottom of screen behavior {{REMOVE}} */
+public int opt_use_backslash;	/* Use backslash escaping in option parsing */
 #if HILITE_SEARCH
 public int hilite_search;	/* Highlight matched search patterns? */
 #endif
@@ -118,6 +117,7 @@ static struct optname pound_optname  = { "shift",                NULL };
 static struct optname keypad_optname = { "no-keypad",            NULL };
 static struct optname oldbot_optname = { "old-bot",              NULL };
 static struct optname follow_optname = { "follow-name",          NULL };
+static struct optname use_backslash_optname = { "use-backslash", NULL };
 #else
 static struct optname fake_optname   = { "fake",                 NULL };
 #define a_optname	fake_optname
@@ -174,6 +174,7 @@ static struct optname fake_optname   = { "fake",                 NULL };
 #define keypad_optname	fake_optname
 #define oldbot_optname	fake_optname
 #define follow_optname	fake_optname
+#define use_backslash_optname	fake_optname
 #endif
 
 
@@ -506,6 +507,14 @@ static struct loption option[] =
 			NULL
 		}
 	},
+	{ OLETTER_NONE, &use_backslash_optname,
+		BOOL, OPT_OFF, &opt_use_backslash, NULL,
+		{
+			"Use backslash escaping in command line parameters",
+			"Don't use backslash escaping in command line parameters",
+			NULL
+		}
+	},
 	{ '\0', NULL, NOVAR, 0, NULL, NULL, { NULL, NULL, NULL } }
 };
 
@@ -525,21 +534,6 @@ init_option()
 
 	for (o = option;  o->oletter != '\0';  o++)
 	{
-		/*
-		 * Replace less's -d option if invoked as more
-		 */
-		if (less_is_more && o->oletter == 'd')
-		{
-			o->onames = NULL;
-			o->otype = BOOL;
-			o->odefault = OPT_OFF;
-			o->ovar = &be_helpful;
-			o->ofunc = NULL;
-			o->odesc[0] = "Be less helpful in prompts";
-			o->odesc[1] = "Be helpful in prompts";
-			o->odesc[2] = NULL;
-		}
-
 		/*
 		 * Set each variable to its default.
 		 */

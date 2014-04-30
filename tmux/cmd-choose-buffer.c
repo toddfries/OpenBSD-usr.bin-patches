@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-choose-buffer.c,v 1.15 2013/10/10 12:00:18 nicm Exp $ */
+/* $OpenBSD: cmd-choose-buffer.c,v 1.17 2014/04/24 09:14:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2010 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -49,6 +49,7 @@ cmd_choose_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	char				*action, *action_data;
 	const char			*template;
 	u_int				 idx;
+	int				 utf8flag;
 
 	if ((c = cmd_current_client(cmdq)) == NULL) {
 		cmdq_error(cmdq, "no client available");
@@ -60,8 +61,9 @@ cmd_choose_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 
 	if ((wl = cmd_find_window(cmdq, args_get(args, 't'), NULL)) == NULL)
 		return (CMD_RETURN_ERROR);
+	utf8flag = options_get_number(&wl->window->options, "utf8");
 
-	if (paste_get_top(&global_buffers) == NULL)
+	if (paste_get_top() == NULL)
 		return (CMD_RETURN_NORMAL);
 
 	if (window_pane_set_mode(wl->window->active, &window_choose_mode) != 0)
@@ -73,13 +75,13 @@ cmd_choose_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 		action = xstrdup("paste-buffer -b '%%'");
 
 	idx = 0;
-	while ((pb = paste_walk_stack(&global_buffers, &idx)) != NULL) {
+	while ((pb = paste_walk_stack(&idx)) != NULL) {
 		cdata = window_choose_data_create(TREE_OTHER, c, c->session);
 		cdata->idx = idx - 1;
 
 		cdata->ft_template = xstrdup(template);
 		format_add(cdata->ft, "line", "%u", idx - 1);
-		format_paste_buffer(cdata->ft, pb);
+		format_paste_buffer(cdata->ft, pb, utf8flag);
 
 		xasprintf(&action_data, "%u", idx - 1);
 		cdata->command = cmd_template_replace(action, action_data, 1);

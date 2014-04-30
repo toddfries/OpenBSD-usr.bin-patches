@@ -1,4 +1,4 @@
-/* $OpenBSD: packet.c,v 1.192 2014/02/02 03:44:31 djm Exp $ */
+/* $OpenBSD: packet.c,v 1.195 2014/04/29 18:01:49 markus Exp $ */
 /*
  * Author: Tatu Ylonen <ylo@cs.hut.fi>
  * Copyright (c) 1995 Tatu Ylonen <ylo@cs.hut.fi>, Espoo, Finland
@@ -621,6 +621,7 @@ packet_put_raw(const void *buf, u_int len)
 	buffer_append(&active_state->outgoing_packet, buf, len);
 }
 
+#ifdef WITH_OPENSSL
 void
 packet_put_bignum(BIGNUM * value)
 {
@@ -638,6 +639,7 @@ packet_put_ecpoint(const EC_GROUP *curve, const EC_POINT *point)
 {
 	buffer_put_ecpoint(&active_state->outgoing_packet, curve, point);
 }
+#endif
 
 /*
  * Finalizes and sends the packet.  If the encryption key has been set,
@@ -901,8 +903,8 @@ packet_send2_wrapped(void)
 		    roundup(active_state->extra_pad, block_size);
 		pad = active_state->extra_pad -
 		    ((len + padlen) % active_state->extra_pad);
-		debug3("packet_send2: adding %d (len %d padlen %d extra_pad %d)",
-		    pad, len, padlen, active_state->extra_pad);
+		DBG(debug3("%s: adding %d (len %d padlen %d extra_pad %d)",
+		    __func__, pad, len, padlen, active_state->extra_pad));
 		padlen += pad;
 		active_state->extra_pad = 0;
 	}
@@ -1557,6 +1559,7 @@ packet_get_int64(void)
  * must have been initialized before this call.
  */
 
+#ifdef WITH_OPENSSL
 void
 packet_get_bignum(BIGNUM * value)
 {
@@ -1574,6 +1577,7 @@ packet_get_ecpoint(const EC_GROUP *curve, EC_POINT *point)
 {
 	buffer_get_ecpoint(&active_state->incoming_packet, curve, point);
 }
+#endif
 
 void *
 packet_get_raw(u_int *length_ptr)
@@ -1604,7 +1608,7 @@ packet_get_string(u_int *length_ptr)
 	return buffer_get_string(&active_state->incoming_packet, length_ptr);
 }
 
-void *
+const void *
 packet_get_string_ptr(u_int *length_ptr)
 {
 	return buffer_get_string_ptr(&active_state->incoming_packet, length_ptr);

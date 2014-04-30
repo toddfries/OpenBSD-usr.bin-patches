@@ -1,4 +1,4 @@
-.\"	$OpenBSD: su.1,v 1.28 2010/12/10 19:32:21 millert Exp $
+.\"	$OpenBSD: su.1,v 1.30 2014/04/24 14:14:08 jmc Exp $
 .\"
 .\" Copyright (c) 1988, 1990 The Regents of the University of California.
 .\" All rights reserved.
@@ -29,7 +29,7 @@
 .\"
 .\"	from: @(#)su.1	6.12 (Berkeley) 7/29/91
 .\"
-.Dd $Mdocdate: December 10 2010 $
+.Dd $Mdocdate: April 24 2014 $
 .Dt SU 1
 .Os
 .Sh NAME
@@ -49,28 +49,6 @@ The
 .Nm
 utility allows a user to run a shell with the user and group ID of another user
 without having to log out and in as that other user.
-.Pp
-If Kerberos is in use, the password for
-.Ar login
-(or for
-.Dq Ar login Ns /root ,
-if no login is provided) is requested, and
-.Nm
-switches to
-that user and group ID after obtaining a Kerberos ticket granting access.
-A shell is then executed, and any additional
-.Ar "shell arguments"
-after the login name
-are passed to the shell.
-If Kerberos is not configured or if there is a Kerberos error,
-.Nm
-falls back to local password authentication to validate the password for
-.Ar login .
-If
-.Nm
-is executed by root, no password is requested and a shell
-with the appropriate user ID is executed; no additional Kerberos tickets
-are obtained.
 .Pp
 By default, the environment is unmodified with the exception of
 .Ev LOGNAME ,
@@ -114,10 +92,9 @@ Same as the
 option (deprecated).
 .It Fl a Ar auth-type
 Specify an authentication type such as
-.Dq skey ,
-.Dq securid ,
+.Dq skey
 or
-.Dq krb5 .
+.Dq radius .
 .It Fl c Ar login-class
 Specify a login class.
 You may only override the default class if you're already root.
@@ -128,7 +105,6 @@ this option prevents it from reading the
 .Dq Pa .cshrc
 file.
 .It Fl K
-Do not attempt to use Kerberos to authenticate the user.
 This is shorthand for
 .Dq Nm Fl a Ar passwd ,
 provided for backwards compatibility.
@@ -282,11 +258,7 @@ Same as above, but use S/Key for authentication:
 .Pp
 .Dl $ su -a skey -l foo
 .Sh SEE ALSO
-.Xr csh 1 ,
-.Xr kinit 1 ,
 .Xr login 1 ,
-.Xr sh 1 ,
-.Xr skey 1 ,
 .Xr setusercontext 3 ,
 .Xr group 5 ,
 .Xr login.conf 5 ,

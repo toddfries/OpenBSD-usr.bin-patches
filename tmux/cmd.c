@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.90 2014/01/09 14:20:55 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.92 2014/04/16 21:02:41 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -35,7 +35,6 @@ const struct cmd_entry *cmd_table[] = {
 	&cmd_capture_pane_entry,
 	&cmd_choose_buffer_entry,
 	&cmd_choose_client_entry,
-	&cmd_choose_list_entry,
 	&cmd_choose_session_entry,
 	&cmd_choose_tree_entry,
 	&cmd_choose_window_entry,
@@ -138,6 +137,9 @@ cmd_pack_argv(int argc, char **argv, char *buf, size_t len)
 {
 	size_t	arglen;
 	int	i;
+
+	if (argc == 0)
+		return (0);
 
 	*buf = '\0';
 	for (i = 0; i < argc; i++) {

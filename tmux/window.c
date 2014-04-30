@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.102 2014/02/22 18:01:10 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.108 2014/04/17 14:45:49 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -17,14 +17,10 @@
  */
 
 #include <sys/types.h>
-#include <sys/ioctl.h>
 
 #include <errno.h>
 #include <fcntl.h>
 #include <fnmatch.h>
-#include <paths.h>
-#include <pwd.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -312,8 +308,8 @@ window_create1(u_int sx, u_int sy)
 }
 
 struct window *
-window_create(const char *name, const char *cmd, const char *shell,
-    int cwd, struct environ *env, struct termios *tio,
+window_create(const char *name, const char *cmd, const char *path,
+    const char *shell, int cwd, struct environ *env, struct termios *tio,
     u_int sx, u_int sy, u_int hlimit, char **cause)
 {
 	struct window		*w;
@@ -323,7 +319,8 @@ window_create(const char *name, const char *cmd, const char *shell,
 	wp = window_add_pane(w, hlimit);
 	layout_init(w, wp);
 
-	if (window_pane_spawn(wp, cmd, shell, cwd, env, tio, cause) != 0) {
+	if (window_pane_spawn(wp, cmd, path, shell, cwd, env, tio,
+	    cause) != 0) {
 		window_destroy(w);
 		return (NULL);
 	}
@@ -423,10 +420,15 @@ window_pane_active_set(struct window_pane *wp, struct window_pane *nextwp)
 void
 window_pane_active_lost(struct window_pane *wp, struct window_pane *nextwp)
 {
-	struct layout_cell	*lc, *lc2;
+	struct layout_cell	*lc, *lc2, *lcparent;
+
+	/* Get the parent cell. */
+	lcparent = nextwp->layout_cell->parent;
+	if (lcparent == NULL)
+		return;
 
 	/* Save the target pane in its parent. */
-	nextwp->layout_cell->parent->lastwp = nextwp;
+	lcparent->lastwp = nextwp;
 
 	/*
 	 * Save the source pane in all of its parents up to, but not including,
@@ -435,8 +437,7 @@ window_pane_active_lost(struct window_pane *wp, struct window_pane *nextwp)
 	if (wp == NULL)
 		return;
 	for (lc = wp->layout_cell->parent; lc != NULL; lc = lc->parent) {
-		lc2 = nextwp->layout_cell->parent;
-		for (; lc2 != NULL; lc2 = lc2->parent) {
+		for (lc2 = lcparent; lc2 != NULL; lc2 = lc2->parent) {
 			if (lc == lc2)
 				return;
 		}
@@ -587,7 +588,7 @@ window_add_pane(struct window *w, u_int hlimit)
 }
 
 void
-window_remove_pane(struct window *w, struct window_pane *wp)
+window_lost_pane(struct window *w, struct window_pane *wp)
 {
 	if (wp == w->active) {
 		w->active = w->last;
@@ -599,6 +600,12 @@ window_remove_pane(struct window *w, struct window_pane *wp)
 		}
 	} else if (wp == w->last)
 		w->last = NULL;
+}
+
+void
+window_remove_pane(struct window *w, struct window_pane *wp)
+{
+	window_lost_pane(w, wp);
 
 	TAILQ_REMOVE(&w->panes, wp, entry);
 	window_pane_destroy(wp);
@@ -695,8 +702,6 @@ window_printable_flags(struct session *s, struct winlink *wl)
 		flags[pos++] = '#';
 	if (wl->flags & WINLINK_BELL)
 		flags[pos++] = '!';
-	if (wl->flags & WINLINK_CONTENT)
-		flags[pos++] = '+';
 	if (wl->flags & WINLINK_SILENCE)
 		flags[pos++] = '~';
 	if (wl == s->curw)
@@ -806,8 +811,9 @@ window_pane_destroy(struct window_pane *wp)
 }
 
 int
-window_pane_spawn(struct window_pane *wp, const char *cmd, const char *shell,
-    int cwd, struct environ *env, struct termios *tio, char **cause)
+window_pane_spawn(struct window_pane *wp, const char *cmd, const char *path,
+    const char *shell, int cwd, struct environ *env, struct termios *tio,
+    char **cause)
 {
 	struct winsize	 ws;
 	char		*argv0, paneid[16];
@@ -856,6 +862,8 @@ window_pane_spawn(struct window_pane *wp, const char *cmd, const char *shell,
 
 		closefrom(STDERR_FILENO + 1);
 
+		if (path != NULL)
+			environ_set(env, "PATH", path);
 		xsnprintf(paneid, sizeof paneid, "%%%u", wp->id);
 		environ_set(env, "TMUX_PANE", paneid);
 		environ_push(env);
@@ -1154,7 +1162,8 @@ window_pane_visible(struct window_pane *wp)
 }
 
 char *
-window_pane_search(struct window_pane *wp, const char *searchstr, u_int *lineno)
+window_pane_search(struct window_pane *wp, const char *searchstr,
+    u_int *lineno)
 {
 	struct screen	*s = &wp->base;
 	char		*newsearchstr, *line, *msg;

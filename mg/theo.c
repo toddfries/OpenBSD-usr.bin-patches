@@ -1,4 +1,4 @@
-/*	$OpenBSD: theo.c,v 1.130 2014/01/21 22:25:56 henning Exp $	*/
+/*	$OpenBSD: theo.c,v 1.138 2014/04/18 14:25:52 schwarze Exp $	*/
 /*
  * Copyright (c) 2002 Artur Grabowski <art@openbsd.org>
  * All rights reserved.
@@ -172,7 +172,15 @@ static const char *talk[] = {
 	"backwards compatibility is king, and will remain king, until 2038.",
 	"I don't know if the Internet's safe yet.",
 	"Those who don't understand Unix are condemned to reinvent Multics in a browser",
-	"Don't tell anybody I said that."
+	"Don't tell anybody I said that.",
+	"Complaint forms are handled in another department.",
+	"You'd be safer using Windows than the code which was just deleted.",
+	"Shit should not be shared.",
+	"the randomization in this entire codebase is a grand experiment in stupid",
+	"My mailbox is full of shock.",
+	"my integer overflow spidey senses are tingling.",
+	"I'm just trying to improve the code...",
+	"It's a pleasure to work on code you can't make worse.",
 };
 
 static const int ntalk = sizeof(talk)/sizeof(talk[0]);

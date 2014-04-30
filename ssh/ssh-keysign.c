@@ -1,4 +1,4 @@
-/* $OpenBSD: ssh-keysign.c,v 1.39 2013/12/06 13:39:49 markus Exp $ */
+/* $OpenBSD: ssh-keysign.c,v 1.42 2014/04/29 18:01:49 markus Exp $ */
 /*
  * Copyright (c) 2002 Markus Friedl.  All rights reserved.
  *
@@ -26,7 +26,6 @@
 #include <sys/types.h>
 
 #include <openssl/evp.h>
-#include <openssl/rand.h>
 #include <openssl/rsa.h>
 
 #include <fcntl.h>
@@ -150,9 +149,8 @@ main(int argc, char **argv)
 	struct passwd *pw;
 	int key_fd[NUM_KEYTYPES], i, found, version = 2, fd;
 	u_char *signature, *data;
-	char *host;
+	char *host, *fp;
 	u_int slen, dlen;
-	u_int32_t rnd[256];
 
 	/* Ensure that stdin and stdout are connected */
 	if ((fd = open(_PATH_DEVNULL, O_RDWR)) < 2)
@@ -194,17 +192,17 @@ main(int argc, char **argv)
 		fatal("could not open any host key");
 
 	OpenSSL_add_all_algorithms();
-	for (i = 0; i < 256; i++)
-		rnd[i] = arc4random();
-	RAND_seed(rnd, sizeof(rnd));
 
 	found = 0;
 	for (i = 0; i < NUM_KEYTYPES; i++) {
 		keys[i] = NULL;
 		if (key_fd[i] == -1)
 			continue;
+#ifdef WITH_OPENSSL
+/* XXX wrong api */
 		keys[i] = key_load_private_pem(key_fd[i], KEY_UNSPEC,
 		    NULL, NULL);
+#endif
 		close(key_fd[i]);
 		if (keys[i] != NULL)
 			found = 1;
@@ -236,8 +234,11 @@ main(int argc, char **argv)
 			break;
 		}
 	}
-	if (!found)
-		fatal("no matching hostkey found");
+	if (!found) {
+		fp = key_fingerprint(key, SSH_FP_MD5, SSH_FP_HEX);
+		fatal("no matching hostkey found for key %s %s",
+		    key_type(key), fp);
+	}
 
 	if (key_sign(keys[i], &signature, &slen, data, dlen) != 0)
 		fatal("key_sign failed");

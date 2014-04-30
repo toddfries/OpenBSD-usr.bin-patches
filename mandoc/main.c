@@ -1,7 +1,7 @@
-/*	$Id: main.c,v 1.86 2014/01/06 00:53:14 schwarze Exp $ */
+/*	$Id: main.c,v 1.90 2014/04/20 16:44:44 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
- * Copyright (c) 2010, 2011, 2012 Ingo Schwarze <schwarze@openbsd.org>
+ * Copyright (c) 2010, 2011, 2012, 2014 Ingo Schwarze <schwarze@openbsd.org>
  * Copyright (c) 2010 Joerg Sonnenberger <joerg@netbsd.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
@@ -25,6 +25,7 @@
 #include <unistd.h>
 
 #include "mandoc.h"
+#include "mandoc_aux.h"
 #include "main.h"
 #include "mdoc.h"
 #include "man.h"
@@ -50,9 +51,9 @@ struct	curparse {
 	struct mparse	 *mp;
 	enum mandoclevel  wlevel;	/* ignore messages below this */
 	int		  wstop;	/* stop after a file with a warning */
-	enum outt	  outtype; 	/* which output to use */
+	enum outt	  outtype;	/* which output to use */
 	out_mdoc	  outmdoc;	/* mdoc output ptr */
-	out_man	  	  outman;	/* man output ptr */
+	out_man		  outman;	/* man output ptr */
 	out_free	  outfree;	/* free output ptr */
 	void		 *outdata;	/* data for output */
 	char		  outopts[BUFSIZ]; /* buf of output opts */
@@ -61,10 +62,10 @@ struct	curparse {
 int			  apropos(int, char**);
 int			  mandocdb(int, char**);
 
-static	int		  moptions(enum mparset *, char *);
+static	int		  moptions(int *, char *);
 static	void		  mmsg(enum mandocerr, enum mandoclevel,
 				const char *, int, int, const char *);
-static	void		  parse(struct curparse *, int, 
+static	void		  parse(struct curparse *, int,
 				const char *, enum mandoclevel *);
 static	int		  toptions(struct curparse *, char *);
 static	void		  usage(void) __attribute__((noreturn));
@@ -73,12 +74,13 @@ static	int		  woptions(struct curparse *, char *);
 
 static	const char	 *progname;
 
+
 int
 main(int argc, char *argv[])
 {
 	int		 c;
 	struct curparse	 curp;
-	enum mparset	 type;
+	int		 options;
 	enum mandoclevel rc;
 	char		*defos;
 
@@ -97,44 +99,44 @@ main(int argc, char *argv[])
 
 	memset(&curp, 0, sizeof(struct curparse));
 
-	type = MPARSE_AUTO;
+	options = MPARSE_SO;
 	curp.outtype = OUTT_ASCII;
 	curp.wlevel  = MANDOCLEVEL_FATAL;
 	defos = NULL;
 
-	/* LINTED */
 	while (-1 != (c = getopt(argc, argv, "I:m:O:T:VW:")))
 		switch (c) {
-		case ('I'):
+		case 'I':
 			if (strncmp(optarg, "os=", 3)) {
-				fprintf(stderr, "-I%s: Bad argument\n",
-						optarg);
+				fprintf(stderr,
+				    "-I%s: Bad argument\n", optarg);
 				return((int)MANDOCLEVEL_BADARG);
 			}
 			if (defos) {
-				fprintf(stderr, "-I%s: Duplicate argument\n",
-						optarg);
+				fprintf(stderr,
+				    "-I%s: Duplicate argument\n",
+				    optarg);
 				return((int)MANDOCLEVEL_BADARG);
 			}
 			defos = mandoc_strdup(optarg + 3);
 			break;
-		case ('m'):
-			if ( ! moptions(&type, optarg))
+		case 'm':
+			if ( ! moptions(&options, optarg))
 				return((int)MANDOCLEVEL_BADARG);
 			break;
-		case ('O'):
+		case 'O':
 			(void)strlcat(curp.outopts, optarg, BUFSIZ);
 			(void)strlcat(curp.outopts, ",", BUFSIZ);
 			break;
-		case ('T'):
+		case 'T':
 			if ( ! toptions(&curp, optarg))
 				return((int)MANDOCLEVEL_BADARG);
 			break;
-		case ('W'):
+		case 'W':
 			if ( ! woptions(&curp, optarg))
 				return((int)MANDOCLEVEL_BADARG);
 			break;
-		case ('V'):
+		case 'V':
 			version();
 			/* NOTREACHED */
 		default:
@@ -142,7 +144,7 @@ main(int argc, char *argv[])
 			/* NOTREACHED */
 		}
 
-	curp.mp = mparse_alloc(type, curp.wlevel, mmsg, defos, 0);
+	curp.mp = mparse_alloc(options, curp.wlevel, mmsg, defos);
 
 	/*
 	 * Conditionally start up the lookaside buffer before parsing.
@@ -193,15 +195,15 @@ usage(void)
 			"[-Ooption] "
 			"[-Toutput] "
 			"[-Wlevel]\n"
-			"\t      [file ...]\n", 
+			"\t      [file ...]\n",
 			progname);
 
 	exit((int)MANDOCLEVEL_BADARG);
 }
 
 static void
-parse(struct curparse *curp, int fd, 
-		const char *file, enum mandoclevel *level)
+parse(struct curparse *curp, int fd, const char *file,
+	enum mandoclevel *level)
 {
 	enum mandoclevel  rc;
 	struct mdoc	 *mdoc;
@@ -231,31 +233,31 @@ parse(struct curparse *curp, int fd,
 
 	if ( ! (curp->outman && curp->outmdoc)) {
 		switch (curp->outtype) {
-		case (OUTT_XHTML):
+		case OUTT_XHTML:
 			curp->outdata = xhtml_alloc(curp->outopts);
 			curp->outfree = html_free;
 			break;
-		case (OUTT_HTML):
+		case OUTT_HTML:
 			curp->outdata = html_alloc(curp->outopts);
 			curp->outfree = html_free;
 			break;
-		case (OUTT_UTF8):
+		case OUTT_UTF8:
 			curp->outdata = utf8_alloc(curp->outopts);
 			curp->outfree = ascii_free;
 			break;
-		case (OUTT_LOCALE):
+		case OUTT_LOCALE:
 			curp->outdata = locale_alloc(curp->outopts);
 			curp->outfree = ascii_free;
 			break;
-		case (OUTT_ASCII):
+		case OUTT_ASCII:
 			curp->outdata = ascii_alloc(curp->outopts);
 			curp->outfree = ascii_free;
 			break;
-		case (OUTT_PDF):
+		case OUTT_PDF:
 			curp->outdata = pdf_alloc(curp->outopts);
 			curp->outfree = pspdf_free;
 			break;
-		case (OUTT_PS):
+		case OUTT_PS:
 			curp->outdata = ps_alloc(curp->outopts);
 			curp->outfree = pspdf_free;
 			break;
@@ -264,29 +266,29 @@ parse(struct curparse *curp, int fd,
 		}
 
 		switch (curp->outtype) {
-		case (OUTT_HTML):
+		case OUTT_HTML:
 			/* FALLTHROUGH */
-		case (OUTT_XHTML):
+		case OUTT_XHTML:
 			curp->outman = html_man;
 			curp->outmdoc = html_mdoc;
 			break;
-		case (OUTT_TREE):
+		case OUTT_TREE:
 			curp->outman = tree_man;
 			curp->outmdoc = tree_mdoc;
 			break;
-		case (OUTT_MAN):
+		case OUTT_MAN:
 			curp->outmdoc = man_mdoc;
 			curp->outman = man_man;
 			break;
-		case (OUTT_PDF):
+		case OUTT_PDF:
 			/* FALLTHROUGH */
-		case (OUTT_ASCII):
+		case OUTT_ASCII:
 			/* FALLTHROUGH */
-		case (OUTT_UTF8):
+		case OUTT_UTF8:
 			/* FALLTHROUGH */
-		case (OUTT_LOCALE):
+		case OUTT_LOCALE:
 			/* FALLTHROUGH */
-		case (OUTT_PS):
+		case OUTT_PS:
 			curp->outman = terminal_man;
 			curp->outmdoc = terminal_mdoc;
 			break;
@@ -295,7 +297,7 @@ parse(struct curparse *curp, int fd,
 		}
 	}
 
-	mparse_result(curp->mp, &mdoc, &man);
+	mparse_result(curp->mp, &mdoc, &man, NULL);
 
 	/* Execute the out device, if it exists. */
 
@@ -313,15 +315,15 @@ parse(struct curparse *curp, int fd,
 }
 
 static int
-moptions(enum mparset *tflags, char *arg)
+moptions(int *options, char *arg)
 {
 
 	if (0 == strcmp(arg, "doc"))
-		*tflags = MPARSE_MDOC;
+		*options |= MPARSE_MDOC;
 	else if (0 == strcmp(arg, "andoc"))
-		*tflags = MPARSE_AUTO;
+		/* nothing to do */;
 	else if (0 == strcmp(arg, "an"))
-		*tflags = MPARSE_MAN;
+		*options |= MPARSE_MAN;
 	else {
 		fprintf(stderr, "%s: Bad argument\n", arg);
 		return(0);
@@ -367,7 +369,7 @@ static int
 woptions(struct curparse *curp, char *arg)
 {
 	char		*v, *o;
-	const char	*toks[6]; 
+	const char	*toks[6];
 
 	toks[0] = "stop";
 	toks[1] = "all";
@@ -379,18 +381,18 @@ woptions(struct curparse *curp, char *arg)
 	while (*arg) {
 		o = arg;
 		switch (getsubopt(&arg, UNCONST(toks), &v)) {
-		case (0):
+		case 0:
 			curp->wstop = 1;
 			break;
-		case (1):
+		case 1:
 			/* FALLTHROUGH */
-		case (2):
+		case 2:
 			curp->wlevel = MANDOCLEVEL_WARNING;
 			break;
-		case (3):
+		case 3:
 			curp->wlevel = MANDOCLEVEL_ERROR;
 			break;
-		case (4):
+		case 4:
 			curp->wlevel = MANDOCLEVEL_FATAL;
 			break;
 		default:
@@ -403,14 +405,12 @@ woptions(struct curparse *curp, char *arg)
 }
 
 static void
-mmsg(enum mandocerr t, enum mandoclevel lvl, 
+mmsg(enum mandocerr t, enum mandoclevel lvl,
 		const char *file, int line, int col, const char *msg)
 {
 
-	fprintf(stderr, "%s:%d:%d: %s: %s", 
-			file, line, col + 1, 
-			mparse_strlevel(lvl),
-			mparse_strerror(t));
+	fprintf(stderr, "%s:%d:%d: %s: %s", file, line, col + 1,
+	    mparse_strlevel(lvl), mparse_strerror(t));
 
 	if (msg)
 		fprintf(stderr, ": %s", msg);

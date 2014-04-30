@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: Link.pm,v 1.24 2013/01/10 21:34:29 millert Exp $
+# $OpenBSD: Link.pm,v 1.29 2014/04/27 18:08:35 zhuk Exp $
 #
 # Copyright (c) 2007-2010 Steven Mestdagh <steven@openbsd.org>
 # Copyright (c) 2012 Marc Espie <espie@openbsd.org>
@@ -21,23 +21,21 @@ use feature qw(say);
 
 # supplement OSConfig with stuff needed.
 package LT::OSConfig;
+require LT::UList;
 
-my ($search_dir_hash, $search_dir_list);
+my $search_dir_list = LT::UList->new;
+my $search_dir_obj = tied(@$search_dir_list);
+
 sub fillup_search_dirs
 {
-	return if defined $search_dir_list;
-	$search_dir_list = [];
-	$search_dir_hash = {};
+	return if @$search_dir_list;
 	open(my $fh, '-|', '/sbin/ldconfig -r');
 	if (!defined $fh) {
 		die "Can't run ldconfig\n";
 	}
 	while (<$fh>) {
 		if (m/^\s*search directories:\s*(.*?)\s*$/o) {
-			foreach my $d (split(/\:/o, $1)) {
-				push @$search_dir_list, $d;
-				$search_dir_hash->{$d} = 1;
-			}
+			push @$search_dir_list, split(/\:/o, $1);
 			last;
 		}
 	}
@@ -55,7 +53,7 @@ sub is_search_dir
 {
 	my ($self, $dir) = @_;
 	$self->fillup_search_dirs;
-	return $search_dir_hash->{$dir};
+	return $search_dir_obj->exists($dir);
 }
 
 
@@ -120,12 +118,10 @@ sub run
 
 	my $noshared  = $ltconfig->noshared;
 	my $cmd;
-	my $libdirs = [];	# list of libdirs
-	my $libs = LT::Library::Stash->new;		# libraries
-	my $dirs = {};		# paths to find libraries
-	# put a priority in the dir hash
-	# always look here
-	$dirs->{'/usr/lib'} = 3;
+	my $libdirs = LT::UList->new;		# list of libdirs
+	my $libs = LT::Library::Stash->new;	# libraries
+	my $dirs = LT::UList->new('/usr/lib');	# paths to search for libraries,
+						# /usr/lib is always there
 
 	$gp->handle_permuted_options(
 	    'all-static',
@@ -201,7 +197,7 @@ sub run
 	tsay {"objs = @objs"};
 	tsay {"sobjs = @sobjs"};
 
-	my $deplibs = [];	# list of dependent libraries (both -L and -l flags)
+	my $deplibs = LT::UList->new;	# list of dependent libraries (both -L and -l flags)
 	my $parser = LT::Parser->new(\@ARGV);
 
 	if ($linkmode == PROGRAM) {
@@ -227,8 +223,7 @@ sub run
 				tsay {"hoping for real objects in ARGV..."};
 			}
 		}
-		my $RPdirs = [];
-		@$RPdirs = (@Ropts, @RPopts, $gp->Rresolved);
+		my $RPdirs = LT::UList->new(@Ropts, @RPopts, $gp->Rresolved);
 		$program->{RPdirs} = $RPdirs;
 
 		$program->link($ltprog, $ltconfig, $dirs, $libs, $deplibs, $libdirs, $parser, $gp);
@@ -326,9 +321,7 @@ sub run
 		map { $_ = "-R$_" } @Ropts;
 		unshift @$deplibs, @Ropts if @Ropts;
 		tsay {"deplibs = @$deplibs"};
-		my $finaldeplibs = reverse_zap_duplicates_ref($deplibs);
-		tsay {"finaldeplibs = @$finaldeplibs"};
-		$lainfo->set('dependency_libs', "@$finaldeplibs");
+		$lainfo->set('dependency_libs', "@$deplibs");
 		if (@RPopts) {
 			if (@RPopts > 1) {
 				tsay {"more than 1 -rpath option given, ",
@@ -343,7 +336,7 @@ sub run
 		}
 		my $lai = "$odir/$ltdir/$ofile".'i';
 		if ($shared) {
-			my $pdeplibs = process_deplibs($finaldeplibs);
+			my $pdeplibs = process_deplibs($deplibs);
 			if (defined $pdeplibs) {
 				$lainfo->set('dependency_libs', "@$pdeplibs");
 			}
@@ -430,8 +423,7 @@ sub process_deplibs
 				# XXX improve checks when adding to deplibs
 				say "warning: $lf dropped from deplibs";
 			} else {
-				$lf = $libdir.'/'.$lafile;
-				push @$result, $lf;
+				push @$result, $libdir.'/'.$lafile;
 			}
 		} else {
 			push @$result, $lf;
@@ -443,6 +435,7 @@ sub process_deplibs
 package LT::Parser;
 use File::Basename;
 use Cwd qw(abs_path);
+use LT::UList;
 use LT::Util;
 use LT::Trace;
 
@@ -452,17 +445,15 @@ sub build_cache
 {
 	my ($self, $lainfo, $level) = @_;
 	my $o = $lainfo->{cached} = {
-	    deplibs => [], libdirs => [], result => []};
-	$self->internal_resolve_la($o, $lainfo->deplib_list, 
+	    deplibs => LT::UList->new,
+	    libdirs => LT::UList->new,
+	    result => LT::UList->new
+	};
+	$self->internal_resolve_la($o, $lainfo->deplib_list,
 	    $level+1);
 	push(@{$o->{deplibs}}, @{$lainfo->deplib_list});
 	if ($lainfo->{libdir} ne '') {
 		push(@{$o->{libdirs}}, $lainfo->{libdir});
-	}
-	for my $e (qw(deplibs libdirs result)) {
-		if (@{$o->{$e}} > 50) {
-			$o->{$e} = reverse_zap_duplicates_ref($o->{$e});
-		}
 	}
 }
 
@@ -472,20 +463,22 @@ sub internal_resolve_la
 	$level //= 0;
 	tsay {"resolve level: $level"};
 	$o->{pthread} = 0;
-	foreach my $_ (@$args) {
-		if ($_ eq '-pthread') {
+	foreach my $arg (@$args) {
+# XXX still needed?
+		if ($arg eq '-pthread') {
 			$o->{pthread}++;
 			next;
 		}
-		push(@{$o->{result}}, $_);
-		next unless m/\.la$/;
+		push(@{$o->{result}}, $arg);
+		next unless $arg =~ m/\.la$/;
 		require LT::LaFile;
-		my $lainfo = LT::LaFile->parse($_);
+		my $lainfo = LT::LaFile->parse($arg);
 		if  (!exists $lainfo->{cached}) {
 			$self->build_cache($lainfo, $level+1);
 		}
 		$o->{pthread} += $lainfo->{cached}{pthread};
 		for my $e (qw(deplibs libdirs result)) {
+LT::Trace::print { "Calls to resolve_la: $calls\n" } if $calls;
 			push(@{$o->{$e}}, @{$lainfo->{cached}{$e}});
 		}
 	}
@@ -506,6 +499,8 @@ sub resolve_la
 	my $o = { result => [], deplibs => $deplibs, libdirs => $libdirs};
 
 	$self->internal_resolve_la($o, $self->{args});
+
+# XXX still needed?
 	if ($o->{pthread}) {
 		unshift(@{$o->{result}}, '-pthread');
 		unshift(@{$o->{deplibs}}, '-pthread');
@@ -513,6 +508,37 @@ sub resolve_la
 
 	tsay {"argvstring (post resolve_la): @{$self->{args}}"};
 	$self->{args} = $o->{result};
+}
+
+# Find first library or .la file for given library name.
+# Returns pair of (type, file path), or empty list on error.
+sub find_first_lib
+{
+	my ($self, $lib, $dirs, $gp) = @_;
+
+	my $name = $lib->{key};
+	require LT::LaFile;
+
+	push(@$dirs, $gp->libsearchdirs) if $gp;
+	for my $sd(".", @$dirs) {
+		my $file = LT::LaFile->find($name, $sd);
+		tsay {"    LT::LaFile->find($name, $sd) returned \"$file\""} if defined $file;
+		return ('LT::LaFile', $file) if defined $file;
+
+		$file = $lib->findbest($sd, $name);
+		if (defined $file) {
+			tsay {"found $name in $sd"};
+			return ('LT::Library', $file);
+		} else {
+			# XXX find static library instead?
+			$file = "$sd/lib$name.a";
+			if (-f $file) {
+				tsay {"found static $name in $sd"};
+				return ('LT::Library', $file);
+			}
+		}
+	}
+	return ();
 }
 
 # parse link flags and arguments
@@ -537,73 +563,78 @@ sub internal_parse_linkargs1
 	my $result   = $self->{result};
 
 	# first read all directories where we can search libraries
-	foreach my $_ (@$args) {
-		if (m/^-L(.*)/) {
-			if (!exists $dirs->{$1}) {
-				$dirs->{$1} = 1;
-				tsay {"    adding $_ to deplibs"} 
-				    if $level == 0;
-				push @$deplibs, $_;
-			}
+	foreach my $arg (@$args) {
+		if ($arg =~ m/^-L(.*)/) {
+			push(@$dirs, $1);
+			# XXX could be not adding actually, this is UList
+			tsay {"    adding $_ to deplibs"}
+			    if $level == 0;
+			push(@$deplibs, $arg);
 		}
 	}
-	foreach my $_ (@$args) {
-		tsay {"  processing $_"};
-		if (!$_ || $_ eq '' || m/^\s+$/) {
+	foreach my $arg (@$args) {
+		tsay {"  processing $arg"};
+		if (!$arg || $arg eq '' || $arg =~ m/^\s+$/) {
 			# skip empty arguments
-		} elsif (m/^-Wc,(.*)/) {
+		} elsif ($arg =~ m/^-Wc,(.*)/) {
 			push(@$result, $1);
-		} elsif ($_ eq '-Xcompiler') {
+		} elsif ($arg eq '-Xcompiler') {
 			next;
-		} elsif ($_ eq '-pthread') {
+		} elsif ($arg eq '-pthread') {
 			$self->{pthread} = 1;
-		} elsif (m/^-L(.*)/) {
+		} elsif ($arg =~ m/^-L(.*)/) {
 			# already read earlier, do nothing
-		} elsif (m/^-R(.*)/) {
+		} elsif ($arg =~ m/^-R(.*)/) {
 			# -R options originating from .la resolution
 			# those from @ARGV are in @Ropts
 			$gp->add_R($1);
-		} elsif (m/^-l(\S+)/) {
+		} elsif ($arg =~ m/^-l(\S+)/) {
 			my @largs = ();
 			my $key = $1;
 			if (!exists $libs->{$key}) {
 				$libs->create($key);
-				require LT::LaFile;
-				my $lafile = LT::LaFile->find($key, $dirs);
-				if ($lafile) {
-					$libs->{$key}->{lafile} = $lafile;
-					my $absla = abs_path($lafile);
-					tsay {"    adding $absla to deplibs"} 
-					    if $level == 0;
-					push @$deplibs, $absla;
-					push @$result, $lafile;
+				my ($type, $file) = $self->find_first_lib($libs->{$key}, $dirs, $gp);
+				if (!defined $type) {
+					say "warning: could not find a $key library";
 					next;
-				} else {
-					$libs->{$key}->resolve_library($dirs, 1, 0, 'notyet', $gp);
+				} elsif ($type eq 'LT::LaFile') {
+					my $absla = abs_path($file);
+					$libs->{$key}->{lafile} = $absla;
+					tsay {"    adding $absla to deplibs"}
+					    if $level == 0;
+					push(@$deplibs, $absla);
+					push(@$result, $file);
+					next;
+				} elsif ($type eq 'LT::Library') {
+					$libs->{$key}->{fullpath} = $file;
 					my @deps = $libs->{$key}->inspect;
 					foreach my $d (@deps) {
 						my $k = basename($d);
+						# XXX will fail for (_pic)?\.a$
 						$k =~ s/^(\S+)\.so.*$/$1/;
 						$k =~ s/^lib//;
 						push(@largs, "-l$k");
 					}
+				} else {
+					die "internal error: unsupported" .
+					    " library type \"$type\"";
 				}
 			}
-			tsay {"    adding $_ to deplibs"} if $level == 0;
-			push @$deplibs, $_;
-			push(@$result, $_);
+			tsay {"    adding $arg to deplibs"} if $level == 0;
+			push(@$deplibs, $arg);
+			push(@$result, $arg);
 			my $dummy = []; # no need to add deplibs recursively
-			$self->internal_parse_linkargs1($dummy, $gp, $dirs, 
+			$self->internal_parse_linkargs1($dummy, $gp, $dirs,
 			    $libs, \@largs, $level+1) if @largs;
-		} elsif (m/(\S+\/)*(\S+)\.a$/) {
+		} elsif ($arg =~ m/(\S+\/)*(\S+)\.a$/) {
 			(my $key = $2) =~ s/^lib//;
-			$dirs->{abs_dir($_)} = 1;
-			$libs->create($key)->{fullpath} = $_;
-			push(@$result, $_);
-		} elsif (m/(\S+\/)*(\S+)\.la$/) {
+			push(@$dirs, abs_dir($arg));
+			$libs->create($key)->{fullpath} = $arg;
+			push(@$result, $arg);
+		} elsif ($arg =~ m/(\S+\/)*(\S+)\.la$/) {
 			(my $key = $2) =~ s/^lib//;
-			$dirs->{abs_dir($_)} = 1;
-			my $fulla = abs_path($_);
+			push(@$dirs, abs_dir($arg));
+			my $fulla = abs_path($arg);
 			require LT::LaFile;
 			my $lainfo = LT::LaFile->parse($fulla);
 			my $dlname = $lainfo->{dlname};
@@ -614,17 +645,17 @@ sub internal_parse_linkargs1
 					$libs->create($key)->{lafile} = $fulla;
 				}
 			}
-			push(@$result, $_);
+			push(@$result, $arg);
 			push(@$deplibs, $fulla) if $libdir ne '';
-		} elsif (m/(\S+\/)*(\S+)\.so(\.\d+){2}/) {
+		} elsif ($arg =~ m/(\S+\/)*(\S+)\.so(\.\d+){2}/) {
 			(my $key = $2) =~ s/^lib//;
-			$dirs->{abs_dir($_)} = 1;
+			push(@$dirs, abs_dir($arg));
 			$libs->create($key);
 			# not really normal argument
 			# -lfoo should be used instead, so convert it
 			push(@$result, "-l$key");
 		} else {
-			push(@$result, $_);
+			push(@$result, $arg);
 		}
 	}
 }
@@ -633,9 +664,9 @@ sub parse_linkargs1
 {
 	my ($self, $deplibs, $gp, $dirs, $libs, $args) = @_;
 	$self->{result} = [];
-	$self->internal_parse_linkargs1($deplibs, $gp, $dirs, $libs, 
+	$self->internal_parse_linkargs1($deplibs, $gp, $dirs, $libs,
 	    $self->{args});
-    	push(@$deplibs, '-pthread') if $self->{pthread};
+	push(@$deplibs, '-pthread') if $self->{pthread};
 	$self->{args} = $self->{result};
 }
 
@@ -658,54 +689,52 @@ sub parse_linkargs2
 	tsay {"  args: @{$self->{args}}"};
 	my $result = [];
 
-	foreach my $_ (@{$self->{args}}) {
-		tsay {"  processing $_"};
-		if (!$_ || $_ eq '' || m/^\s+$/) {
+	foreach my $arg (@{$self->{args}}) {
+		tsay {"  processing $arg"};
+		if (!$arg || $arg eq '' || $arg =~ m/^\s+$/) {
 			# skip empty arguments
-		} elsif ($_ eq '-lc') {
+		} elsif ($arg eq '-lc') {
 			# don't link explicitly with libc (just remove -lc)
-		} elsif ($_ eq '-pthread') {
+		} elsif ($arg eq '-pthread') {
 			$self->{pthread} = 1;
-		} elsif (m/^-L(.*)/) {
-			if (!exists $dirs->{$1}) {
-				$dirs->{$1} = 1;
-			}
-		} elsif (m/^-R(.*)/) {
+		} elsif ($arg =~ m/^-L(.*)/) {
+			push(@$dirs, $1);
+		} elsif ($arg =~ m/^-R(.*)/) {
 			# -R options originating from .la resolution
 			# those from @ARGV are in @Ropts
 			$gp->add_R($1);
-		} elsif (m/^-l(.*)/) {
+		} elsif ($arg =~ m/^-l(.*)/) {
 			my @largs = ();
 			my $key = $1;
 			$libs->create($key);
-			push @$orderedlibs, $key;
-		} elsif (m/(\S+\/)*(\S+)\.a$/) {
+			push(@$orderedlibs, $key);
+		} elsif ($arg =~ m/(\S+\/)*(\S+)\.a$/) {
 			(my $key = $2) =~ s/^lib//;
-			$libs->create($key)->{fullpath} = $_;
-			push(@$staticlibs, $_);
-		} elsif (m/(\S+\/)*(\S+)\.la$/) {
+			$libs->create($key)->{fullpath} = $arg;
+			push(@$staticlibs, $arg);
+		} elsif ($arg =~ m/(\S+\/)*(\S+)\.la$/) {
 			(my $key = $2) =~ s/^lib//;
-			my $d = abs_dir($_);
-			$dirs->{$d} = 1;
-			my $fulla = abs_path($_);
+			my $d = abs_dir($arg);
+			push(@$dirs, $d);
+			my $fulla = abs_path($arg);
 			require LT::LaFile;
 			my $lainfo = LT::LaFile->parse($fulla);
 			my $dlname = $lainfo->stringize('dlname');
 			my $oldlib = $lainfo->stringize('old_library');
 			my $installed = $lainfo->stringize('installed');
 			if ($dlname ne '' && $installed eq 'no') {
-				tsay {"seen uninstalled la shared in $_"};
+				tsay {"seen uninstalled la shared in $arg"};
 				$self->{seen_la_shared} = 1;
 			}
 			if ($dlname eq '' && -f "$d/$ltdir/$oldlib") {
-				push @$staticlibs, "$d/$ltdir/$oldlib";
+				push(@$staticlibs, "$d/$ltdir/$oldlib");
 			} else {
 				if (!exists $libs->{$key}) {
 					$libs->create($key)->{lafile} = $fulla;
 				}
-				push @$orderedlibs, $key;
+				push(@$orderedlibs, $key);
 			}
-		} elsif (m/^-Wl,(\S+)$/) {
+		} elsif ($arg =~ m/^-Wl,(\S+)$/) {
 			# libtool accepts a list of -Wl options separated
 			# by commas, and possibly with a trailing comma
 			# which is not accepted by the linker
@@ -714,7 +743,7 @@ sub parse_linkargs2
 				push(@$result, "-Wl,$f");
 			}
 		} else {
-			push(@$result, $_);
+			push(@$result, $arg);
 		}
 	}
 	tsay {"end parse_linkargs2"};
@@ -750,16 +779,15 @@ sub create_symlinks
 		my $f = $l->{fullpath};
 		next if !defined $f;
 		next if $f =~ m/\.a$/;
-		my $libnames = [];
+		my $libnames = LT::UList->new;
 		if (defined $l->{lafile}) {
 			require LT::LaFile;
 			my $lainfo = LT::LaFile->parse($l->{lafile});
 			my $librarynames = $lainfo->stringize('library_names');
-			@$libnames = split /\s/, $librarynames;
-			$libnames = reverse_zap_duplicates_ref($libnames);
+			push @$libnames, split(/\s/, $librarynames);
 		} else {
 			push @$libnames, basename($f);
-		}	
+		}
 		foreach my $libfile (@$libnames) {
 			my $link = "$dir/$libfile";
 			tsay {"ln -s $f $link"};
@@ -779,14 +807,12 @@ sub common1
 	my ($self, $parser, $gp, $deplibs, $libdirs, $dirs, $libs) = @_;
 
 	$parser->resolve_la($deplibs, $libdirs);
-	my $orderedlibs = [];
+	my $orderedlibs = LT::UList->new;
 	my $staticlibs = [];
-	my $args = $parser->parse_linkargs2($gp, $orderedlibs, $staticlibs, $dirs, 
+	my $args = $parser->parse_linkargs2($gp, $orderedlibs, $staticlibs, $dirs,
 	    $libs);
 	tsay {"staticlibs = \n", join("\n", @$staticlibs)};
 	tsay {"orderedlibs = @$orderedlibs"};
-	$orderedlibs = reverse_zap_duplicates_ref($orderedlibs);
-	tsay {"final orderedlibs = @$orderedlibs"};
 	return ($staticlibs, $orderedlibs, $args);
 }
 

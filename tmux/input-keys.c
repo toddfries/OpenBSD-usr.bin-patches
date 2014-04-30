@@ -1,4 +1,4 @@
-/* $OpenBSD: input-keys.c,v 1.33 2013/05/07 11:00:16 nicm Exp $ */
+/* $OpenBSD: input-keys.c,v 1.36 2014/04/24 09:14:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -143,7 +143,7 @@ input_key(struct window_pane *wp, int key)
 	char			       *out;
 	u_char				ch;
 
-	log_debug2("writing key 0x%x", key);
+	log_debug("writing key 0x%x", key);
 
 	/*
 	 * If this is a normal 7-bit key, just send it, with a leading escape
@@ -186,11 +186,11 @@ input_key(struct window_pane *wp, int key)
 			break;
 	}
 	if (i == nitems(input_keys)) {
-		log_debug2("key 0x%x missing", key);
+		log_debug("key 0x%x missing", key);
 		return;
 	}
 	dlen = strlen(ike->data);
-	log_debug2("found key 0x%x: \"%s\"", key, ike->data);
+	log_debug("found key 0x%x: \"%s\"", key, ike->data);
 
 	/* Prefix a \033 for escape. */
 	if (key & KEYC_ESCAPE)
@@ -240,12 +240,12 @@ input_mouse(struct window_pane *wp, struct session *s, struct mouse_event *m)
 
 	if (m->button == 1 && (m->event & MOUSE_EVENT_CLICK) &&
 	    options_get_number(&wp->window->options, "mode-mouse") == 1) {
-		pb = paste_get_top(&global_buffers);
+		pb = paste_get_top();
 		if (pb != NULL) {
 			paste_send_pane(pb, wp, "\r",
 			    wp->screen->mode & MODE_BRACKETPASTE);
 		}
-	} else if ((m->xb & 3) != 1 &&
+	} else if (m->button != 1 &&
 	    options_get_number(&wp->window->options, "mode-mouse") == 1) {
 		if (window_pane_set_mode(wp, &window_copy_mode) == 0) {
 			window_copy_init_from_pane(wp);

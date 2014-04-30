@@ -1,4 +1,4 @@
-/*	$OpenBSD: file.c,v 1.90 2013/12/23 14:58:16 lum Exp $	*/
+/*	$OpenBSD: file.c,v 1.95 2014/04/09 20:50:03 florian Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -191,6 +191,7 @@ readin(char *fname)
 	/* Clear readonly. May be set by autoexec path */
 	curbp->b_flag &= ~BFREADONLY;
 	if ((status = insertfile(fname, fname, TRUE)) != TRUE) {
+		dobeep();
 		ewprintf("File is not readable: %s", fname);
 		return (FALSE);
 	}
@@ -224,18 +225,18 @@ readin(char *fname)
 	 */
 	if (fisdir(fname) == TRUE) {
 		ro = TRUE;
-	} else if (access(fname, W_OK) == -1) {
-		if (errno != ENOENT)
+	} else if ((access(fname, W_OK) == -1)) {
+		if (errno != ENOENT) {
 			ro = TRUE;
-		else if (errno == ENOENT) {
+		} else if (errno == ENOENT) {
 			(void)xdirname(dp, fname, sizeof(dp));
 			(void)strlcat(dp, "/", sizeof(dp));
+
+			/* Missing directory; keep buffer rw, like emacs */
 			if (stat(dp, &statbuf) == -1 && errno == ENOENT) {
-				/* no read-only; like emacs */
-				ewprintf("Use M-x make-directory RET RET to "
-				    "create the directory and its parents");
-			} else if (access(dp, W_OK) == -1 && 
-			    errno == EACCES) {
+				if (eyorn("Missing directory, create") == TRUE)
+					(void)do_makedir(dp);
+			} else if (access(dp, W_OK) == -1 && errno == EACCES) {
 				ewprintf("File not found and directory"
 				    " write-protected");
 				ro = TRUE;
@@ -322,6 +323,7 @@ insertfile(char *fname, char *newname, int replacebuf)
 	} else if (s == FIODIR) {
 		/* file was a directory */
 		if (replacebuf == FALSE) {
+			dobeep();
 			ewprintf("Cannot insert: file is a directory, %s",
 			    fname);
 			goto cleanup;
@@ -385,6 +387,7 @@ retry:
 				newsize = linesize * 2;
 				if (newsize < 0 ||
 				    (cp = malloc(newsize)) == NULL) {
+					dobeep();
 					ewprintf("Could not allocate %d bytes",
 					    newsize);
 						s = FIOERR;
@@ -402,6 +405,7 @@ retry:
 				goto retry;
 			}
 		default:
+			dobeep();
 			ewprintf("Unknown code %d reading file", s);
 			s = FIOERR;
 			break;
@@ -506,6 +510,11 @@ filewrite(int f, int n)
 
         /* Check if file exists; write checks done later */
         if (stat(adjfname, &statbuf) == 0) {
+		if (S_ISDIR(statbuf.st_mode)) {
+			dobeep();
+			ewprintf("%s is a directory", adjfname);
+			return (FALSE);
+		}
 		snprintf(tmp, sizeof(tmp), "File `%s' exists; overwrite",
 		    adjfname);
 		if ((s = eyorn(tmp)) != TRUE)
@@ -573,6 +582,7 @@ buffsave(struct buffer *bp)
 
 	/* must have a name */
 	if (bp->b_fname[0] == '\0') {
+		dobeep();
 		ewprintf("No file name");
 		return (FALSE);
 	}
@@ -650,10 +660,12 @@ writeout(FILE ** ffp, struct buffer *bp, char *fn)
 		(void)xdirname(dp, fn, sizeof(dp));
 		(void)strlcat(dp, "/", sizeof(dp));
 		if (access(dp, W_OK) && errno == EACCES) {
+			dobeep();
 			ewprintf("Directory %s write-protected", dp);
 			return (FIOERR);
 		} else if (errno == ENOENT) {
-                        ewprintf("%s: no such directory", dp);
+   			dobeep();
+			ewprintf("%s: no such directory", dp);
 			return (FIOERR);
 		}
         }
@@ -669,6 +681,7 @@ writeout(FILE ** ffp, struct buffer *bp, char *fn)
 	} else {
 		/* print a message indicating write error */
 		(void)ffclose(*ffp, bp);
+		dobeep();
 		ewprintf("Unable to write %s", fn);
 	}
 	return (s == FIOSUC);

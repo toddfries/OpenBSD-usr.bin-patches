@@ -1,5 +1,5 @@
 # ex:ts=8 sw=4:
-# $OpenBSD: PkgConfig.pm,v 1.3 2013/06/12 13:30:59 jasper Exp $
+# $OpenBSD: PkgConfig.pm,v 1.5 2014/03/31 18:16:24 jasper Exp $
 #
 # Copyright (c) 2006 Marc Espie <espie@openbsd.org>
 #
@@ -91,7 +91,7 @@ sub read_fh
 {
 	my ($class, $fh, $name) = @_;
 	my $cfg = $class->new;
-	my $_;
+	#my $_;
 
 	$name = '' if !defined $name;
 	while (<$fh>) {
@@ -194,7 +194,11 @@ sub expanded
 		sub {
 			my $var = shift;
 			if (defined $extra->{$var}) {
-				return $extra->{$var};
+			    if ($extra->{$var} =~ m/\$\{.*\}/ ) {
+	  			return undef;
+	                    } else {
+	  			return $extra->{$var};
+              		    }
 			} elsif (defined $self->{variables}->{$var}) {
 				return $self->{variables}->{$var};
 			} else {
@@ -202,7 +206,14 @@ sub expanded
 			}
 	};
 
-	while ($v =~ s/\$\{(.*?)\}/&$get_value($1)/ge) {
+	# Expand all variables, unless the returned value is defined as an
+	# as an unexpandable variable (such as with --defined-variable).
+	while ($v =~ m/\$\{(.*?)\}/) {
+	    unless (defined &$get_value($1)) {
+		$v =~ s/\$\{(.*?)\}/$extra->{$1}/g;
+		last;
+	    }
+	    $v =~ s/\$\{(.*?)\}/&$get_value($1)/ge;
 	}
 	return $v;
 }

@@ -1,4 +1,4 @@
-.\" $OpenBSD: tmux.1,v 1.381 2014/02/23 00:53:06 nicm Exp $
+.\" $OpenBSD: tmux.1,v 1.391 2014/04/17 15:48:02 nicm Exp $
 .\"
 .\" Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
 .\"
@@ -14,7 +14,7 @@
 .\" IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
 .\" OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 .\"
-.Dd $Mdocdate: February 23 2014 $
+.Dd $Mdocdate: April 17 2014 $
 .Dt TMUX 1
 .Os
 .Sh NAME
@@ -23,7 +23,7 @@
 .Sh SYNOPSIS
 .Nm tmux
 .Bk -words
-.Op Fl 2lCquv
+.Op Fl 2lCuv
 .Op Fl c Ar shell-command
 .Op Fl f Ar file
 .Op Fl L Ar socket-name
@@ -168,10 +168,6 @@ server process to recreate it.
 Behave as a login shell.
 This flag currently has no effect and is for compatibility with other shells
 when using tmux as a login shell.
-.It Fl q
-Set the
-.Ic quiet
-server option to prevent the server sending various informational messages.
 .It Fl S Ar socket-path
 Specify a full alternative path to the server socket.
 If
@@ -778,7 +774,7 @@ Show client messages or server information.
 Any messages displayed on the status line are saved in a per-client message
 log, up to a maximum of the limit set by the
 .Ar message-limit
-session option for the session attached to that client.
+server option.
 With
 .Fl t ,
 display the log for
@@ -851,6 +847,7 @@ option).
 The following keys are supported as appropriate for the mode:
 .Bl -column "FunctionXXXXXXXXXXXXXXXXX" "viXXXXXXXXXX" "emacs" -offset indent
 .It Sy "Function" Ta Sy "vi" Ta Sy "emacs"
+.It Li "Append selection" Ta "A" Ta ""
 .It Li "Back to indentation" Ta "^" Ta "M-m"
 .It Li "Bottom of history" Ta "G" Ta "M-<"
 .It Li "Clear selection" Ta "Escape" Ta "C-g"
@@ -1150,32 +1147,6 @@ is not given, "detach-client -t '%%'" is used.
 For the meaning of the
 .Fl F
 flag, see the
-.Sx FORMATS
-section.
-This command works only if at least one client is attached.
-.It Xo
-.Ic choose-list
-.Op Fl l Ar items
-.Op Fl t Ar target-window
-.Op Ar template
-.Xc
-Put a window into list choice mode, allowing
-.Ar items
-to be selected.
-.Ar items
-can be a comma-separated list to display more than one item.
-If an item has spaces, that entry must be quoted.
-After an item is chosen,
-.Ql %%
-is replaced by the chosen item in the
-.Ar template
-and the result is executed as a command.
-If
-.Ar template
-is not given, "run-shell '%%'" is used.
-.Ar items
-also accepts format specifiers.
-For the meaning of this see the
 .Sx FORMATS
 section.
 This command works only if at least one client is attached.
@@ -2072,9 +2043,7 @@ flag prevents setting an option that is already set.
 .Pp
 The
 .Fl q
-flag suppresses the informational message (as if the
-.Ic quiet
-server option was set).
+flag suppresses errors about unknown options.
 .Pp
 With
 .Fl a ,
@@ -2133,12 +2102,10 @@ passed through to applications running in
 .Nm .
 Attached clients should be detached and attached again after changing this
 option.
-.It Xo Ic quiet
-.Op Ic on | off
-.Xc
-Enable or disable the display of various informational messages (see also the
-.Fl q
-command line flag).
+.It Ic message-limit Ar number
+Set the number of error or information messages to save in the message log for
+each client.
+The default is 100.
 .It Xo Ic set-clipboard
 .Op Ic on | off
 .Xc
@@ -2390,10 +2357,6 @@ With the
 flag to the
 .Ic set-option
 command the new style is added otherwise the existing style is replaced.
-.It Ic message-limit Ar number
-Set the number of error or information messages to save in the message log for
-each client.
-The default is 20.
 .It Ic message-style Ar style
 Set status line message style.
 For how to specify
@@ -2572,10 +2535,6 @@ Examples are:
 #[fg=yellow,bold]#(apm -l)%%#[default] [#S]
 .Ed
 .Pp
-Where appropriate, special character sequences may be prefixed with a number to
-specify the maximum length, for example
-.Ql #24T .
-.Pp
 By default, UTF-8 in
 .Ar string
 is not interpreted, to enable UTF-8, use the
@@ -2669,15 +2628,6 @@ through to the terminal (which normally makes a sound).
 Also see the
 .Ic bell-action
 option.
-.It Xo Ic visual-content
-.Op Ic on | off
-.Xc
-Like
-.Ic visual-activity ,
-display a message when content is present in a window
-for which the
-.Ic monitor-content
-window option is enabled.
 .It Xo Ic visual-silence
 .Op Ic on | off
 .Xc
@@ -2859,14 +2809,6 @@ option.
 Monitor for activity in the window.
 Windows with activity are highlighted in the status line.
 .Pp
-.It Ic monitor-content Ar match-string
-Monitor content in the window.
-When
-.Xr fnmatch 3
-pattern
-.Ar match-string
-appears in the window, it is highlighted in the status line.
-.Pp
 .It Xo Ic monitor-silence
 .Op Ic interval
 .Xc
@@ -2933,14 +2875,6 @@ option.
 .Pp
 .It Ic window-status-bell-style Ar style
 Set status line style for windows with a bell alert.
-For how to specify
-.Ar style ,
-see the
-.Ic message-command-style
-option.
-.Pp
-.It Ic window-status-content-style Ar style
-Set status line style for windows with a content alert.
 For how to specify
 .Ar style ,
 see the
@@ -3086,7 +3020,7 @@ The following variables are available, where appropriate:
 .It Li "alternate_on" Ta "" Ta "If pane is in alternate screen"
 .It Li "alternate_saved_x" Ta "" Ta "Saved cursor X in alternate screen"
 .It Li "alternate_saved_y" Ta "" Ta "Saved cursor Y in alternate screen"
-.It Li "buffer_sample" Ta "" Ta "First 50 characters from buffer"
+.It Li "buffer_sample" Ta "" Ta "Sample of start of buffer"
 .It Li "buffer_size" Ta "" Ta "Size of the specified buffer in bytes"
 .It Li "client_activity" Ta "" Ta "Integer time client last had activity"
 .It Li "client_activity_string" Ta "" Ta "String time client last had activity"
@@ -3127,7 +3061,6 @@ The following variables are available, where appropriate:
 .It Li "pane_index" Ta "#P" Ta "Index of pane"
 .It Li "pane_pid" Ta "" Ta "PID of first process in pane"
 .It Li "pane_start_command" Ta "" Ta "Command pane started with"
-.It Li "pane_start_path" Ta "" Ta "Path pane started with"
 .It Li "pane_tabs" Ta "" Ta "Pane tab positions"
 .It Li "pane_title" Ta "#T" Ta "Title of pane"
 .It Li "pane_tty" Ta "" Ta "Pseudo terminal of pane"
@@ -3136,20 +3069,20 @@ The following variables are available, where appropriate:
 .It Li "saved_cursor_y" Ta "" Ta "Saved cursor Y in pane"
 .It Li "scroll_region_lower" Ta "" Ta "Bottom of scroll region in pane"
 .It Li "scroll_region_upper" Ta "" Ta "Top of scroll region in pane"
-.It Li "session_attached" Ta "" Ta "1 if session attached"
+.It Li "session_attached" Ta "" Ta "Number of clients session is attached to"
 .It Li "session_created" Ta "" Ta "Integer time session created"
 .It Li "session_created_string" Ta "" Ta "String time session created"
 .It Li "session_group" Ta "" Ta "Number of session group"
 .It Li "session_grouped" Ta "" Ta "1 if session in a group"
 .It Li "session_height" Ta "" Ta "Height of session"
 .It Li "session_id" Ta "" Ta "Unique session ID"
+.It Li "session_many_attached" Ta "" Ta "1 if multiple clients attached"
 .It Li "session_name" Ta "#S" Ta "Name of session"
 .It Li "session_width" Ta "" Ta "Width of session"
 .It Li "session_windows" Ta "" Ta "Number of windows in session"
 .It Li "window_active" Ta "" Ta "1 if window active"
 .It Li "window_activity_flag" Ta "" Ta "1 if window has activity alert"
 .It Li "window_bell_flag" Ta "" Ta "1 if window has bell"
-.It Li "window_content_flag" Ta "" Ta "1 if window has content alert"
 .It Li "window_find_matches" Ta "" Ta "Matched data from the find-window"
 .It Li "window_flags" Ta "#F" Ta "Window flags"
 .It Li "window_height" Ta "" Ta "Height of window"
@@ -3311,18 +3244,15 @@ The flag is one of the following symbols appended to the window name:
 .It Li "-" Ta "Marks the last window (previously selected)."
 .It Li "#" Ta "Window is monitored and activity has been detected."
 .It Li "!" Ta "A bell has occurred in the window."
-.It Li "+" Ta "Window is monitored for content and it has appeared."
 .It Li "~" Ta "The window has been silent for the monitor-silence interval."
 .It Li "Z" Ta "The window's active pane is zoomed."
 .El
 .Pp
 The # symbol relates to the
 .Ic monitor-activity
-and + to the
-.Ic monitor-content
-window options.
+window option.
 The window name is printed in inverted colours if an alert (bell, activity or
-content) is present.
+silence) is present.
 .Pp
 The colour and attributes of the status line may be configured, the entire
 status line using the
@@ -3542,12 +3472,16 @@ The
 .Fl a
 option appends to rather than overwriting the file.
 .It Xo Ic set-buffer
+.Op Fl a
 .Op Fl b Ar buffer-index
 .Ar data
 .Xc
 .D1 (alias: Ic setb )
 Set the contents of the specified buffer to
 .Ar data .
+The
+.Fl a
+option appends to rather than overwriting the buffer.
 .It Xo Ic show-buffer
 .Op Fl b Ar buffer-index
 .Xc

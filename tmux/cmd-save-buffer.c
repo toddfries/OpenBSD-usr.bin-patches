@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-save-buffer.c,v 1.21 2013/10/10 12:26:35 nicm Exp $ */
+/* $OpenBSD: cmd-save-buffer.c,v 1.24 2014/04/24 09:14:43 nicm Exp $ */
 
 /*
  * Copyright (c) 2009 Tiago Cunha <me@tiagocunha.org>
@@ -66,7 +66,7 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 	FILE			*f;
 
 	if (!args_has(args, 'b')) {
-		if ((pb = paste_get_top(&global_buffers)) == NULL) {
+		if ((pb = paste_get_top()) == NULL) {
 			cmdq_error(cmdq, "no buffers");
 			return (CMD_RETURN_ERROR);
 		}
@@ -78,7 +78,7 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 			return (CMD_RETURN_ERROR);
 		}
 
-		pb = paste_get_index(&global_buffers, buffer);
+		pb = paste_get_index(buffer);
 		if (pb == NULL) {
 			cmdq_error(cmdq, "no buffer %d", buffer);
 			return (CMD_RETURN_ERROR);
@@ -112,7 +112,7 @@ cmd_save_buffer_exec(struct cmd *self, struct cmd_q *cmdq)
 		if (fd != -1)
 			f = fdopen(fd, "ab");
 	} else {
-		fd = openat(cwd, path, O_CREAT|O_RDWR, 0600);
+		fd = openat(cwd, path, O_CREAT|O_RDWR|O_TRUNC, 0600);
 		if (fd != -1)
 			f = fdopen(fd, "wb");
 	}
@@ -142,7 +142,6 @@ do_print:
 		return (CMD_RETURN_ERROR);
 	}
 	msg = NULL;
-	msglen = 0;
 
 	used = 0;
 	while (used != pb->size) {

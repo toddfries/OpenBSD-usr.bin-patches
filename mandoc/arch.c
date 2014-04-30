@@ -1,4 +1,4 @@
-/*	$Id: arch.c,v 1.6 2011/04/24 16:22:02 schwarze Exp $ */
+/*	$Id: arch.c,v 1.8 2014/04/20 16:44:44 schwarze Exp $ */
 /*
  * Copyright (c) 2009 Kristaps Dzonsons <kristaps@bsd.lv>
  *
@@ -14,22 +14,20 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "mdoc.h"
-#include "mandoc.h"
 #include "libmdoc.h"
 
 #define LINE(x, y) \
 	if (0 == strcmp(p, x)) return(y);
 
+
 const char *
 mdoc_a2arch(const char *p)
 {
 
-#include "arch.in" 
+#include "arch.in"
 
 	return(NULL);
 }

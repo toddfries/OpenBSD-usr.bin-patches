@@ -1,4 +1,4 @@
-/* $OpenBSD: pftop.c,v 1.23 2014/02/11 01:07:21 pelikan Exp $	 */
+/* $OpenBSD: pftop.c,v 1.26 2014/04/26 11:28:49 sthen Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -40,11 +40,6 @@
 #include <netinet/tcp_fsm.h>
 #include <net/pfvar.h>
 #include <arpa/inet.h>
-
-#include <altq/altq.h>
-#include <altq/altq_cbq.h>
-#include <altq/altq_priq.h>
-#include <altq/altq_hfsc.h>
 
 #include <net/hfsc.h>
 
@@ -117,7 +112,6 @@ u_int32_t num_states = 0;
 u_int32_t num_states_all = 0;
 u_int32_t num_rules = 0;
 u_int32_t num_queues = 0;
-u_int32_t num_altqs = 0;
 int cachestates = 0;
 
 char *filter_string = NULL;
@@ -297,32 +291,6 @@ field_view views[] = {
 	{NULL, NULL, 0, NULL}
 };
 
-
-/* altq structures from pfctl */
-
-union class_stats {
-	class_stats_t		cbq_stats;
-	struct priq_classstats	priq_stats;
-	struct hfsc_classstats	hfsc_stats;
-};
-
-struct altq_stats {
-	union class_stats	 data;
-	struct timeval		 timestamp;
-	u_int8_t		 valid;
-};
-
-struct pf_altq_node {
-	struct pf_altq		 altq;
-	struct pf_altq_node	*next;
-	struct pf_altq_node	*children;
-	struct pf_altq_node	*next_flat;
-	struct altq_stats	 qstats;
-	struct altq_stats	 qstats_last;
-	u_int8_t		 depth;
-	u_int8_t		 visited;
-};
-
 /* queue structures from pfctl */
 
 struct queue_stats {
@@ -404,7 +372,7 @@ sort_rate_callback(const void *s1, const void *s2)
 		return sortdir;
 	if (e2 == NULL)
 		return -sortdir;
-	
+
 	if (e2->rate > e1 -> rate)
 		return sortdir;
 	if (e2->rate < e1 -> rate)
@@ -422,7 +390,7 @@ sort_peak_callback(const void *s1, const void *s2)
 		return -sortdir;
 	if (e1 == NULL || e2 == NULL)
 		return 0;
-	
+
 	if (e2->peak > e1 -> peak)
 		return sortdir;
 	if (e2->peak < e1 -> peak)
@@ -459,7 +427,7 @@ compare_addr(int af, const struct pf_addr *a, const struct pf_addr *b)
 			return -1;
 		break;
 	}
-	
+
 	return 0;
 }
 
@@ -478,7 +446,7 @@ sort_addr_callback(const struct pfsync_state *s1,
 	if (s1->key[side].af < s2->key[side].af)
 		return -sortdir;
 
-       	ii = io = 0;
+	ii = io = 0;
 
 	if (dir == PF_OUT)	/* looking for source addr */
 		io = 1;
@@ -545,7 +513,7 @@ sort_port_callback(const struct pfsync_state *s1,
 	if (s1->key[side].af < s2->key[side].af)
 		return -sortdir;
 
-       	ii = io = 0;
+	ii = io = 0;
 
 	if (dir == PF_OUT)	/* looking for source addr */
 		io = 1;
@@ -761,15 +729,15 @@ unmask(struct pf_addr * m, u_int8_t af)
 void
 tb_print_addr(struct pf_addr * addr, struct pf_addr * mask, int af)
 {
-        	switch (af) {
-        	case AF_INET: {
+		switch (af) {
+		case AF_INET: {
 			tbprintf("%s", inetname(addr->v4));
 			break;
-        	}
-        	case AF_INET6: {
+		}
+		case AF_INET6: {
 			tbprintf("%s", inet6name(&addr->v6));
 			break;
-        	}
+		}
 	}
 
 	if (mask != NULL) {
@@ -827,14 +795,14 @@ print_fld_state(field_def *fld, unsigned int proto,
 		unsigned int s1, unsigned int s2)
 {
 	int len;
-	
+
 	if (fld == NULL)
 		return;
 
 	len = fld->width;
 	if (len < 1)
 		return;
-	
+
 	tb_start();
 
 	if (proto == IPPROTO_TCP) {
@@ -1284,7 +1252,7 @@ tb_print_fromto(struct pf_rule_addr *src, struct pf_rule_addr *dst,
 			tb_print_port(src->port_op, src->port[0],
 				      src->port[1],
 				      proto == IPPROTO_TCP ? "tcp" : "udp");
-		
+
 		tbprintf("to ");
 		if (PT_NOROUTE(dst))
 			tbprintf("no-route ");
@@ -1501,7 +1469,7 @@ void
 print_rules(void)
 {
 	u_int32_t n, count = 0;
-	
+
 	for (n = dispstart; n < num_rules; n++) {
 		print_rule(rules + n);
 		count ++;
@@ -1511,83 +1479,6 @@ print_rules(void)
 }
 
 /* queue display */
-
-struct pf_altq_node *
-pfctl_find_altq_node(struct pf_altq_node *root, const char *qname,
-    const char *ifname)
-{
-	struct pf_altq_node	*node, *child;
-
-	for (node = root; node != NULL; node = node->next) {
-		if (!strcmp(node->altq.qname, qname)
-		    && !(strcmp(node->altq.ifname, ifname)))
-			return (node);
-		if (node->children != NULL) {
-			child = pfctl_find_altq_node(node->children, qname,
-			    ifname);
-			if (child != NULL)
-				return (child);
-		}
-	}
-	return (NULL);
-}
-
-void
-pfctl_insert_altq_node(struct pf_altq_node **root,
-    const struct pf_altq altq, const struct altq_stats qstats)
-{
-	struct pf_altq_node	*node;
-
-	node = calloc(1, sizeof(struct pf_altq_node));
-	if (node == NULL)
-		err(1, "pfctl_insert_altq_node: calloc");
-	memcpy(&node->altq, &altq, sizeof(struct pf_altq));
-	memcpy(&node->qstats, &qstats, sizeof(qstats));
-	node->next = node->children = node->next_flat = NULL;
-	node->depth = 0;
-	node->visited = 1;
-
-	if (*root == NULL)
-		*root = node;
-	else if (!altq.parent[0]) {
-		struct pf_altq_node	*prev = *root;
-
-		while (prev->next != NULL)
-			prev = prev->next;
-		prev->next = node;
-	} else {
-		struct pf_altq_node	*parent;
-
-		parent = pfctl_find_altq_node(*root, altq.parent, altq.ifname);
-		if (parent == NULL)
-			errx(1, "parent %s not found", altq.parent);
-		node->depth = parent->depth+1;
-		if (parent->children == NULL)
-			parent->children = node;
-		else {
-			struct pf_altq_node *prev = parent->children;
-
-			while (prev->next != NULL)
-				prev = prev->next;
-			prev->next = node;
-		}
-	}
-}
-
-void
-pfctl_set_next_flat(struct pf_altq_node *node, struct pf_altq_node *up)
-{
-	while (node) {
-		struct pf_altq_node *next = node->next ? node->next : up;
-		if (node->children) {
-			node->next_flat = node->children;
-			pfctl_set_next_flat(node->children, next);
-		} else
-			node->next_flat = next;
-		node = node->next;
-	}
-}
-
 struct pfctl_queue_node *
 pfctl_find_queue_node(const char *qname, const char *ifname)
 {
@@ -1683,120 +1574,9 @@ pfctl_update_qstats(void)
 }
 
 int
-pfctl_update_altqstats(struct pf_altq_node **root, int *inserts)
-{
-	struct pf_altq_node	*node;
-	struct pfioc_altq	 pa;
-	struct pfioc_altqstats	 pq;
-	u_int32_t		 nr;
-	struct altq_stats	 qstats;
-	u_int32_t		 nr_queues;
-	int			 ret = 0;
-
-	*inserts = 0;
-	memset(&pa, 0, sizeof(pa));
-	memset(&pq, 0, sizeof(pq));
-	memset(&qstats, 0, sizeof(qstats));
-
-	if (pf_dev < 0)
-		return (-1);
-
-	if (ioctl(pf_dev, DIOCGETALTQS, &pa)) {
-		error("DIOCGETALTQS: %s", strerror(errno));
-		return (-1);
-	}
-
-	num_altqs = nr_queues = pa.nr;
-	for (nr = 0; nr < nr_queues; ++nr) {
-		pa.nr = nr;
-		if (ioctl(pf_dev, DIOCGETALTQ, &pa)) {
-			error("DIOCGETALTQ: %s", strerror(errno));
-			ret = -1;
-			break;
-		}
-		if (pa.altq.qid > 0) {
-			pq.nr = nr;
-			pq.ticket = pa.ticket;
-			pq.buf = &qstats;
-			pq.nbytes = sizeof(qstats);
-			if (ioctl(pf_dev, DIOCGETALTQSTATS, &pq)) {
-				error("DIOCGETALTQSTATS: %s", strerror(errno));
-				ret = -1;
-				break;
-			}
-			qstats.valid = 1;
-			gettimeofday(&qstats.timestamp, NULL);
-			if ((node = pfctl_find_altq_node(*root, pa.altq.qname,
-			    pa.altq.ifname)) != NULL) {
-				/* update altq data too as bandwidth may have changed */
-				memcpy(&node->altq, &pa.altq, sizeof(struct pf_altq));
-				memcpy(&node->qstats_last, &node->qstats,
-				    sizeof(struct altq_stats));
-				memcpy(&node->qstats, &qstats,
-				    sizeof(qstats));
-				node->visited = 1;
-			} else {
-				pfctl_insert_altq_node(root, pa.altq, qstats);
-				*inserts = 1;
-			}
-		}
-		else
-			--num_altqs;
-	}
-
-	pfctl_set_next_flat(*root, NULL);
-
-	return (ret);
-}
-
-void
-pfctl_free_altq_node(struct pf_altq_node *node)
-{
-	while (node != NULL) {
-		struct pf_altq_node	*prev;
-
-		if (node->children != NULL)
-			pfctl_free_altq_node(node->children);
-		prev = node;
-		node = node->next;
-		free(prev);
-	}
-}
-
-void
-pfctl_mark_all_unvisited(struct pf_altq_node *root)
-{
- 	if (root != NULL) {
-		struct pf_altq_node	*node = root;
-		while (node != NULL) {
-		        node->visited = 0;
-		        node = node->next_flat;
-		}
-	}
-}
-
-int
-pfctl_have_unvisited(struct pf_altq_node *root)
-{
- 	if (root == NULL)
- 		return(0);
- 	else {
-		struct pf_altq_node	*node = root;
-		while (node != NULL) {
-		        if (node->visited == 0)
-		        	return(1);
-			node = node->next_flat;
-		}
-		return(0);
-	}
-}
-
-struct pf_altq_node	*altq_root = NULL;
-
-int
 select_queues(void)
 {
-	num_disp = num_queues + num_altqs;
+	num_disp = num_queues;
 	return (0);
 }
 
@@ -1806,34 +1586,12 @@ read_queues(void)
 	static int first_read = 1;
 	struct pfctl_queue_node *node;
 	int inserts;
-	num_disp = num_altqs = num_queues = 0;
+	num_disp = num_queues = 0;
 
-	pfctl_mark_all_unvisited(altq_root);
-	if (pfctl_update_altqstats(&altq_root, &inserts))
-		return (-1);
-
-	while ((node = TAILQ_FIRST(&qnodes)) != NULL) {
-		TAILQ_REMOVE(&qnodes, node, entries);
-		free(node);
-	}
 	if (pfctl_update_qstats() < 0)
 		return (-1);
-	
-	/* Allow inserts only on first read;
-	 * on subsequent reads clear and reload
-	 */
-	if (first_read == 0 &&
-	    (inserts != 0 || pfctl_have_unvisited(altq_root) != 0)) {
-		pfctl_free_altq_node(altq_root);
-		altq_root = NULL;
-		first_read = 1;
-		if (pfctl_update_altqstats(&altq_root, &inserts))
-			return (-1);
-	}
-	
-	first_read = 0;
-	num_disp = num_queues + num_altqs;
-	
+	num_disp = num_queues;
+
 	return(0);
 }
 
@@ -1864,108 +1622,6 @@ calc_pps(u_int64_t new_pkts, u_int64_t last_pkts, double interval)
 
 	pps = (double)(new_pkts - last_pkts) / interval;
 	return (pps);
-}
-
-#define DEFAULT_PRIORITY	1
-
-void
-print_altqueue(struct pf_altq_node *node)
-{
-	u_int8_t d;
-	double	interval, pps, bps;
-	pps = bps = 0;
-
-	tb_start();
-	for (d = 0; d < node->depth; d++)
-		tbprintf(" ");
-	tbprintf(node->altq.qname);
-	print_fld_tb(FLD_QUEUE);
-
-	if (node->altq.scheduler == ALTQT_CBQ ||
-	    node->altq.scheduler == ALTQT_HFSC
-		)
-		print_fld_bw(FLD_BANDW, (double)node->altq.bandwidth);
-	
-	if (node->altq.priority != DEFAULT_PRIORITY)
-		print_fld_uint(FLD_PRIO,
-			       node->altq.priority);
-	
-	if (node->qstats.valid && node->qstats_last.valid)
-		interval = calc_interval(&node->qstats.timestamp,
-					 &node->qstats_last.timestamp);
-	else
-		interval = 0;
-
-	switch (node->altq.scheduler) {
-	case ALTQT_CBQ:
-		print_fld_str(FLD_SCHED, "cbq");
-		print_fld_size(FLD_PKTS,
-			       node->qstats.data.cbq_stats.xmit_cnt.packets);
-		print_fld_size(FLD_BYTES,
-			       node->qstats.data.cbq_stats.xmit_cnt.bytes);
-		print_fld_size(FLD_DROPP,
-			       node->qstats.data.cbq_stats.drop_cnt.packets);
-		print_fld_size(FLD_DROPB,
-			       node->qstats.data.cbq_stats.drop_cnt.bytes);
-		print_fld_size(FLD_QLEN, node->qstats.data.cbq_stats.qcnt);
-		print_fld_size(FLD_BORR, node->qstats.data.cbq_stats.borrows);
-		print_fld_size(FLD_SUSP, node->qstats.data.cbq_stats.delays);
-		if (interval > 0) {
-			pps = calc_pps(node->qstats.data.cbq_stats.xmit_cnt.packets,
-				       node->qstats_last.data.cbq_stats.xmit_cnt.packets, interval);
-			bps = calc_rate(node->qstats.data.cbq_stats.xmit_cnt.bytes,
-					node->qstats_last.data.cbq_stats.xmit_cnt.bytes, interval);
-		}
-		break;
-	case ALTQT_PRIQ:
-		print_fld_str(FLD_SCHED, "priq");
-		print_fld_size(FLD_PKTS,
-			       node->qstats.data.priq_stats.xmitcnt.packets);
-		print_fld_size(FLD_BYTES,
-			       node->qstats.data.priq_stats.xmitcnt.bytes);
-		print_fld_size(FLD_DROPP,
-			       node->qstats.data.priq_stats.dropcnt.packets);
-		print_fld_size(FLD_DROPB,
-			       node->qstats.data.priq_stats.dropcnt.bytes);
-		print_fld_size(FLD_QLEN, node->qstats.data.priq_stats.qlength);
-		if (interval > 0) {
-			pps = calc_pps(node->qstats.data.priq_stats.xmitcnt.packets,
-				       node->qstats_last.data.priq_stats.xmitcnt.packets, interval);
-			bps = calc_rate(node->qstats.data.priq_stats.xmitcnt.bytes,
-					node->qstats_last.data.priq_stats.xmitcnt.bytes, interval);
-		}
-		break;
-	case ALTQT_HFSC:
-		print_fld_str(FLD_SCHED, "hfsc");
-		print_fld_size(FLD_PKTS,
-				node->qstats.data.hfsc_stats.xmit_cnt.packets);
-		print_fld_size(FLD_BYTES,
-				node->qstats.data.hfsc_stats.xmit_cnt.bytes);
-		print_fld_size(FLD_DROPP,
-				node->qstats.data.hfsc_stats.drop_cnt.packets);
-		print_fld_size(FLD_DROPB,
-				node->qstats.data.hfsc_stats.drop_cnt.bytes);
-		print_fld_size(FLD_QLEN, node->qstats.data.hfsc_stats.qlength);
-		if (interval > 0) {
-			pps = calc_pps(node->qstats.data.hfsc_stats.xmit_cnt.packets,
-					node->qstats_last.data.hfsc_stats.xmit_cnt.packets, interval);
-			bps = calc_rate(node->qstats.data.hfsc_stats.xmit_cnt.bytes,
-					node->qstats_last.data.hfsc_stats.xmit_cnt.bytes, interval);
-		}
-		break;
-	}
-
-	/* if (node->altq.scheduler != ALTQT_HFSC && interval > 0) { */
-	if (node->altq.scheduler && interval > 0) {
-		tb_start();
-		if (pps > 0 && pps < 1)
-			tbprintf("%-3.1lf", pps);
-		else
-			tbprintf("%u", (unsigned int) pps);
-		
-		print_fld_tb(FLD_PKTSPS);
-		print_fld_bw(FLD_BYTESPS, bps);
-	}
 }
 
 void
@@ -2023,7 +1679,6 @@ void
 print_queues(void)
 {
 	uint32_t n, count, start;
-	struct pf_altq_node *altqnode = altq_root;
 	struct pfctl_queue_node *node;
 
 	n = count = 0;
@@ -2039,19 +1694,6 @@ print_queues(void)
 		count++;
 		if (maxprint > 0 && count >= maxprint)
 			return;
-	}
-
-	start -= n;
-	for (n = 0; n < start; n++)
-		altqnode = altqnode->next_flat;
-
-	for (; n < num_altqs; n++) {
-		print_altqueue(altqnode);
-		altqnode = altqnode->next_flat;
-		end_line();
-		count++;
-		if (maxprint > 0 && count >= maxprint)
-			break;
 	}
 }
 

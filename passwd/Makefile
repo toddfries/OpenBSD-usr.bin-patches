@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.36 2013/08/06 19:05:57 miod Exp $
+#	$OpenBSD: Makefile,v 1.38 2014/04/22 10:21:56 reyk Exp $
 
 .include <bsd.own.mk>
 
@@ -13,19 +13,6 @@ CFLAGS+= -I${.CURDIR}
 CFLAGS+=-I${.CURDIR}/../../lib/libc/include
 .if (${YP:L} == "yes")
 CFLAGS+=-DYP -I${.CURDIR}/../../lib/libc/yp
-.endif
-
-.include <bsd.own.mk>	# For Kerberos
-
-.if (${KERBEROS5:L} == "yes")
-SRCS+= krb5_passwd.c
-CFLAGS+= -DKRB5
-DPADD+=	${LIBKRB5} ${LIBASN1} ${LIBCRYPTO}
-LDADD+=	-lkrb5 -lasn1 -lcrypto
-LDADD+= -lwind -lroken -lcom_err -lheimbase
-.if ${MACHINE} == "vax"
-LDFLAGS+=-Wl,--no-keep-memory
-.endif
 .endif
 
 BINMODE=4555
