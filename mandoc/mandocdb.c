@@ -1,4 +1,4 @@
-/*	$Id: mandocdb.c,v 1.103 2014/04/27 23:03:52 schwarze Exp $ */
+/*	$Id: mandocdb.c,v 1.106 2014/05/12 19:11:20 espie Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -137,8 +137,8 @@ static	int	 dbopen(int);
 static	void	 dbprune(void);
 static	void	 filescan(const char *);
 static	void	*hash_alloc(size_t, void *);
-static	void	 hash_free(void *, size_t, void *);
-static	void	*hash_halloc(size_t, void *);
+static	void	 hash_free(void *, void *);
+static	void	*hash_calloc(size_t, size_t, void *);
 static	void	 mlink_add(struct mlink *, const struct stat *);
 static	void	 mlink_check(struct mpage *, struct mlink *);
 static	void	 mlink_free(struct mlink *);
@@ -328,8 +328,8 @@ mandocdb(int argc, char *argv[])
 	memset(&dirs, 0, sizeof(struct manpaths));
 
 	mpages_info.alloc  = mlinks_info.alloc  = hash_alloc;
-	mpages_info.halloc = mlinks_info.halloc = hash_halloc;
-	mpages_info.hfree  = mlinks_info.hfree  = hash_free;
+	mpages_info.calloc = mlinks_info.calloc = hash_calloc;
+	mpages_info.free  = mlinks_info.free  = hash_free;
 
 	mpages_info.key_offset = offsetof(struct mpage, inodev);
 	mlinks_info.key_offset = offsetof(struct mlink, file);
@@ -504,7 +504,7 @@ mandocdb(int argc, char *argv[])
 				goto out;
 
 			mpages_merge(mc, mp);
-			if (warnings &&
+			if (warnings && !nodb &&
 			    ! (MPARSE_QUICK & mparse_options))
 				names_check();
 			dbclose(0);
@@ -1082,8 +1082,8 @@ mpages_merge(struct mchars *mc, struct mparse *mp)
 	enum mandoclevel	 lvl;
 
 	str_info.alloc = hash_alloc;
-	str_info.halloc = hash_halloc;
-	str_info.hfree = hash_free;
+	str_info.calloc = hash_calloc;
+	str_info.free = hash_free;
 	str_info.key_offset = offsetof(struct str, key);
 
 	if (0 == nodb)
@@ -1988,6 +1988,18 @@ dbadd(struct mpage *mpage, struct mchars *mc)
 	mlink = mpage->mlinks;
 
 	if (nodb) {
+		for (key = ohash_first(&names, &slot); NULL != key;
+		     key = ohash_next(&names, &slot)) {
+			if (key->rendered != key->key)
+				free(key->rendered);
+			free(key);
+		}
+		for (key = ohash_first(&strings, &slot); NULL != key;
+		     key = ohash_next(&strings, &slot)) {
+			if (key->rendered != key->key)
+				free(key->rendered);
+			free(key);
+		}
 		if (0 == debug)
 			return;
 		while (NULL != mlink) {
@@ -2016,12 +2028,21 @@ dbadd(struct mpage *mpage, struct mchars *mc)
 	if (debug)
 		say(mlink->file, "Adding to database");
 
+	i = strlen(mpage->desc) + 1;
+	key = mandoc_calloc(1, sizeof(struct str) + i);
+	memcpy(key->key, mpage->desc, i);
+	render_key(mc, key);
+
 	i = 1;
-	SQL_BIND_TEXT(stmts[STMT_INSERT_PAGE], i, mpage->desc);
+	SQL_BIND_TEXT(stmts[STMT_INSERT_PAGE], i, key->rendered);
 	SQL_BIND_INT(stmts[STMT_INSERT_PAGE], i, FORM_SRC == mpage->form);
 	SQL_STEP(stmts[STMT_INSERT_PAGE]);
 	mpage->pageid = sqlite3_last_insert_rowid(db);
 	sqlite3_reset(stmts[STMT_INSERT_PAGE]);
+
+	if (key->rendered != key->key)
+		free(key->rendered);
+	free(key);
 
 	while (NULL != mlink) {
 		dbadd_mlink(mlink);
@@ -2318,10 +2339,10 @@ prepare_statements:
 }
 
 static void *
-hash_halloc(size_t sz, void *arg)
+hash_calloc(size_t n, size_t sz, void *arg)
 {
 
-	return(mandoc_calloc(1, sz));
+	return(mandoc_calloc(n, sz));
 }
 
 static void *
@@ -2332,7 +2353,7 @@ hash_alloc(size_t sz, void *arg)
 }
 
 static void
-hash_free(void *p, size_t sz, void *arg)
+hash_free(void *p, void *arg)
 {
 
 	free(p);

@@ -1,4 +1,4 @@
-/* $OpenBSD: pftop.c,v 1.26 2014/04/26 11:28:49 sthen Exp $	 */
+/* $OpenBSD: pftop.c,v 1.28 2014/05/09 21:03:43 sthen Exp $	 */
 /*
  * Copyright (c) 2001, 2007 Can Erkin Acar
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1583,9 +1583,6 @@ select_queues(void)
 int
 read_queues(void)
 {
-	static int first_read = 1;
-	struct pfctl_queue_node *node;
-	int inserts;
 	num_disp = num_queues = 0;
 
 	if (pfctl_update_qstats() < 0)
@@ -1636,6 +1633,8 @@ print_queue_node(struct pfctl_queue_node *node)
 	for (i = 0; i < node->depth; i++)
 		tbprintf(" ");
 	tbprintf("%s", node->qs.qname);
+	if (i == 0 && node->qs.ifname[0])
+		tbprintf(" on %s ", node->qs.ifname);
 	print_fld_tb(FLD_QUEUE);
 
 	// XXX: missing min, max, burst

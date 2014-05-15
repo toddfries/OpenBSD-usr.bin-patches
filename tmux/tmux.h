@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.h,v 1.457 2014/04/24 09:14:43 nicm Exp $ */
+/* $OpenBSD: tmux.h,v 1.464 2014/05/14 06:21:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -85,7 +85,7 @@ extern char   **environ;
 
 /* Default template for choose-buffer. */
 #define CHOOSE_BUFFER_TEMPLATE					\
-	"#{line}: #{buffer_size} bytes: #{buffer_sample}"
+	"#{buffer_name}: #{buffer_size} bytes: #{buffer_sample}"
 
 /* Default template for choose-client. */
 #define CHOOSE_CLIENT_TEMPLATE					\
@@ -118,7 +118,8 @@ extern char   **environ;
 
 /* Default template for list-buffers. */
 #define LIST_BUFFERS_TEMPLATE					\
-	"#{line}: #{buffer_size} bytes: \"#{buffer_sample}\""
+	"#{buffer_name}: #{buffer_size} bytes: "		\
+	"\"#{buffer_sample}\""
 
 /* Default template for list-clients. */
 #define LIST_CLIENTS_TEMPLATE					\
@@ -582,6 +583,7 @@ enum mode_key_cmd {
 	MODEKEYCOPY_SEARCHREVERSE,
 	MODEKEYCOPY_SEARCHUP,
 	MODEKEYCOPY_SELECTLINE,
+	MODEKEYCOPY_STARTNAMEDBUFFER,
 	MODEKEYCOPY_STARTNUMBERPREFIX,
 	MODEKEYCOPY_STARTOFLINE,
 	MODEKEYCOPY_STARTSELECTION,
@@ -892,6 +894,7 @@ struct window_choose_mode_item {
 /* Child window structure. */
 struct window_pane {
 	u_int		 id;
+	u_int		 active_point;
 
 	struct window	*window;
 
@@ -911,7 +914,8 @@ struct window_pane {
 #define PANE_RESIZE 0x8
 #define PANE_FOCUSPUSH 0x10
 
-	char		*cmd;
+	int		 argc;
+	char	       **argv;
 	char		*shell;
 	int		 cwd;
 
@@ -948,6 +952,7 @@ struct window_pane {
 };
 TAILQ_HEAD(window_panes, window_pane);
 RB_HEAD(window_pane_tree, window_pane);
+ARRAY_DECL(window_pane_list, struct window_pane *);
 
 /* Window structure. */
 struct window {
@@ -1025,8 +1030,6 @@ struct layout_cell {
 	u_int		 yoff;
 
 	struct window_pane *wp;
-	struct window_pane *lastwp;
-
 	struct layout_cells cells;
 
 	TAILQ_ENTRY(layout_cell) entry;
@@ -1036,6 +1039,13 @@ struct layout_cell {
 struct paste_buffer {
 	char		*data;
 	size_t		 size;
+
+	char		*name;
+	int		 automatic;
+	u_int		 order;
+
+	RB_ENTRY(paste_buffer) name_entry;
+	RB_ENTRY(paste_buffer) time_entry;
 };
 
 /* Environment variable. */
@@ -1129,6 +1139,9 @@ LIST_HEAD(tty_terms, tty_term);
 /* Mouse wheel states. */
 #define MOUSE_WHEEL_UP 0
 #define MOUSE_WHEEL_DOWN 1
+
+/* Mouse wheel multipler. */
+#define MOUSE_WHEEL_SCALE 3
 
 /* Mouse event bits. */
 #define MOUSE_EVENT_DOWN 0x1
@@ -1496,7 +1509,7 @@ RB_HEAD(format_tree, format_entry);
 #define CMD_SRCDST_WINDOW_USAGE "[-s src-window] [-t dst-window]"
 #define CMD_SRCDST_SESSION_USAGE "[-s src-session] [-t dst-session]"
 #define CMD_SRCDST_CLIENT_USAGE "[-s src-client] [-t dst-client]"
-#define CMD_BUFFER_USAGE "[-b buffer-index]"
+#define CMD_BUFFER_USAGE "[-b buffer-name]"
 
 /* tmux.c */
 extern struct options global_options;
@@ -1708,13 +1721,14 @@ void	tty_keys_free(struct tty *);
 int	tty_keys_next(struct tty *);
 
 /* paste.c */
-struct paste_buffer *paste_walk_stack(u_int *);
+struct paste_buffer *paste_walk(struct paste_buffer *);
 struct paste_buffer *paste_get_top(void);
-struct paste_buffer *paste_get_index(u_int);
+struct paste_buffer *paste_get_name(const char *);
 int		 paste_free_top(void);
-int		 paste_free_index(u_int);
-void		 paste_add(char *, size_t, u_int);
-int		 paste_replace(u_int, char *, size_t);
+int		 paste_free_name(const char *);
+void		 paste_add(char *, size_t);
+int		 paste_rename(const char *, const char *, char **);
+int		 paste_set(char *, size_t, const char *, char **);
 char		*paste_make_sample(struct paste_buffer *, int);
 void		 paste_send_pane(struct paste_buffer *, struct window_pane *,
 		     const char *, int);
@@ -1735,8 +1749,9 @@ long long	 args_strtonum(
 /* cmd.c */
 int		 cmd_pack_argv(int, char **, char *, size_t);
 int		 cmd_unpack_argv(char *, size_t, int, char ***);
-char	       **cmd_copy_argv(int, char *const *);
+char	       **cmd_copy_argv(int, char **);
 void		 cmd_free_argv(int, char **);
+char		*cmd_stringify_argv(int, char **);
 struct cmd	*cmd_parse(int, char **, const char *, u_int, char **);
 size_t		 cmd_print(struct cmd *, char *, size_t);
 struct session	*cmd_current_session(struct cmd_q *, int);
@@ -1874,7 +1889,6 @@ RB_PROTOTYPE(key_bindings, key_binding, entry, key_bindings_cmp);
 struct key_binding *key_bindings_lookup(int);
 void	 key_bindings_add(int, int, struct cmd_list *);
 void	 key_bindings_remove(int);
-void	 key_bindings_clean(void);
 void	 key_bindings_init(void);
 void	 key_bindings_dispatch(struct key_binding *, struct client *);
 
@@ -2127,7 +2141,7 @@ void		 winlink_stack_remove(struct winlink_stack *, struct winlink *);
 int		 window_index(struct window *, u_int *);
 struct window	*window_find_by_id(u_int);
 struct window	*window_create1(u_int, u_int);
-struct window	*window_create(const char *, const char *, const char *,
+struct window	*window_create(const char *, int, char **, const char *,
 		     const char *, int, struct environ *, struct termios *,
 		     u_int, u_int, u_int, char **);
 void		 window_destroy(struct window *);
@@ -2153,7 +2167,7 @@ struct window_pane *window_pane_find_by_id(u_int);
 struct window_pane *window_pane_create(struct window *, u_int, u_int, u_int);
 void		 window_pane_destroy(struct window_pane *);
 void		 window_pane_timer_start(struct window_pane *);
-int		 window_pane_spawn(struct window_pane *, const char *,
+int		 window_pane_spawn(struct window_pane *, int, char **,
 		     const char *, const char *, int, struct environ *,
 		     struct termios *, char **);
 void		 window_pane_resize(struct window_pane *, u_int, u_int);
@@ -2291,18 +2305,18 @@ RB_PROTOTYPE(sessions, session, entry, session_cmp);
 int		 session_alive(struct session *);
 struct session	*session_find(const char *);
 struct session	*session_find_by_id(u_int);
-struct session	*session_create(const char *, const char *, const char *, int,
-		     struct environ *, struct termios *, int, u_int, u_int,
-		     char **);
+struct session	*session_create(const char *, int, char **, const char *,
+		     int, struct environ *, struct termios *, int, u_int,
+		     u_int, char **);
 void		 session_destroy(struct session *);
 int		 session_check_name(const char *);
 void		 session_update_activity(struct session *);
 struct session	*session_next_session(struct session *);
 struct session	*session_previous_session(struct session *);
-struct winlink	*session_new(struct session *, const char *, const char *,
+struct winlink	*session_new(struct session *, const char *, int, char **,
 		     const char *, int, int, char **);
-struct winlink	*session_attach(
-		     struct session *, struct window *, int, char **);
+struct winlink	*session_attach(struct session *, struct window *, int,
+		     char **);
 int		 session_detach(struct session *, struct winlink *);
 struct winlink	*session_has(struct session *, struct window *);
 int		 session_next(struct session *, int);

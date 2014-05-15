@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd.c,v 1.92 2014/04/16 21:02:41 nicm Exp $ */
+/* $OpenBSD: cmd.c,v 1.94 2014/05/13 08:08:32 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -180,14 +180,14 @@ cmd_unpack_argv(char *buf, size_t len, int argc, char ***argv)
 }
 
 char **
-cmd_copy_argv(int argc, char *const *argv)
+cmd_copy_argv(int argc, char **argv)
 {
 	char	**new_argv;
 	int	  i;
 
 	if (argc == 0)
 		return (NULL);
-	new_argv = xcalloc(argc, sizeof *new_argv);
+	new_argv = xcalloc(argc + 1, sizeof *new_argv);
 	for (i = 0; i < argc; i++) {
 		if (argv[i] != NULL)
 			new_argv[i] = xstrdup(argv[i]);
@@ -205,6 +205,32 @@ cmd_free_argv(int argc, char **argv)
 	for (i = 0; i < argc; i++)
 		free(argv[i]);
 	free(argv);
+}
+
+char *
+cmd_stringify_argv(int argc, char **argv)
+{
+	char	*buf;
+	int	 i;
+	size_t	 len;
+
+	if (argc == 0)
+		return (xstrdup(""));
+
+	len = 0;
+	buf = NULL;
+
+	for (i = 0; i < argc; i++) {
+		len += strlen(argv[i]) + 1;
+		buf = xrealloc(buf, 1, len);
+
+		if (i == 0)
+			*buf = '\0';
+		else
+			strlcat(buf, " ", len);
+		strlcat(buf, argv[i], len);
+	}
+	return (buf);
 }
 
 struct cmd *

@@ -184,7 +184,7 @@ main(argc, argv)
 	ifile = NULL_IFILE;
 #if !SMALL
 	if (dohelp)
-		ifile = get_ifile(HELPFILE, ifile);
+		ifile = get_ifile(helpfile(), ifile);
 #endif /* !SMALL */
 	while (argc-- > 0)
 	{
@@ -420,3 +420,11 @@ quit(status)
 	close_getchr();
 	exit(status);
 }
+
+#if !SMALL
+	public char *
+helpfile(void)
+{
+	return (less_is_more ? HELPDIR "/more.help" : HELPDIR "/less.help");
+}
+#endif /* !SMALL */

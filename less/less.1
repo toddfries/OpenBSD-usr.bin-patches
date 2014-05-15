@@ -1,4 +1,4 @@
-.\"	$OpenBSD: less.1,v 1.33 2014/04/29 12:11:25 millert Exp $
+.\"	$OpenBSD: less.1,v 1.41 2014/05/13 22:07:03 jmc Exp $
 .\"
 .\" Copyright (C) 1984-2012  Mark Nudelman
 .\"
@@ -23,80 +23,572 @@
 .\" OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN
 .\" IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 .\"
-.Dd $Mdocdate: April 29 2014 $
+.Dd $Mdocdate: May 13 2014 $
 .Dt LESS 1
 .Os
 .Sh NAME
-.Nm less , more
+.Nm less
 .Nd view files
 .Sh SYNOPSIS
-.Nm less \*(Ba more
-.Fl \&?
-.Nm less \*(Ba more
-.Fl -help
-.Nm less \*(Ba more
-.Fl V
-.Nm less \*(Ba more
-.Fl -version
-.Nm less \*(Ba more
-.Bk -words
-.Op Fl Oo Cm + Oc Ns Cm AaBCcdEeFfGgIiJKLMmNnQqRrSsUuVWwX~
-.Op Fl b Ar space
-.Op Fl h Ar lines
-.Op Fl j Ar line
+.Nm less
+.Op Fl #?~AaBCcdEeFfGgIiJKLMmNnQqRrSsUuVWwX
+.Op Fl b Ar n
+.Op Fl h Ar n
+.Op Fl j Ar n
 .Op Fl k Ar keyfile
 .Op Fl O | o Ar logfile
 .Op Fl P Ar prompt
 .Op Fl p Ar pattern
 .Op Fl T Ar tagsfile
 .Op Fl t Ar tag
-.Op Fl x Ar tab,...
-.Op Fl y Ar lines
-.Op Fl Oo Cm z Oc Ar lines
-.Op Fl # Ar shift
-.Xo Oo Cm \&+ Ns Oo Ns Cm \&+ Ns
-.Oc Ar cmd
-.Oc
-.Xc
-.Op Fl -
-.Op Ar filename ...
-.Ek
-.\" (See the
-.\" .Sx OPTIONS
-.\" section for alternate option syntax with long option names.)
+.Op Fl x Ar n Ns , Ns Ar ...
+.Op Fl y Ar n
+.Op Fl Cm z Ar n
+.Op Ar
 .Sh DESCRIPTION
 .Nm
 is a program similar to the traditional
 .Xr more 1 ,
-but which allows backward movement in the file as well as forward movement.
-Also,
+but with many more features.
+It displays text one screenful at a time.
+After showing each screenful, it prompts the user for a command.
+When showing the last line of a file,
 .Nm
-does not have to read the entire input file before starting,
-so with large input files it starts up faster than text editors like
+displays a prompt indicating end of file and the name of the next file
+to examine, if any.
+It then waits for input from the user.
+.Pp
+Commands are based on both traditional
+.Xr more 1
+and
 .Xr vi 1 .
-.Nm
-uses termcap (or terminfo on some systems),
-so it can run on a variety of terminals.
-There is even limited support for hardcopy terminals.
-(On a hardcopy terminal, lines which should be printed at the top
-of the screen are prefixed with a caret.)
+Commands may be preceded by a decimal number,
+called N in the descriptions below.
+The number is used by some commands, as indicated.
 .Pp
 This version of
 .Nm
 also acts as
 .Xr more 1
 if it is called as
-.Nm more .
-In this mode, the differences are in the prompt and that
-.Nm more
-exits by default when it gets to the end of the file.
-Commands are based on both traditional
-.Nm more
-and
-.Xr vi 1 .
-Commands may be preceded by a decimal number,
-called N in the descriptions below.
-The number is used by some commands, as indicated.
+.Nm more ,
+or if the
+.Ev LESS_IS_MORE
+environment variable is set.
+The main differences between the two are summarized in the
+.Sx COMPATIBILITY WITH MORE
+section, below.
+.Pp
+A long option name may be abbreviated as long as the abbreviation is
+unambiguous.
+Such option names need only have their first letter capitalized;
+the remainder of the name may be in either case.
+For example, --Quit-at-eof is equivalent to --QUIT-AT-EOF.
+.Pp
+The options are as follows:
+.Bl -tag -width XXXX
+.It Fl \&? | -help
+This option displays a summary of the commands accepted by
+.Nm
+(the same as the h command).
+(Depending on how your shell interprets the question mark,
+it may be necessary to quote the question mark, thus: "-\e?".)
+.It Fl A | -SEARCH-SKIP-SCREEN
+Causes all forward searches (not just non-repeated searches)
+to start just after the target line, and all backward searches
+to start just before the target line.
+Thus, forward searches will skip part of the displayed screen
+(from the first line up to and including the target line).
+Similarly backwards searches will skip the displayed screen
+from the last line up to and including the target line.
+This was the default behavior in less versions prior to 441.
+.It Fl a | -search-skip-screen
+By default, forward searches start at the top of the displayed screen
+and backwards searches start at the bottom of the displayed screen
+(except for repeated searches invoked by the n or N commands,
+which start after or before the "target" line respectively;
+see the -j option for more about the target line).
+The -a option causes forward searches to instead start at
+the bottom of the screen
+and backward searches to start at the top of the screen,
+thus skipping all lines displayed on the screen.
+.It Fl B | -auto-buffers
+By default, when data is read from a pipe,
+buffers are allocated automatically as needed.
+If a large amount of data is read from the pipe, this can cause
+a large amount of memory to be allocated.
+The -B option disables this automatic allocation of buffers for pipes,
+so that only 64K (or the amount of space specified by the -b option)
+is used for the pipe.
+Warning: use of -B can result in erroneous display, since only the
+most recently viewed part of the piped data is kept in memory;
+any earlier data is lost.
+.It Xo
+.Fl b Ar n |
+.Fl -buffers Ns = Ns Ar n
+.Xc
+Specifies the amount of buffer space
+.Nm
+will use for each file, in units of kilobytes (1024 bytes).
+By default 64K of buffer space is used for each file
+(unless the file is a pipe; see the -B option).
+The -b option specifies instead that n kilobytes of
+buffer space should be used for each file.
+If n is -1, buffer space is unlimited; that is,
+the entire file can be read into memory.
+.It Fl C | -CLEAR-SCREEN
+Same as -c, for compatibility with older versions of
+.Nm less .
+.It Fl c | -clear-screen
+Causes full screen repaints to be painted from the bottom of the screen.
+By default, full screen repaints are done from the top line down
+to avoid the position of the display being moved
+when using interactive commands.
+.It Fl d | -dumb
+The -d option suppresses the error message
+normally displayed if the terminal is dumb;
+that is, lacks some important capability,
+such as the ability to clear the screen or scroll backward.
+The -d option does not otherwise change the behavior of
+.Nm
+on a dumb terminal.
+.It Fl E | -QUIT-AT-EOF
+Causes
+.Nm
+to automatically exit the first time it reaches end-of-file.
+.It Fl e | -quit-at-eof
+Causes
+.Nm
+to automatically exit the second time it reaches end-of-file.
+By default, the only way to exit
+.Nm
+is via the "q" command.
+.It Fl F | -quit-if-one-screen
+Causes
+.Nm
+to automatically exit if the entire file can be displayed on the first screen.
+.It Fl f | -force
+Forces non-regular files to be opened.
+(A non-regular file is a directory or a device special file.)
+Also suppresses the warning message when a binary file is opened.
+By default,
+.Nm
+will refuse to open non-regular files.
+.It Fl G | -HILITE-SEARCH
+The -G option suppresses all highlighting of strings found by search commands.
+.It Fl g | -hilite-search
+Normally,
+.Nm
+will highlight ALL strings which match the last search command.
+The -g option changes this behavior to highlight only the particular string
+which was found by the last search command.
+This can cause
+.Nm
+to run somewhat faster than the default.
+.It Xo
+.Fl h Ar n |
+.Fl -max-back-scroll Ns = Ns Ar n
+.Xc
+Specifies a maximum number of lines to scroll backward.
+If it is necessary to scroll backward more than n lines,
+the screen is repainted in a forward direction instead.
+(If the terminal does not have the ability to scroll backward, -h0 is implied.)
+.It Fl I | -IGNORE-CASE
+Like -i, but searches ignore case even if the pattern contains uppercase
+letters.
+.It Fl i | -ignore-case
+Causes searches to ignore case; that is,
+uppercase and lowercase are considered identical.
+This option is ignored if any uppercase letters appear in the search pattern;
+in other words,
+if a pattern contains uppercase letters, then that search does not ignore case.
+.It Fl J | -status-column
+Displays a status column at the left edge of the screen.
+The status column shows the lines that matched the current search.
+The status column is also used if the -w or -W option is in effect.
+.It Xo
+.Fl j Ar n |
+.Fl -jump-target Ns = Ns Ar n
+.Xc
+Specifies a line on the screen where the "target" line is to be positioned.
+The target line is the line specified by any command to
+search for a pattern, jump to a line number,
+jump to a file percentage or jump to a tag.
+The screen line may be specified by a number: the top line on the screen
+is 1, the next is 2, and so on.
+The number may be negative to specify a line relative to the bottom
+of the screen: the bottom line on the screen is -1, the second
+to the bottom is -2, and so on.
+Alternately, the screen line may be specified as a fraction of the height
+of the screen, starting with a decimal point: .5 is in the middle of the
+screen, .3 is three tenths down from the first line, and so on.
+If the line is specified as a fraction, the actual line number
+is recalculated if the terminal window is resized, so that the
+target line remains at the specified fraction of the screen height.
+If any form of the -j option is used,
+forward searches begin at the line immediately after the target line,
+and backward searches begin at the target line,
+unless changed by -a or -A.
+For example, if "-j4" is used, the target line is the
+fourth line on the screen, so forward searches begin at the fifth line
+on the screen.
+.It Fl K | -quit-on-intr
+Causes
+.Nm
+to exit immediately (with status 2)
+when an interrupt character (usually ^C) is typed.
+Normally, an interrupt character causes
+.Nm
+to stop whatever it is doing and return to its command prompt.
+Note that use of this option makes it impossible to return to the
+command prompt from the "F" command.
+.It Xo
+.Fl k Ar keyfile |
+.Fl -lesskey-file Ns = Ns Ar keyfile
+.Xc
+Causes
+.Nm
+to open and interpret the named file as a
+.Xr lesskey 1
+file.
+Multiple -k options may be specified.
+If the
+.Ev LESSKEY
+or
+.Ev LESSKEY_SYSTEM
+environment variable is set, or if a lesskey file is found in a standard place
+(see
+.Sx KEY BINDINGS ) ,
+it is also used as a lesskey file.
+.It Fl L | -no-lessopen
+Ignore the
+.Ev LESSOPEN
+environment variable (see the
+.Sx INPUT PREPROCESSOR
+section below).
+This option can be set from within
+.Nm less ,
+but it will apply only to files opened subsequently, not to the
+file which is currently open.
+.It Fl M | -LONG-PROMPT
+Causes
+.Nm
+to prompt even more verbosely than
+.Xr more 1 .
+.It Fl m | -long-prompt
+Causes
+.Nm
+to prompt verbosely, like
+.Xr more 1 ,
+with the percent into the file.
+By default,
+.Nm
+prompts with a colon.
+.It Fl N | -LINE-NUMBERS
+Causes a line number to be displayed at the beginning of each line in the
+display.
+.It Fl n | -line-numbers
+Suppresses line numbers.
+The default (to use line numbers) may cause
+.Nm
+to run more slowly in some cases, especially with a very large input file.
+Suppressing line numbers with the -n option will avoid this problem.
+Using line numbers means: the line number will be displayed in the verbose
+prompt and in the = command, and the v command will pass the current line
+number to the editor (see also the discussion of LESSEDIT in
+.Sx PROMPTS
+below).
+.It Xo
+.Fl O Ar logfile |
+.Fl -LOG-FILE Ns = Ns Ar logfile
+.Xc
+The -O option is like -o, but it will overwrite an existing
+file without asking for confirmation.
+.Pp
+If no log file has been specified,
+the -o and -O options can be used from within
+.Nm
+to specify a log file.
+Without a file name, they will simply report the name of the log file.
+The "s" command is equivalent to specifying -o from within
+.Nm less .
+.It Xo
+.Fl o Ar logfile |
+.Fl -log-file Ns = Ns Ar logfile
+.Xc
+Causes
+.Nm
+to copy its input to the named file as it is being viewed.
+This applies only when the input file is a pipe, not an ordinary file.
+If the file already exists,
+.Nm
+will ask for confirmation before overwriting it.
+.It Xo
+.Fl P Ar prompt |
+.Fl -prompt Ns = Ns Ar prompt
+.Xc
+Provides a way to tailor the three prompt styles to your own preference.
+This option would normally be put in the
+.Ev LESS
+environment variable, rather than being typed in with each
+.Nm
+command.
+Such an option must either be the last option in the
+.Ev LESS
+variable, or be terminated by a dollar sign.
+-Ps followed by a string changes the default (short) prompt to that string.
+-Pm changes the medium (-m) prompt.
+-PM changes the long (-M) prompt.
+-Ph changes the prompt for the help screen.
+-P= changes the message printed by the = command.
+-Pw changes the message printed while waiting for data (in the F command).
+All prompt strings consist of a sequence of letters and special escape
+sequences.
+See the section on
+.Sx PROMPTS
+for more details.
+.It Xo
+.Fl p Ar pattern |
+.Fl -pattern Ns = Ns Ar pattern
+.Xc
+The -p option on the command line is equivalent to specifying +/pattern;
+that is, it tells
+.Nm
+to start at the first occurrence of pattern in the file.
+.It Fl Q | -QUIET | -SILENT
+Causes totally "quiet" operation: the terminal bell is never rung.
+.It Fl q | -quiet | -silent
+Causes moderately "quiet" operation:
+the terminal bell is not rung if an attempt is made to scroll past the end
+of the file or before the beginning of the file.
+If the terminal has a "visual bell", it is used instead.
+The bell will be rung on certain other errors,
+such as typing an invalid character.
+The default is to ring the terminal bell in all such cases.
+.It Fl R | -RAW-CONTROL-CHARS
+Like -r, but only ANSI "color" escape sequences are output in "raw" form.
+Unlike -r, the screen appearance is maintained correctly in most cases.
+ANSI "color" escape sequences are sequences of the form:
+.Pp
+.Dl ESC \&[ ... m
+.Pp
+where the "..." is zero or more color specification characters.
+For the purpose of keeping track of screen appearance,
+ANSI color escape sequences are assumed to not move the cursor.
+You can make
+.Nm
+think that characters other than "m" can end ANSI color escape sequences
+by setting the environment variable
+.Ev LESSANSIENDCHARS
+to the list of characters which can end a color escape sequence.
+And you can make
+.Nm
+think that characters other than the standard ones may appear between
+the ESC and the m by setting the environment variable
+.Ev LESSANSIMIDCHARS
+to the list of characters which can appear.
+.It Fl r | -raw-control-chars
+Causes "raw" control characters to be displayed.
+The default is to display control characters using the caret notation;
+for example, a control-A (octal 001) is displayed as "^A".
+Warning: when the -r option is used,
+.Nm
+cannot keep track of the actual appearance of the screen
+(since this depends on how the screen responds to
+each type of control character).
+Thus, various display problems may result,
+such as long lines being split in the wrong place.
+.It Fl S | -chop-long-lines
+Causes lines longer than the screen width to be
+chopped (truncated) rather than wrapped.
+That is, the portion of a long line that does not fit in
+the screen width is not shown.
+The default is to wrap long lines; that is, display the remainder
+on the next line.
+.It Fl s | -squeeze-blank-lines
+Causes consecutive blank lines to be squeezed into a single blank line.
+.It Xo
+.Fl T Ar tagsfile |
+.Fl -tag-file Ns = Ns Ar tagsfile
+.Xc
+Specifies a tags file to be used instead of "tags".
+.It Xo
+.Fl t Ar tag |
+.Fl -tag Ns = Ns Ar tag
+.Xc
+The -t option, followed immediately by a TAG,
+will edit the file containing that tag.
+For this to work, tag information must be available;
+for example, there may be a file in the current directory called "tags",
+which was previously built by
+.Xr ctags 1
+or an equivalent command.
+If the environment variable
+.Ev LESSGLOBALTAGS
+is set, it is taken to be the name of a command compatible with
+.Xr global ,
+and that command is executed to find the tag.
+(See
+.Lk http://www.gnu.org/software/global/global.html ) .
+The -t option may also be specified from within
+.Nm
+(using the \- command) as a way of examining a new file.
+The command ":t" is equivalent to specifying -t from within
+.Nm less .
+.It Fl U | -UNDERLINE-SPECIAL
+Causes backspaces, tabs and carriage returns to be
+treated as control characters;
+that is, they are handled as specified by the -r option.
+.Pp
+By default, if neither -u nor -U is given, backspaces which appear adjacent
+to an underscore character are treated specially:
+the underlined text is displayed
+using the terminal's hardware underlining capability.
+Also, backspaces which appear between two identical characters
+are treated specially:
+the overstruck text is printed
+using the terminal's hardware boldface capability.
+Other backspaces are deleted, along with the preceding character.
+Carriage returns immediately followed by a newline are deleted.
+Other carriage returns are handled as specified by the -r option.
+Text which is overstruck or underlined can be searched for
+if neither -u nor -U is in effect.
+.It Fl u | -underline-special
+Causes backspaces and carriage returns to be treated as printable characters;
+that is, they are sent to the terminal when they appear in the input.
+.It Fl V | -version
+Displays the version number of
+.Nm less .
+.It Fl W | -HILITE-UNREAD
+Like -w, but temporarily highlights the first new line after any
+forward movement command larger than one line.
+.It Fl w | -hilite-unread
+Temporarily highlights the first "new" line after a forward movement
+of a full page.
+The first "new" line is the line immediately following the line previously
+at the bottom of the screen.
+Also highlights the target line after a g or p command.
+The highlight is removed at the next command which causes movement.
+The entire line is highlighted, unless the -J option is in effect,
+in which case only the status column is highlighted.
+.It Fl X | -no-init
+Disables sending the termcap initialization and deinitialization strings
+to the terminal.
+This is sometimes desirable if the deinitialization string does
+something unnecessary, like clearing the screen.
+.It Xo
+.Fl x Ar n Ns , Ns Ar ... |
+.Fl -tabs Ns = Ns Ar n Ns , Ns Ar ...
+.Xc
+Sets tab stops.
+If only one n is specified, tab stops are set at multiples of n.
+If multiple values separated by commas are specified, tab stops are set at
+those positions, and then continue with the same spacing as the last two.
+For example, -x9,17 will set tabs at positions 9, 17, 25, 33, etc.
+The default for n is 8.
+.It Xo
+.Fl y Ar n |
+.Fl -max-forw-scroll Ns = Ns Ar n
+.Xc
+Specifies a maximum number of lines to scroll forward.
+If it is necessary to scroll forward more than n lines,
+the screen is repainted instead.
+The -c or -C option may be used to repaint from the top of
+the screen if desired.
+By default, any forward movement causes scrolling.
+.It Xo
+.Fl z Ar n |
+.Fl -window Ns = Ns Ar n
+.Xc
+Changes the default scrolling window size to n lines.
+The default is one screenful.
+The z and w commands can also be used to change the window size.
+The "z" may be omitted for compatibility with some versions of
+.Xr more 1 .
+If the number
+.Ar n
+is negative, it indicates
+.Ar n
+lines less than the current screen size.
+For example, if the screen is 24 lines, -z-4 sets the
+scrolling window to 20 lines.
+If the screen is resized to 40 lines,
+the scrolling window automatically changes to 36 lines.
+.It Fl -follow-name
+Normally, if the input file is renamed while an F command is executing,
+.Nm
+will continue to display the contents of the original file despite
+its name change.
+If --follow-name is specified, during an F command
+.Nm
+will periodically attempt to reopen the file by name.
+If the reopen succeeds and the file is a different file from the original
+(which means that a new file has been created
+with the same name as the original (now renamed) file),
+.Nm
+will display the contents of that new file.
+.It Fl -no-keypad
+Disables sending the keypad initialization and deinitialization strings
+to the terminal.
+This is sometimes useful if the keypad strings make the numeric
+keypad behave in an undesirable manner.
+.It Fl -use-backslash
+This option changes the interpretations of options which follow this one.
+After the --use-backslash option, any backslash in an option string is
+removed and the following character is taken literally.
+This allows a dollar sign to be included in option strings.
+.It Xo
+.Ar -cc |
+.Fl -quotes Ns = Ns Ar cc
+.Xc
+Changes the filename quoting character.
+This may be necessary if you are trying to name a file
+which contains both spaces and quote characters.
+Followed by a single character, this changes the quote character to that
+character.
+Filenames containing a space should then be surrounded by that character
+rather than by double quotes.
+Followed by two characters, changes the open quote to the first character,
+and the close quote to the second character.
+Filenames containing a space should then be preceded by the open quote
+character and followed by the close quote character.
+Note that even after the quote characters are changed, this option
+remains -" (a dash followed by a double quote).
+.It Fl ~ | -tilde
+Normally lines after end of file are displayed as a single tilde (~).
+This option causes lines after end of file to be displayed as blank lines.
+.It Fl # | -shift
+Specifies the default number of positions to scroll horizontally
+in the RIGHTARROW and LEFTARROW commands.
+If the number specified is zero, it sets the default number of
+positions to one half of the screen width.
+Alternately, the number may be specified as a fraction of the width
+of the screen, starting with a decimal point: .5 is half of the
+screen width, .3 is three tenths of the screen width, and so on.
+If the number is specified as a fraction, the actual number of
+scroll positions is recalculated if the terminal window is resized,
+so that the actual scroll remains at the specified fraction
+of the screen width.
+.It Fl -
+A command line argument of "--" marks the end of option arguments.
+Any arguments following this are interpreted as filenames.
+This can be useful when viewing a file whose name begins with a "-" or "+".
+.It Cm +
+If a command line option begins with +,
+the remainder of that option is taken to be an initial command to
+.Nm less .
+For example, +G tells
+.Nm
+to start at the end of the file rather than the beginning,
+and +/xyz tells it to start at the first occurrence of "xyz" in the file.
+As a special case, +<number> acts like +<number>g;
+that is, it starts the display at the specified line number
+(however, see the caveat under the "g" command above).
+If the option starts with ++, the initial command applies to
+every file being viewed, not just the first one.
+The + command described previously
+may also be used to set (or change) an initial command for every file.
+.El
 .Sh COMMANDS
 In the following descriptions, ^X means control-X.
 ESC stands for the ESCAPE key; for example ESC-v means the
@@ -157,7 +649,7 @@ while it is being viewed.
 (The behavior is similar to the "tail -f" command.)
 .It Ic ESC-F
 Like F, but as soon as a line is found which matches
-the last search pattern, the terminal bell is rung 
+the last search pattern, the terminal bell is rung
 and forward scrolling stops.
 .It Ic g | < | ESC-<
 Go to line N in the file, default 1 (beginning of file).
@@ -455,7 +947,6 @@ A pound sign (#) is replaced by the name of the previously examined file.
 The shell is taken from the environment variable
 .Ev SHELL ,
 or defaults to "sh".
-.\" On MS-DOS and OS/2 systems, the shell is the normal command processor.
 .It Ic | <m> Ar shell-command
 <m> represents any mark letter.
 Pipes a section of the input file to the given shell command.
@@ -467,588 +958,6 @@ If <m> is . or newline, the current screen is piped.
 Save the input to a file.
 This only works if the input is a pipe, not an ordinary file.
 .El
-.Sh OPTIONS
-Command line options are described below.
-Most options may be changed while
-.Nm
-is running, via the "\-" command.
-.Pp
-Most options may be given in one of two forms:
-either a dash followed by a single letter, or two dashes followed by a
-long option name.
-A long option name may be abbreviated as long as the abbreviation is
-unambiguous.
-For example, --quit-at-eof may be abbreviated --quit, but not
---qui, since both --quit-at-eof and --quiet begin with --qui.
-Some long option names are in uppercase, such as --QUIT-AT-EOF, as
-distinct from --quit-at-eof.
-Such option names need only have their first letter capitalized;
-the remainder of the name may be in either case.
-For example, --Quit-at-eof is equivalent to --QUIT-AT-EOF.
-.Pp
-Options are also taken from the environment variable
-.Ev LESS
-if the command is
-.Nm less ,
-or from the environment variable
-.Ev MORE
-if the command is
-.Nm more .
-For example, to avoid typing "less -options ..." each time
-.Nm
-is invoked, you might tell
-.Xr csh 1 :
-.Pp
-.Dl setenv LESS "-options"
-.Pp
-or if you use
-.Xr sh 1 :
-.Pp
-.Dl LESS="-options"; export LESS
-.Pp
-.\" On MS-DOS, you don't need the quotes, but you should replace any
-.\" percent signs in the options string by double percent signs.
-.\" .Pp
-The environment variable is parsed before the command line,
-so command line options override the
-.Ev LESS
-environment variable.
-If an option appears in the
-.Ev LESS
-variable, it can be reset to its default value on the command line by
-beginning the command line option with "\-+".
-.Pp
-Some options like -k require a string to follow the option letter.
-The string for that option is considered to end when a dollar sign ($) is found.
-For example, to separate a prompt value from any other options
-with dollar sign between them:
-.Pp
-.Dl LESS="-Ps--More--$-C -e"
-.Pp
-If the --use-backslash option appears earlier in the options, then
-a dollar sign or backslash may be included literally in an option string
-by preceding it with a backslash.
-If the --use-backslash option is not in effect, then backslashes are
-not treated specially, and there is no way to include a dollar sign 
-in the option string.
-.Bl -tag -width XXXX
-.It Fl \&? | -help
-This option displays a summary of the commands accepted by
-.Nm
-(the same as the h command).
-(Depending on how your shell interprets the question mark,
-it may be necessary to quote the question mark, thus: "-\e?".)
-.It Fl A | -SEARCH-SKIP-SCREEN
-Causes all forward searches (not just non-repeated searches)
-to start just after the target line, and all backward searches
-to start just before the target line.
-Thus, forward searches will skip part of the displayed screen
-(from the first line up to and including the target line).
-Similarly backwards searches will skip the displayed screen
-from the last line up to and including the target line.
-This was the default behavior in less versions prior to 441.
-.It Fl a | -search-skip-screen
-By default, forward searches start at the top of the displayed screen
-and backwards searches start at the bottom of the displayed screen
-(except for repeated searches invoked by the n or N commands,
-which start after or before the "target" line respectively;
-see the -j option for more about the target line).
-The -a option causes forward searches to instead start at
-the bottom of the screen
-and backward searches to start at the top of the screen,
-thus skipping all lines displayed on the screen.
-.It Fl B | -auto-buffers
-By default, when data is read from a pipe,
-buffers are allocated automatically as needed.
-If a large amount of data is read from the pipe, this can cause
-a large amount of memory to be allocated.
-The -B option disables this automatic allocation of buffers for pipes,
-so that only 64K (or the amount of space specified by the -b option)
-is used for the pipe.
-Warning: use of -B can result in erroneous display, since only the
-most recently viewed part of the piped data is kept in memory;
-any earlier data is lost.
-.It Xo
-.Fl b Ns Ar n |
-.Fl -buffers Ns = Ns Ar n
-.Xc
-Specifies the amount of buffer space
-.Nm
-will use for each file, in units of kilobytes (1024 bytes).
-By default 64K of buffer space is used for each file
-(unless the file is a pipe; see the -B option).
-The -b option specifies instead that n kilobytes of
-buffer space should be used for each file.
-If n is -1, buffer space is unlimited; that is,
-the entire file can be read into memory.
-.It Fl C | -CLEAR-SCREEN
-Same as -c, for compatibility with older versions of
-.Nm less .
-.It Fl c | -clear-screen
-Causes full screen repaints to be painted from the bottom of the screen.
-By default, full screen repaints are done from the top line down
-to avoid the position of the display being moved
-when using interactive commands.
-.It Fl d | -dumb
-The -d option suppresses the error message
-normally displayed if the terminal is dumb;
-that is, lacks some important capability,
-such as the ability to clear the screen or scroll backward.
-The -d option does not otherwise change the behavior of
-.Nm
-on a dumb terminal.
-This option is on by default when invoked as
-.Nm more .
-.\" .It Fl Dxcolor or --color=xcolor"
-.\" [MS-DOS only]
-.\" Sets the color of the text displayed.
-.\" x is a single character which selects the type of text whose color is
-.\" being set: n=normal, s=standout, d=bold, u=underlined, k=blink.
-.\" color is a pair of numbers separated by a period.
-.\" The first number selects the foreground color and the second selects
-.\" the background color of the text.
-.\" A single number N is the same as N.M,
-.\" where M is the normal background color.
-.It Fl E | -QUIT-AT-EOF
-Causes
-.Nm
-to automatically exit the first time it reaches end-of-file.
-.It Fl e | -quit-at-eof
-Causes
-.Nm
-to automatically exit the second time it reaches end-of-file.
-By default, the only way to exit
-.Nm
-is via the "q" command.
-.It Fl F | -quit-if-one-screen
-Causes
-.Nm
-to automatically exit if the entire file can be displayed on the first screen.
-.It Fl f | -force
-Forces non-regular files to be opened.
-(A non-regular file is a directory or a device special file.)
-Also suppresses the warning message when a binary file is opened.
-By default,
-.Nm
-will refuse to open non-regular files.
-.It Fl G | -HILITE-SEARCH
-The -G option suppresses all highlighting of strings found by search commands.
-.It Fl g | -hilite-search
-Normally,
-.Nm
-will highlight ALL strings which match the last search command.
-The -g option changes this behavior to highlight only the particular string
-which was found by the last search command.
-This can cause
-.Nm
-to run somewhat faster than the default.
-.It Xo
-.Fl h Ns Ar n |
-.Fl -max-back-scroll Ns = Ns Ar n
-.Xc
-Specifies a maximum number of lines to scroll backward.
-If it is necessary to scroll backward more than n lines,
-the screen is repainted in a forward direction instead.
-(If the terminal does not have the ability to scroll backward, -h0 is implied.)
-.It Fl I | -IGNORE-CASE
-Like -i, but searches ignore case even if the pattern contains uppercase
-letters.
-.It Fl i | -ignore-case
-Causes searches to ignore case; that is,
-uppercase and lowercase are considered identical.
-This option is ignored if any uppercase letters appear in the search pattern;
-in other words,
-if a pattern contains uppercase letters, then that search does not ignore case.
-.It Fl J | -status-column
-Displays a status column at the left edge of the screen.
-The status column shows the lines that matched the current search.
-The status column is also used if the -w or -W option is in effect.
-.It Xo
-.Fl j Ns Ar n |
-.Fl -jump-target Ns = Ns Ar n
-.Xc
-Specifies a line on the screen where the "target" line is to be positioned.
-The target line is the line specified by any command to
-search for a pattern, jump to a line number,
-jump to a file percentage or jump to a tag.
-The screen line may be specified by a number: the top line on the screen
-is 1, the next is 2, and so on.
-The number may be negative to specify a line relative to the bottom
-of the screen: the bottom line on the screen is -1, the second
-to the bottom is -2, and so on.
-Alternately, the screen line may be specified as a fraction of the height
-of the screen, starting with a decimal point: .5 is in the middle of the
-screen, .3 is three tenths down from the first line, and so on.
-If the line is specified as a fraction, the actual line number
-is recalculated if the terminal window is resized, so that the
-target line remains at the specified fraction of the screen height.
-If any form of the -j option is used,
-forward searches begin at the line immediately after the target line,
-and backward searches begin at the target line,
-unless changed by -a or -A.
-For example, if "-j4" is used, the target line is the
-fourth line on the screen, so forward searches begin at the fifth line
-on the screen.
-.It Fl K | -quit-on-intr
-Causes
-.Nm
-to exit immediately (with status 2)
-when an interrupt character (usually ^C) is typed.
-Normally, an interrupt character causes
-.Nm
-to stop whatever it is doing and return to its command prompt.
-Note that use of this option makes it impossible to return to the
-command prompt from the "F" command.
-.It Xo
-.Fl k Ns Ar filename |
-.Fl -lesskey-file Ns = Ns Ar filename
-.Xc
-Causes
-.Nm
-to open and interpret the named file as a
-.Xr lesskey 1
-file.
-Multiple -k options may be specified.
-If the
-.Ev LESSKEY
-or
-.Ev LESSKEY_SYSTEM
-environment variable is set, or if a lesskey file is found in a standard place
-(see
-.Sx KEY BINDINGS ) ,
-it is also used as a lesskey file.
-.It Fl L | -no-lessopen
-Ignore the
-.Ev LESSOPEN
-environment variable (see the
-.Sx INPUT PREPROCESSOR
-section below).
-This option can be set from within
-.Nm less ,
-but it will apply only to files opened subsequently, not to the
-file which is currently open.
-When invoked as
-.Nm more ,
-the
-.Ev LESSOPEN
-environment variable is ignored by default.
-.It Fl M | -LONG-PROMPT
-Causes
-.Nm
-to prompt even more verbosely than
-.Nm more .
-.It Fl m | -long-prompt
-Causes
-.Nm
-to prompt verbosely (like more), with the percent into the file.
-By default,
-.Nm
-prompts with a colon.
-.It Fl N | -LINE-NUMBERS
-Causes a line number to be displayed at the beginning of each line in the
-display.
-.It Fl n | -line-numbers
-Suppresses line numbers.
-The default (to use line numbers) may cause
-.Nm
-to run more slowly in some cases, especially with a very large input file.
-Suppressing line numbers with the -n option will avoid this problem.
-Using line numbers means: the line number will be displayed in the verbose
-prompt and in the = command, and the v command will pass the current line
-number to the editor (see also the discussion of LESSEDIT in
-.Sx PROMPTS
-below).
-.It Xo
-.Fl O Ns Ar filename |
-.Fl -LOG-FILE Ns = Ns Ar filename
-.Xc
-The -O option is like -o, but it will overwrite an existing
-file without asking for confirmation.
-.Pp
-If no log file has been specified,
-the -o and -O options can be used from within
-.Nm
-to specify a log file.
-Without a file name, they will simply report the name of the log file.
-The "s" command is equivalent to specifying -o from within
-.Nm less .
-.It Xo
-.Fl o Ns Ar filename |
-.Fl -log-file Ns = Ns Ar filename
-.Xc
-Causes
-.Nm
-to copy its input to the named file as it is being viewed.
-This applies only when the input file is a pipe, not an ordinary file.
-If the file already exists,
-.Nm
-will ask for confirmation before overwriting it.
-.It Xo
-.Fl P Ns Ar prompt |
-.Fl -prompt Ns = Ns Ar prompt
-.Xc
-Provides a way to tailor the three prompt styles to your own preference.
-This option would normally be put in the
-.Ev LESS
-environment variable, rather than being typed in with each
-.Nm
-command.
-Such an option must either be the last option in the
-.Ev LESS
-variable, or be terminated by a dollar sign.
--Ps followed by a string changes the default (short) prompt to that string.
--Pm changes the medium (-m) prompt.
--PM changes the long (-M) prompt.
--Ph changes the prompt for the help screen.
--P= changes the message printed by the = command.
--Pw changes the message printed while waiting for data (in the F command).
-All prompt strings consist of a sequence of letters and special escape
-sequences.
-See the section on
-.Sx PROMPTS
-for more details.
-.It Xo
-.Fl p Ns Ar pattern |
-.Fl -pattern Ns = Ns Ar pattern
-.Xc
-The -p option on the command line is equivalent to specifying +/pattern;
-that is, it tells
-.Nm
-to start at the first occurrence of pattern in the file.
-.It Fl Q | -QUIET | -SILENT
-Causes totally "quiet" operation: the terminal bell is never rung.
-.It Fl q | -quiet | -silent
-Causes moderately "quiet" operation:
-the terminal bell is not rung if an attempt is made to scroll past the end
-of the file or before the beginning of the file.
-If the terminal has a "visual bell", it is used instead.
-The bell will be rung on certain other errors,
-such as typing an invalid character.
-The default is to ring the terminal bell in all such cases.
-.It Fl R | -RAW-CONTROL-CHARS
-Like -r, but only ANSI "color" escape sequences are output in "raw" form.
-Unlike -r, the screen appearance is maintained correctly in most cases.
-ANSI "color" escape sequences are sequences of the form:
-.Pp
-.Dl ESC \&[ ... m
-.Pp
-where the "..." is zero or more color specification characters.
-For the purpose of keeping track of screen appearance,
-ANSI color escape sequences are assumed to not move the cursor.
-You can make
-.Nm
-think that characters other than "m" can end ANSI color escape sequences
-by setting the environment variable
-.Ev LESSANSIENDCHARS
-to the list of characters which can end a color escape sequence.
-And you can make
-.Nm
-think that characters other than the standard ones may appear between
-the ESC and the m by setting the environment variable
-.Ev LESSANSIMIDCHARS
-to the list of characters which can appear.
-.It Fl r | -raw-control-chars
-Causes "raw" control characters to be displayed.
-The default is to display control characters using the caret notation;
-for example, a control-A (octal 001) is displayed as "^A".
-Warning: when the -r option is used,
-.Nm
-cannot keep track of the actual appearance of the screen
-(since this depends on how the screen responds to
-each type of control character).
-Thus, various display problems may result,
-such as long lines being split in the wrong place.
-.It Fl S | -chop-long-lines
-Causes lines longer than the screen width to be
-chopped (truncated) rather than wrapped.
-That is, the portion of a long line that does not fit in
-the screen width is not shown.
-The default is to wrap long lines; that is, display the remainder
-on the next line.
-.It Fl s | -squeeze-blank-lines
-Causes consecutive blank lines to be squeezed into a single blank line.
-.It Xo
-.Fl T Ns Ar tagsfile |
-.Fl -tag-file Ns = Ns Ar tagsfile
-.Xc
-Specifies a tags file to be used instead of "tags".
-.It Xo
-.Fl t Ns Ar tag |
-.Fl -tag Ns = Ns Ar tag
-.Xc
-The -t option, followed immediately by a TAG,
-will edit the file containing that tag.
-For this to work, tag information must be available;
-for example, there may be a file in the current directory called "tags",
-which was previously built by
-.Xr ctags 1
-or an equivalent command.
-If the environment variable
-.Ev LESSGLOBALTAGS
-is set, it is taken to be the name of a command compatible with
-.Xr global ,
-and that command is executed to find the tag.
-(See
-.Lk http://www.gnu.org/software/global/global.html ) .
-The -t option may also be specified from within
-.Nm
-(using the \- command) as a way of examining a new file.
-The command ":t" is equivalent to specifying -t from within
-.Nm less .
-.It Fl U | -UNDERLINE-SPECIAL
-Causes backspaces, tabs and carriage returns to be
-treated as control characters;
-that is, they are handled as specified by the -r option.
-.Pp
-By default, if neither -u nor -U is given, backspaces which appear adjacent
-to an underscore character are treated specially:
-the underlined text is displayed
-using the terminal's hardware underlining capability.
-Also, backspaces which appear between two identical characters
-are treated specially:
-the overstruck text is printed
-using the terminal's hardware boldface capability.
-Other backspaces are deleted, along with the preceding character.
-Carriage returns immediately followed by a newline are deleted.
-Other carriage returns are handled as specified by the -r option.
-Text which is overstruck or underlined can be searched for
-if neither -u nor -U is in effect.
-.It Fl u | -underline-special
-Causes backspaces and carriage returns to be treated as printable characters;
-that is, they are sent to the terminal when they appear in the input.
-.It Fl V | -version
-Displays the version number of
-.Nm less .
-.It Fl W | -HILITE-UNREAD
-Like -w, but temporarily highlights the first new line after any
-forward movement command larger than one line.
-.It Fl w | -hilite-unread
-Temporarily highlights the first "new" line after a forward movement
-of a full page.
-The first "new" line is the line immediately following the line previously
-at the bottom of the screen.
-Also highlights the target line after a g or p command.
-The highlight is removed at the next command which causes movement.
-The entire line is highlighted, unless the -J option is in effect,
-in which case only the status column is highlighted.
-.It Fl X | -no-init
-Disables sending the termcap initialization and deinitialization strings
-to the terminal.
-This is sometimes desirable if the deinitialization string does
-something unnecessary, like clearing the screen.
-.It Xo
-.Fl x Ns Ar n,... |
-.Fl -tabs Ns = Ns Ar n,...
-.Xc
-Sets tab stops.
-If only one n is specified, tab stops are set at multiples of n.
-If multiple values separated by commas are specified, tab stops are set at
-those positions, and then continue with the same spacing as the last two.
-For example, -x9,17 will set tabs at positions 9, 17, 25, 33, etc.
-The default for n is 8.
-.It Xo
-.Fl y Ns Ar n |
-.Fl -max-forw-scroll Ns = Ns Ar n
-.Xc
-Specifies a maximum number of lines to scroll forward.
-If it is necessary to scroll forward more than n lines,
-the screen is repainted instead.
-The -c or -C option may be used to repaint from the top of
-the screen if desired.
-By default, any forward movement causes scrolling.
-.It Xo
-.Fl Oo Cm z Oc Ns Ar n |
-.Fl -window Ns = Ns Ar n
-.Xc
-Changes the default scrolling window size to n lines.
-The default is one screenful.
-The z and w commands can also be used to change the window size.
-The "z" may be omitted for compatibility with some versions of
-.Nm more .
-If the number
-.Ar n
-is negative, it indicates
-.Ar n
-lines less than the current screen size.
-For example, if the screen is 24 lines, -z-4 sets the
-scrolling window to 20 lines.
-If the screen is resized to 40 lines,
-the scrolling window automatically changes to 36 lines.
-.It Fl -follow-name
-Normally, if the input file is renamed while an F command is executing,
-.Nm
-will continue to display the contents of the original file despite
-its name change.
-If --follow-name is specified, during an F command
-.Nm
-will periodically attempt to reopen the file by name.
-If the reopen succeeds and the file is a different file from the original
-(which means that a new file has been created
-with the same name as the original (now renamed) file),
-.Nm
-will display the contents of that new file.
-.It Fl -no-keypad
-Disables sending the keypad initialization and deinitialization strings
-to the terminal.
-This is sometimes useful if the keypad strings make the numeric
-keypad behave in an undesirable manner.
-.It Fl -use-backslash
-This option changes the interpretations of options which follow this one.
-After the --use-backslash option, any backslash in an option string is
-removed and the following character is taken literally.
-This allows a dollar sign to be included in option strings.
-.It Xo
-.Ar -cc |
-.Fl -quotes Ns = Ns Ar cc
-.Xc
-Changes the filename quoting character.
-This may be necessary if you are trying to name a file
-which contains both spaces and quote characters.
-Followed by a single character, this changes the quote character to that
-character.
-Filenames containing a space should then be surrounded by that character
-rather than by double quotes.
-Followed by two characters, changes the open quote to the first character,
-and the close quote to the second character.
-Filenames containing a space should then be preceded by the open quote
-character and followed by the close quote character.
-Note that even after the quote characters are changed, this option
-remains -" (a dash followed by a double quote).
-.It Fl ~ | -tilde
-Normally lines after end of file are displayed as a single tilde (~).
-This option causes lines after end of file to be displayed as blank lines.
-.It Fl # | -shift
-Specifies the default number of positions to scroll horizontally
-in the RIGHTARROW and LEFTARROW commands.
-If the number specified is zero, it sets the default number of
-positions to one half of the screen width.
-Alternately, the number may be specified as a fraction of the width
-of the screen, starting with a decimal point: .5 is half of the
-screen width, .3 is three tenths of the screen width, and so on.
-If the number is specified as a fraction, the actual number of
-scroll positions is recalculated if the terminal window is resized,
-so that the actual scroll remains at the specified fraction
-of the screen width.
-.It Fl -
-A command line argument of "--" marks the end of option arguments.
-Any arguments following this are interpreted as filenames.
-This can be useful when viewing a file whose name begins with a "-" or "+".
-.It Cm +
-If a command line option begins with +,
-the remainder of that option is taken to be an initial command to
-.Nm less .
-For example, +G tells
-.Nm
-to start at the end of the file rather than the beginning,
-and +/xyz tells it to start at the first occurrence of "xyz" in the file.
-As a special case, +<number> acts like +<number>g;
-that is, it starts the display at the specified line number
-(however, see the caveat under the "g" command above).
-If the option starts with ++, the initial command applies to
-every file being viewed, not just the first one.
-The + command described previously
-may also be used to set (or change) an initial command for every file.
-.El
 .Sh LINE EDITING
 When entering command line at the bottom of the screen
 (for example, a filename for the :e command,
@@ -1056,8 +965,6 @@ or the pattern for a search command),
 certain keys can be used to manipulate the command line.
 Most commands have an alternate form in [ brackets ] which can be used if
 a key does not exist on a particular keyboard.
-.\" (Note that the forms beginning with ESC do not work
-.\" in some MS-DOS and Windows systems because ESC is the line erase character.)
 Any of these special keys may be entered literally by preceding
 it with the "literal" character, either ^V or ^A.
 A backslash itself may also be entered literally by entering two backslashes.
@@ -1101,7 +1008,6 @@ If it matches more than one filename, the first match
 is entered into the command line.
 Repeated TABs will cycle through the other matching filenames.
 If the completed filename is a directory, a "/" is appended to the filename.
-.\" (On MS-DOS systems, a "\e" is appended.)
 The environment variable
 .Ev LESSSEPARATOR
 can be used to specify a different character to append to a directory name.
@@ -1111,7 +1017,6 @@ Like TAB, but cycles in the reverse direction through the matching filenames.
 Complete the partial filename to the left of the cursor.
 If it matches more than one filename, all matches are entered into
 the command line (if they fit).
-.\" .It ^U (Unix and OS/2) or ESC (MS-DOS)
 .It ^U
 Delete the entire command line,
 or cancel the command if the command line is empty.
@@ -1140,18 +1045,6 @@ uses that as the name of the lesskey file.
 Otherwise,
 .Nm
 looks for a lesskey file called "$HOME/.less".
-.\" On MS-DOS and Windows systems,
-.\" .I less
-.\" looks for a lesskey file called "$HOME/_less", and if it is not found there,
-.\" then looks for a lesskey file called "_less" in any directory specified
-.\" in the PATH environment variable.
-.\" On OS/2 systems,
-.\" .I less
-.\" looks for a lesskey file called "$HOME/less.ini", and if it is not found,
-.\" then looks for a lesskey file called "less.ini" in any directory specified
-.\" in the INIT environment variable, and if it not found there,
-.\" then looks for a lesskey file called "less.ini" in any directory specified
-.\" in the PATH environment variable.
 See the
 .Xr lesskey 1
 manual page for more details.
@@ -1172,13 +1065,6 @@ On
 .Ox ,
 the system-wide lesskey file is
 .Pa /etc/sysless .
-.\" On Unix systems, the system-wide lesskey file is /usr/local/etc/sysless.
-.\" (However, if
-.\" .Nm less
-.\" was built with a different sysconf directory than /usr/local/etc,
-.\" that directory is where the sysless file is found.)
-.\" On MS-DOS and Windows systems, the system-wide lesskey file is c:\e_sysless.
-.\" On OS/2 systems, the system-wide lesskey file is c:\esysless.ini.
 .Sh INPUT PREPROCESSOR
 You may define an "input preprocessor" for
 .Nm less .
@@ -1714,30 +1600,44 @@ or if the program is invoked via a file link named "more",
 behaves (mostly) in conformance with the POSIX "more" command specification.
 In this mode, less behaves differently in these ways:
 .Pp
-The -e option works differently.
-If the -e option is not set,
-.Nm
-behaves as if the -E option were set.
-If the -e option is set,
-.Nm
-behaves as if the -e and -F options were set.
+The
+.Fl e
+option works differently:
+it causes
+.Xr more 1
+to exit the first time it reaches EOF,
+not the second.
 .Pp
-The -m option works differently.
-If the -m option is not set, the medium prompt is used.
-If the -m option is set, the short prompt is used.
+The
+.Fl m
+option works differently:
+if it is not specified, the medium prompt is used;
+if it is specified, the short prompt is used.
 .Pp
-The -n option acts like the -z option.
-The normal behavior of the -n option is unavailable in this mode.
+The
+.Fl n
+option acts like the
+.Fl z
+option.
+The normal behavior of the
+.Fl n
+option is unavailable in this mode.
 .Pp
-The parameter to the -p option is taken to be a
-.Nm
+The parameter to the
+.Fl p
+option is taken to be a
 command rather than a search pattern.
 .Pp
 The
 .Ev LESS
-environment variable is ignored, and the
+environment variables are ignored, and the
 .Ev MORE
 environment variable is used in its place.
+.Pp
+The error message normally displayed when the terminal is dumb is suppressed
+(as if
+.Fl d
+had been specified).
 .Sh ENVIRONMENT
 Environment variables may be specified either in the system environment
 as usual, or in a
@@ -1747,25 +1647,24 @@ If environment variables are defined in more than one place,
 variables defined in a local lesskey file take precedence over
 variables defined in the system environment, which take precedence
 over variables defined in the system-wide lesskey file.
-.Bl -tag -width Ds
+.Bl -tag -width LESSANSIENDCHARS
 .It Ev COLUMNS
 Sets the number of columns on the screen.
-Takes precedence over the number of columns specified by the TERM variable.
-(But if you have a windowing system which supports TIOCGWINSZ or WIOCGETD,
-the window system's idea of the screen size takes precedence over the
-LINES and COLUMNS environment variables.)
+Takes precedence over the number of columns specified by the
+.Ev TERM
+variable,
+but may be overridden by window systems which support
+.Dv TIOCGWINSZ .
 .It Ev EDITOR
-The name of the editor (used for the v command).
+Specifies the default editor if
+.Ev VISUAL
+is not set.
+If neither are set,
+.Xr vi 1
+is used.
 .It Ev HOME
 Name of the user's home directory
 (used to find a lesskey file).
-.\" .It Ev "HOMEDRIVE, HOMEPATH"
-.\" Concatenation of the HOMEDRIVE and HOMEPATH environment variables is
-.\" the name of the user's home directory if the HOME variable is not set
-.\" (only in the Windows version).
-.\" .It Ev INIT
-.\" Name of the user's init directory
-.\" (used to find a lesskey file on OS/2 systems).
 .It Ev LANG
 Language for determining the character set.
 .It Ev LC_CTYPE
@@ -1774,6 +1673,23 @@ Language for determining the character set.
 Options which are passed to
 .Nm
 automatically.
+Command line options override the
+.Ev LESS
+environment variable.
+.Pp
+Some options like -k require a string to follow the option letter.
+The string for that option is considered to end when a dollar sign ($) is found.
+For example, to separate a prompt value from any other options
+with dollar sign between them:
+.Pp
+.Dl LESS="-Ps--More--$-C -e"
+.Pp
+If the --use-backslash option appears earlier in the options, then
+a dollar sign or backslash may be included literally in an option string
+by preceding it with a backslash.
+If the --use-backslash option is not in effect, then backslashes are
+not treated specially, and there is no way to include a dollar sign
+in the option string.
 .It Ev LESSANSIENDCHARS
 Characters which may end an ANSI color escape sequence
 (default "m").
@@ -1789,10 +1705,6 @@ Defines a character set.
 Selects a predefined character set.
 .It Ev LESSCLOSE
 Command line to invoke the (optional) input-postprocessor.
-.\" .It Ev LESSECHO
-.\" Name of the lessecho program (default "lessecho").
-.\" The lessecho program is needed to expand metacharacters, such as * and ?,
-.\" in filenames on Unix systems.
 .It Ev LESSEDIT
 Editor prototype string (used for the v command).
 See discussion under
@@ -1807,9 +1719,6 @@ shell commands between invocations of
 .Nm less .
 If set to "-" or "/dev/null", a history file is not used.
 The default is "-".
-.\" The default is "$HOME/.lesshst" on Unix systems, "$HOME/_lesshst" on
-.\" DOS and Windows systems, or "$HOME/lesshst.ini" or "$INIT/lesshst.ini"
-.\" on OS/2 systems.
 .It Ev LESSHISTSIZE
 The maximum number of commands to save in the history file.
 The default is 100.
@@ -1841,43 +1750,35 @@ Emulate the
 command.
 .It Ev LINES
 Sets the number of lines on the screen.
-Takes precedence over the number of lines specified by the TERM variable.
-(But if you have a windowing system which supports TIOCGWINSZ or WIOCGETD,
-the window system's idea of the screen size takes precedence over the
-LINES and COLUMNS environment variables.)
+Takes precedence over the number of lines specified by the TERM variable,
+but may be overridden by window systems which support
+.Dv TIOCGWINSZ .
 .It Ev MORE
 Options which are passed to
 .Nm
-automatically when running in 
-.Nm more
+automatically when running in
+.Xr more 1
 compatible mode.
-.\" .It Ev PATH
-.\" User's search path (used to find a lesskey file
-.\" on MS-DOS and OS/2 systems).
 .It Ev SHELL
 The shell used to execute the ! command, as well as to expand filenames.
 .It Ev TERM
-The type of terminal on which
+Specifies the terminal type.
+Used by
 .Nm
-is being run.
+to get the terminal characteristics necessary to manipulate the screen.
 .It Ev VISUAL
-The name of the editor (used for the v command).
+Specifies the default editor.
+If not set,
+.Ev EDITOR is used;
+if that is not set,
+.Xr vi 1
+is used.
 .El
 .Sh SEE ALSO
-.Xr lesskey 1
-.Sh STANDARDS
-The
-.Nm more
-utility is compliant with the
-.St -p1003.1-2008
-specification,
-though its presence is optional.
-.Pp
-The flags
-.Op Fl aBbCdEFfGghIJjkLMmNOoPQqRrSTUVWwXxyz~#
-are extensions to that specification.
+.Xr lesskey 1 ,
+.Xr more 1
 .Sh AUTHORS
-.An Mark Nudelman
+.An Mark Nudelman .
 .Pp
 Send bug reports or comments to
 .Aq Mt bug\-less@gnu.org .

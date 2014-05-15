@@ -1,4 +1,4 @@
-/* $OpenBSD: signify.c,v 1.72 2014/04/22 21:24:20 tedu Exp $ */
+/* $OpenBSD: signify.c,v 1.84 2014/05/15 13:14:15 espie Exp $ */
 /*
  * Copyright (c) 2013 Ted Unangst <tedu@openbsd.org>
  *
@@ -125,7 +125,6 @@ static size_t
 parseb64file(const char *filename, char *b64, void *buf, size_t buflen,
     char *comment)
 {
-	int rv;
 	char *commentend, *b64end;
 
 	commentend = strchr(b64, '\n');
@@ -133,7 +132,7 @@ parseb64file(const char *filename, char *b64, void *buf, size_t buflen,
 	    memcmp(b64, COMMENTHDR, COMMENTHDRLEN) != 0)
 		errx(1, "invalid comment in %s; must start with '%s'",
 		    filename, COMMENTHDR);
-	*commentend = 0;
+	*commentend = '\0';
 	if (comment) {
 		if (strlcpy(comment, b64 + COMMENTHDRLEN,
 		    COMMENTMAXLEN) >= COMMENTMAXLEN)
@@ -141,11 +140,10 @@ parseb64file(const char *filename, char *b64, void *buf, size_t buflen,
 	}
 	b64end = strchr(commentend + 1, '\n');
 	if (!b64end)
-		errx(1, "missing new line after b64 in %s", filename);
-	*b64end = 0;
-	rv = b64_pton(commentend + 1, buf, buflen);
-	if (rv != buflen)
-		errx(1, "invalid b64 encoding in %s", filename);
+		errx(1, "missing new line after base64 in %s", filename);
+	*b64end = '\0';
+	if (b64_pton(commentend + 1, buf, buflen) != buflen)
+		errx(1, "invalid base64 encoding in %s", filename);
 	if (memcmp(buf, PKALG, 2) != 0)
 		errx(1, "unsupported file %s", filename);
 	return b64end - b64 + 1;
@@ -158,10 +156,10 @@ readb64file(const char *filename, void *buf, size_t buflen, char *comment)
 	int rv, fd;
 
 	fd = xopen(filename, O_RDONLY | O_NOFOLLOW, 0);
-	memset(b64, 0, sizeof(b64));
 	rv = read(fd, b64, sizeof(b64) - 1);
 	if (rv == -1)
 		err(1, "read from %s", filename);
+	b64[rv] = '\0';
 	parseb64file(filename, b64, buf, buflen, comment);
 	explicit_bzero(b64, sizeof(b64));
 	close(fd);
@@ -175,10 +173,11 @@ readmsg(const char *filename, unsigned long long *msglenp)
 	struct stat sb;
 	ssize_t x, space;
 	int fd;
+	const unsigned long long maxmsgsize = 1UL << 30;
 
 	fd = xopen(filename, O_RDONLY | O_NOFOLLOW, 0);
 	if (fstat(fd, &sb) == 0 && S_ISREG(sb.st_mode)) {
-		if (sb.st_size > (1UL << 30))
+		if (sb.st_size > maxmsgsize)
 			errx(1, "msg too large in %s", filename);
 		space = sb.st_size + 1;
 	} else {
@@ -188,7 +187,7 @@ readmsg(const char *filename, unsigned long long *msglenp)
 	msg = xmalloc(space + 1);
 	while (1) {
 		if (space == 0) {
-			if (msglen * 2 > (1UL << 30))
+			if (msglen * 2 > maxmsgsize)
 				errx(1, "msg too large in %s", filename);
 			space = msglen;
 			if (!(msg = realloc(msg, msglen + space + 1)))
@@ -202,7 +201,7 @@ readmsg(const char *filename, unsigned long long *msglenp)
 		msglen += x;
 	}
 
-	msg[msglen] = 0;
+	msg[msglen] = '\0';
 	close(fd);
 
 	*msglenp = msglen;
@@ -238,7 +237,7 @@ writeb64file(const char *filename, const char *comment, const void *buf,
 		errx(1, "comment too long");
 	writeall(fd, header, strlen(header), filename);
 	if ((rv = b64_ntop(buf, buflen, b64, sizeof(b64)-1)) == -1)
-		errx(1, "b64 encode failed");
+		errx(1, "base64 encode failed");
 	b64[rv++] = '\n';
 	writeall(fd, b64, rv, filename);
 	explicit_bzero(b64, sizeof(b64));
@@ -453,11 +452,12 @@ static void
 readpubkey(const char *pubkeyfile, struct pubkey *pubkey,
     const char *sigcomment)
 {
+	const char *safepath = "/etc/signify/";
 
 	if (!pubkeyfile) {
 		if ((pubkeyfile = strstr(sigcomment, VERIFYWITH))) {
 			pubkeyfile += strlen(VERIFYWITH);
-			if (strncmp(pubkeyfile, "/etc/signify/", 13) != 0 ||
+			if (strncmp(pubkeyfile, safepath, strlen(safepath)) != 0 ||
 			    strstr(pubkeyfile, "/../") != NULL)
 				errx(1, "untrusted path %s", pubkeyfile);
 		} else
@@ -531,11 +531,27 @@ verify(const char *pubkeyfile, const char *msgfile, const char *sigfile,
 }
 
 #ifndef VERIFYONLY
+#define HASHBUFSIZE 224
 struct checksum {
 	char file[1024];
-	char hash[1024];
-	char algo[256];
+	char hash[HASHBUFSIZE];
+	char algo[32];
 };
+
+static void
+recodehash(char *hash)
+{
+	uint8_t data[HASHBUFSIZE / 2];
+	int i, rv;
+
+	if (strlen(hash)+1 == SHA256_DIGEST_STRING_LENGTH ||
+	    strlen(hash)+1 == SHA512_DIGEST_STRING_LENGTH)
+		return;
+	if ((rv = b64_pton(hash, data, sizeof(data))) == -1)
+		errx(1, "invalid base64 encoding");
+	for (i = 0; i < rv; i++)
+		snprintf(hash + i * 2, HASHBUFSIZE - i * 2, "%2.2x", data[i]);
+}
 
 static void
 verifychecksums(char *msg, int argc, char **argv, int quiet)
@@ -543,22 +559,26 @@ verifychecksums(char *msg, int argc, char **argv, int quiet)
 	char buf[1024];
 	char *line, *endline;
 	struct checksum *checksums = NULL, *c = NULL;
-	int nchecksums = 0;
-	int i, j, uselist, count, hasfailed;
+	int nchecksums = 0, checksumspace = 0;
+	int i, j, rv, uselist, count, hasfailed;
 	int *failures;
 
 	line = msg;
 	while (line && *line) {
-		if (!(checksums = reallocarray(checksums,
-		    nchecksums + 1, sizeof(*checksums))))
-			err(1, "realloc");
+		if (nchecksums == checksumspace) {
+			checksumspace = 2 * (nchecksums + 1);
+			if (!(checksums = reallocarray(checksums,
+			    checksumspace, sizeof(*checksums))))
+				err(1, "realloc");
+		}
 		c = &checksums[nchecksums++];
 		if ((endline = strchr(line, '\n')))
-			*endline++ = 0;
-		if (sscanf(line, "%255s %1023s = %1023s",
-		    c->algo, buf, c->hash) != 3 ||
-		    buf[0] != '(' || buf[strlen(buf) - 1] != ')')
+			*endline++ = '\0';
+		rv = sscanf(line, "%31s %1023s = %223s",
+		    c->algo, buf, c->hash);
+		if (rv != 3 || buf[0] != '(' || buf[strlen(buf) - 1] != ')')
 			errx(1, "unable to parse checksum line %s", line);
+		recodehash(c->hash);
 		buf[strlen(buf) - 1] = 0;
 		strlcpy(c->file, buf + 1, sizeof(c->file));
 		line = endline;
@@ -571,7 +591,7 @@ verifychecksums(char *msg, int argc, char **argv, int quiet)
 		uselist = 1;
 		count = nchecksums;
 	}
-	if (!(failures = calloc(count, sizeof(int))))
+	if (!(failures = calloc(count, sizeof(*failures))))
 		err(1, "calloc");
 	for (i = 0; i < count; i++) {
 		if (uselist) {
