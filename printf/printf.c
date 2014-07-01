@@ -1,4 +1,4 @@
-/*	$OpenBSD: printf.c,v 1.20 2014/04/18 11:35:51 guenther Exp $	*/
+/*	$OpenBSD: printf.c,v 1.22 2014/05/25 07:36:36 jmc Exp $	*/
 
 /*
  * Copyright (c) 1989 The Regents of the University of California.
@@ -489,7 +489,7 @@ check_conversion(const char *s, const char *ep)
 			warnx ("%s: not completely converted", s);
 		rval = 1;
 	} else if (errno == ERANGE) {
-		warnx ("%s: %s", s, strerror(ERANGE));
+		warnc(ERANGE, "%s", s);
 		rval = 1;
 	}
 }
@@ -497,5 +497,5 @@ check_conversion(const char *s, const char *ep)
 static void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: printf format [arg ...]\n");
+	(void)fprintf(stderr, "usage: printf format [argument ...]\n");
 }

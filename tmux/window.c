@@ -1,4 +1,4 @@
-/* $OpenBSD: window.c,v 1.110 2014/05/13 08:08:32 nicm Exp $ */
+/* $OpenBSD: window.c,v 1.112 2014/06/23 10:27:05 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -877,7 +877,6 @@ window_pane_timer_callback(unused int fd, unused short events, void *data)
 	if (wp->changes_redraw++ == interval) {
 		wp->flags |= PANE_REDRAW;
 		wp->changes_redraw = 0;
-
 	}
 
 	if (trigger == 0 || wp->changes < trigger) {
@@ -1051,9 +1050,6 @@ void
 window_pane_key(struct window_pane *wp, struct session *sess, int key)
 {
 	struct window_pane	*wp2;
-
-	if (!window_pane_visible(wp))
-		return;
 
 	if (wp->mode != NULL) {
 		if (wp->mode->key != NULL)

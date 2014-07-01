@@ -1,4 +1,4 @@
-/*	$Id: mandocdb.c,v 1.106 2014/05/12 19:11:20 espie Exp $ */
+/*	$Id: mandocdb.c,v 1.111 2014/06/21 16:17:56 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -347,7 +347,8 @@ mandocdb(int argc, char *argv[])
 	 */
 #define	CHECKOP(_op, _ch) do \
 	if (OP_DEFAULT != (_op)) { \
-		fprintf(stderr, "-%c: Conflicting option\n", (_ch)); \
+		fprintf(stderr, "%s: -%c: Conflicting option\n", \
+		    progname, (_ch)); \
 		goto usage; \
 	} while (/*CONSTCOND*/0)
 
@@ -383,8 +384,9 @@ mandocdb(int argc, char *argv[])
 			break;
 		case 'T':
 			if (strcmp(optarg, "utf8")) {
-				fprintf(stderr, "-T%s: Unsupported "
-				    "output format\n", optarg);
+				fprintf(stderr, "%s: -T%s: "
+				    "Unsupported output format\n",
+				    progname, optarg);
 				goto usage;
 			}
 			write_utf8 = 1;
@@ -411,7 +413,8 @@ mandocdb(int argc, char *argv[])
 	argv += optind;
 
 	if (OP_CONFFILE == op && argc > 0) {
-		fprintf(stderr, "-C: Too many arguments\n");
+		fprintf(stderr, "%s: -C: Too many arguments\n",
+		    progname);
 		goto usage;
 	}
 
@@ -425,10 +428,10 @@ mandocdb(int argc, char *argv[])
 	if (OP_UPDATE == op || OP_DELETE == op || OP_TEST == op) {
 
 		/*
-		 * All of these deal with a specific directory.
+		 * Most of these deal with a specific directory.
 		 * Jump into that directory first.
 		 */
-		if (0 == set_basedir(path_arg))
+		if (OP_TEST != op && 0 == set_basedir(path_arg))
 			goto out;
 
 		if (dbopen(1)) {
@@ -498,8 +501,6 @@ mandocdb(int argc, char *argv[])
 				goto out;
 			if (0 == treescan())
 				goto out;
-			if (0 == set_basedir(dirs.paths[j]))
-				goto out;
 			if (0 == dbopen(0))
 				goto out;
 
@@ -517,7 +518,6 @@ mandocdb(int argc, char *argv[])
 		}
 	}
 out:
-	set_basedir(NULL);
 	manpath_free(&dirs);
 	mchars_free(mc);
 	mparse_free(mp);
@@ -792,10 +792,10 @@ filescan(const char *file)
 		return;
 	}
 
-	if (strstr(buf, basedir) == buf)
-		start = buf + strlen(basedir) + 1;
-	else if (OP_TEST == op)
+	if (OP_TEST == op)
 		start = buf;
+	else if (strstr(buf, basedir) == buf)
+		start = buf + strlen(basedir);
 	else {
 		exitcode = (int)MANDOCLEVEL_BADARG;
 		say("", "%s: outside base directory", buf);
@@ -821,8 +821,9 @@ filescan(const char *file)
 			say(file, "Filename too long");
 			return;
 		}
-		start = strstr(buf, basedir) == buf ?
-		    buf + strlen(basedir) + 1 : buf;
+		start = buf;
+		if (OP_TEST != op && strstr(buf, basedir) == buf)
+			start += strlen(basedir);
 	}
 
 	mlink = mandoc_calloc(1, sizeof(struct mlink));
@@ -2222,7 +2223,8 @@ dbopen(int real)
 		rc = sqlite3_open_v2(MANDOC_DB, &db, ofl, NULL);
 		if (SQLITE_OK != rc) {
 			exitcode = (int)MANDOCLEVEL_SYSERR;
-			say(MANDOC_DB, "%s", sqlite3_errstr(rc));
+			if (SQLITE_CANTOPEN != rc)
+				say(MANDOC_DB, "%s", sqlite3_errstr(rc));
 			return(0);
 		}
 		goto prepare_statements;
@@ -2363,45 +2365,56 @@ static int
 set_basedir(const char *targetdir)
 {
 	static char	 startdir[PATH_MAX];
-	static int	 fd;
+	static int	 getcwd_status;  /* 1 = ok, 2 = failure */
+	static int	 chdir_status;  /* 1 = changed directory */
+	char		*cp;
 
 	/*
-	 * Remember where we started by keeping a fd open to the origin
-	 * path component: throughout this utility, we chdir() a lot to
-	 * handle relative paths, and by doing this, we can return to
-	 * the starting point.
+	 * Remember the original working directory, if possible.
+	 * This will be needed if the second or a later directory
+	 * on the command line is given as a relative path.
+	 * Do not error out if the current directory is not
+	 * searchable: Maybe it won't be needed after all.
 	 */
-	if ('\0' == *startdir) {
-		if (NULL == getcwd(startdir, PATH_MAX)) {
+	if (0 == getcwd_status) {
+		if (NULL == getcwd(startdir, sizeof(startdir))) {
+			getcwd_status = 2;
+			(void)strlcpy(startdir, strerror(errno),
+			    sizeof(startdir));
+		} else
+			getcwd_status = 1;
+	}
+
+	/*
+	 * We are leaving the old base directory.
+	 * Do not use it any longer, not even for messages.
+	 */
+	*basedir = '\0';
+
+	/*
+	 * If and only if the directory was changed earlier and
+	 * the next directory to process is given as a relative path,
+	 * first go back, or bail out if that is impossible.
+	 */
+	if (chdir_status && '/' != *targetdir) {
+		if (2 == getcwd_status) {
 			exitcode = (int)MANDOCLEVEL_SYSERR;
-			if (NULL != targetdir)
-				say("", "&getcwd");
+			say("", "getcwd: %s", startdir);
 			return(0);
 		}
-		if (-1 == (fd = open(startdir, O_RDONLY, 0))) {
-			exitcode = (int)MANDOCLEVEL_SYSERR;
-			say("", "&open %s", startdir);
-			return(0);
-		}
-		if (NULL == targetdir)
-			targetdir = startdir;
-	} else {
-		if (-1 == fd)
-			return(0);
-		if (-1 == fchdir(fd)) {
-			close(fd);
-			basedir[0] = '\0';
+		if (-1 == chdir(startdir)) {
 			exitcode = (int)MANDOCLEVEL_SYSERR;
 			say("", "&chdir %s", startdir);
 			return(0);
 		}
-		if (NULL == targetdir) {
-			close(fd);
-			return(1);
-		}
 	}
+
+	/*
+	 * Always resolve basedir to the canonicalized absolute
+	 * pathname and append a trailing slash, such that
+	 * we can reliably check whether files are inside.
+	 */
 	if (NULL == realpath(targetdir, basedir)) {
-		basedir[0] = '\0';
 		exitcode = (int)MANDOCLEVEL_BADARG;
 		say("", "&%s: realpath", targetdir);
 		return(0);
@@ -2409,6 +2422,17 @@ set_basedir(const char *targetdir)
 		exitcode = (int)MANDOCLEVEL_BADARG;
 		say("", "&chdir");
 		return(0);
+	}
+	chdir_status = 1;
+	cp = strchr(basedir, '\0');
+	if ('/' != cp[-1]) {
+		if (cp - basedir >= PATH_MAX - 1) {
+			exitcode = (int)MANDOCLEVEL_SYSERR;
+			say("", "Filename too long");
+			return(0);
+		}
+		*cp++ = '/';
+		*cp = '\0';
 	}
 	return(1);
 }
@@ -2422,7 +2446,7 @@ say(const char *file, const char *format, ...)
 	if ('\0' != *basedir)
 		fprintf(stderr, "%s", basedir);
 	if ('\0' != *basedir && '\0' != *file)
-		fputs("//", stderr);
+		fputc('/', stderr);
 	if ('\0' != *file)
 		fprintf(stderr, "%s", file);
 

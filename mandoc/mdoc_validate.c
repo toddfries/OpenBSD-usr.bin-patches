@@ -1,4 +1,4 @@
-/*	$Id: mdoc_validate.c,v 1.132 2014/04/23 21:06:33 schwarze Exp $ */
+/*	$Id: mdoc_validate.c,v 1.134 2014/06/20 22:58:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -931,10 +931,10 @@ pre_dt(PRE_ARGS)
 {
 
 	if (NULL == mdoc->meta.date || mdoc->meta.os)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGOOO);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_ORDER);
 
 	if (mdoc->meta.title)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGREP);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_REP);
 
 	return(1);
 }
@@ -944,10 +944,10 @@ pre_os(PRE_ARGS)
 {
 
 	if (NULL == mdoc->meta.title || NULL == mdoc->meta.date)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGOOO);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_ORDER);
 
 	if (mdoc->meta.os)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGREP);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_REP);
 
 	return(1);
 }
@@ -957,10 +957,10 @@ pre_dd(PRE_ARGS)
 {
 
 	if (mdoc->meta.title || mdoc->meta.os)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGOOO);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_ORDER);
 
 	if (mdoc->meta.date)
-		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOGREP);
+		mdoc_nmsg(mdoc, n, MANDOCERR_PROLOG_REP);
 
 	return(1);
 }
@@ -1641,15 +1641,15 @@ ebool(struct mdoc *mdoc)
 static int
 post_root(POST_ARGS)
 {
-	int		  erc;
+	int		  ret;
 	struct mdoc_node *n;
 
-	erc = 0;
+	ret = 1;
 
 	/* Check that we have a finished prologue. */
 
 	if ( ! (MDOC_PBODY & mdoc->flags)) {
-		erc++;
+		ret = 0;
 		mdoc_nmsg(mdoc, mdoc->first, MANDOCERR_NODOCPROLOG);
 	}
 
@@ -1658,17 +1658,13 @@ post_root(POST_ARGS)
 
 	/* Check that we begin with a proper `Sh'. */
 
-	if (NULL == n->child) {
-		erc++;
-		mdoc_nmsg(mdoc, n, MANDOCERR_NODOCBODY);
-	} else if (MDOC_BLOCK != n->child->type ||
-	    MDOC_Sh != n->child->tok) {
-		erc++;
-		/* Can this be lifted?  See rxdebug.1 for example. */
-		mdoc_nmsg(mdoc, n, MANDOCERR_NODOCBODY);
-	}
+	if (NULL == n->child)
+		mdoc_nmsg(mdoc, n, MANDOCERR_DOC_EMPTY);
+	else if (MDOC_BLOCK != n->child->type ||
+	    MDOC_Sh != n->child->tok)
+		mdoc_nmsg(mdoc, n->child, MANDOCERR_SEC_BEFORE);
 
-	return(erc ? 0 : 1);
+	return(ret);
 }
 
 static int
@@ -2180,7 +2176,7 @@ post_dt(POST_ARGS)
 			 * FIXME: don't be lazy: have this make all
 			 * characters be uppercase and just warn once.
 			 */
-			mdoc_nmsg(mdoc, nn, MANDOCERR_UPPERCASE);
+			mdoc_nmsg(mdoc, nn, MANDOCERR_TITLE_CASE);
 			break;
 		}
 
@@ -2224,7 +2220,7 @@ post_dt(POST_ARGS)
 		mdoc->meta.vol = mandoc_strdup(cp);
 		mdoc->meta.msec = mandoc_strdup(nn->string);
 	} else {
-		mdoc_nmsg(mdoc, n, MANDOCERR_BADMSEC);
+		mdoc_nmsg(mdoc, n, MANDOCERR_MSEC_BAD);
 		mdoc->meta.vol = mandoc_strdup(nn->string);
 		mdoc->meta.msec = mandoc_strdup(nn->string);
 	}
@@ -2246,7 +2242,7 @@ post_dt(POST_ARGS)
 	} else {
 		cp = mdoc_a2arch(nn->string);
 		if (NULL == cp) {
-			mdoc_nmsg(mdoc, nn, MANDOCERR_BADVOLARCH);
+			mdoc_nmsg(mdoc, nn, MANDOCERR_ARCH_BAD);
 			free(mdoc->meta.vol);
 			mdoc->meta.vol = mandoc_strdup(nn->string);
 		} else

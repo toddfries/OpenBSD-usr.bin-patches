@@ -1,4 +1,4 @@
-/*	$OpenBSD: column.c,v 1.17 2014/01/22 09:39:38 jsg Exp $	*/
+/*	$OpenBSD: column.c,v 1.19 2014/05/22 19:50:34 millert Exp $	*/
 /*	$NetBSD: column.c,v 1.4 1995/09/02 05:53:03 jtc Exp $	*/
 
 /*
@@ -42,8 +42,8 @@
 #include <unistd.h>
 
 void  c_columnate(void);
-void *emalloc(size_t);
-void *erealloc(void *, size_t);
+void *ereallocarray(void *, size_t, size_t);
+void *ecalloc(size_t, size_t);
 void  input(FILE *);
 void  maketbl(void);
 void  print(void);
@@ -206,26 +206,28 @@ maketbl(void)
 	TBL *t;
 	int coloff, cnt;
 	char *p, **lp;
-	int *lens, maxcols;
+	int *lens, maxcols = DEFCOLS;
 	TBL *tbl;
 	char **cols;
 
-	t = tbl = emalloc(entries * sizeof(TBL));
-	cols = emalloc((maxcols = DEFCOLS) * sizeof(char *));
-	lens = emalloc(maxcols * sizeof(int));
+	t = tbl = ecalloc(entries, sizeof(TBL));
+	cols = ereallocarray(NULL, maxcols, sizeof(char *));
+	lens = ecalloc(maxcols, sizeof(int));
 	for (cnt = 0, lp = list; cnt < entries; ++cnt, ++lp, ++t) {
 		for (coloff = 0, p = *lp; (cols[coloff] = strtok(p, separator));
 		    p = NULL)
 			if (++coloff == maxcols) {
 				maxcols += DEFCOLS;
-				cols = erealloc(cols, maxcols * sizeof(char *));
-				lens = erealloc(lens, maxcols * sizeof(int));
+				cols = ereallocarray(cols, maxcols, 
+				    sizeof(char *));
+				lens = ereallocarray(lens, maxcols,
+				    sizeof(int));
 				memset(lens + coloff, 0, DEFCOLS * sizeof(int));
 			}
 		if (coloff == 0)
 			continue;
-		t->list = emalloc(coloff * sizeof(char *));
-		t->len = emalloc(coloff * sizeof(int));
+		t->list = ecalloc(coloff, sizeof(char *));
+		t->len = ecalloc(coloff, sizeof(int));
 		for (t->cols = coloff; --coloff >= 0;) {
 			t->list[coloff] = cols[coloff];
 			t->len[coloff] = strlen(cols[coloff]);
@@ -241,6 +243,7 @@ maketbl(void)
 			(void)printf("%s\n", t->list[coloff]);
 		}
 	}
+	free(tbl);
 	free(lens);
 	free(cols);
 }
@@ -251,12 +254,12 @@ maketbl(void)
 void
 input(FILE *fp)
 {
-	static size_t maxentry;
+	static size_t maxentry = DEFNUM;
 	int len;
 	char *p, buf[MAXLINELEN];
 
 	if (!list)
-		list = emalloc((maxentry = DEFNUM) * sizeof(char *));
+		list = ecalloc(maxentry, sizeof(char *));
 	while (fgets(buf, MAXLINELEN, fp)) {
 		for (p = buf; isspace((unsigned char)*p); ++p);
 		if (!*p)
@@ -272,7 +275,8 @@ input(FILE *fp)
 			maxlength = len;
 		if (entries == maxentry) {
 			maxentry += DEFNUM;
-			list = erealloc(list, maxentry * sizeof(char *));
+			list = ereallocarray(list, maxentry, sizeof(char *));
+			memset(list + entries, 0, DEFNUM * sizeof(char *));
 		}
 		if (!(list[entries++] = strdup(buf)))
 			err(1, NULL);
@@ -280,22 +284,21 @@ input(FILE *fp)
 }
 
 void *
-emalloc(size_t size)
+ereallocarray(void *oldp, size_t sz1, size_t sz2)
 {
 	void *p;
 
-	if (!(p = malloc(size)))
+	if (!(p = reallocarray(oldp, sz1, sz2)))
 		err(1, NULL);
-	memset(p, 0, size);
 	return (p);
 }
 
 void *
-erealloc(void *oldp, size_t size)
+ecalloc(size_t sz1, size_t sz2)
 {
 	void *p;
 
-	if (!(p = realloc(oldp, size)))
+	if (!(p = calloc(sz1, sz2)))
 		err(1, NULL);
 	return (p);
 }

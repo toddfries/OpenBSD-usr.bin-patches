@@ -1,4 +1,4 @@
-/*	$Id: read.c,v 1.26 2014/04/20 22:03:40 schwarze Exp $ */
+/*	$Id: read.c,v 1.31 2014/06/30 23:45:03 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -85,7 +85,7 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"generic warning",
 
 	/* related to the prologue */
-	"no title in document",
+	"no TH macro in document",
 	"document title should be all caps",
 	"unknown manual section",
 	"unknown manual volume or arch",
@@ -98,6 +98,8 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 
 	/* related to document structure */
 	".so is fragile, better use ln(1)",
+	"no document body",
+	"content before the first section header",
 	"NAME section must come first",
 	"bad NAME section contents",
 	"sections out of conventional order",
@@ -143,9 +145,6 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"bad escape sequence",
 	"unterminated quoted string",
 
-	/* related to equations */
-	"unexpected literal in equation",
-
 	"generic error",
 
 	/* related to equations */
@@ -184,7 +183,6 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"request requires a numeric argument",
 	"missing list type",
 	"line argument(s) will be lost",
-	"body argument(s) will be lost",
 
 	"generic fatal error",
 
@@ -196,12 +194,12 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"child violates parent syntax",
 	"argument count wrong, violates syntax",
 	"NOT IMPLEMENTED: .so with absolute path or \"..\"",
-	"no document body",
+	".so request failed",
 	"no document prologue",
 	"static buffer exhausted",
 
 	/* system errors */
-	"cannot open file",
+	NULL,
 	"cannot stat file",
 	"cannot read file",
 };
@@ -497,8 +495,12 @@ rerun:
 			if (curp->secondary)
 				curp->secondary->sz -= pos + 1;
 			mparse_readfd(curp, -1, ln.buf + of);
-			if (MANDOCLEVEL_FATAL <= curp->file_status)
+			if (MANDOCLEVEL_FATAL <= curp->file_status) {
+				mandoc_vmsg(MANDOCERR_SO_FAIL,
+				    curp, curp->line, pos,
+				    ".so %s", ln.buf + of);
 				break;
+			}
 			pos = 0;
 			continue;
 		default:
@@ -674,7 +676,7 @@ mparse_end(struct mparse *curp)
 	}
 
 	if ( ! (curp->mdoc || curp->man || curp->sodest)) {
-		mandoc_msg(MANDOCERR_NOTMANUAL, curp, 1, 0, NULL);
+		mandoc_msg(MANDOCERR_NOTMANUAL, curp, 0, 0, NULL);
 		curp->file_status = MANDOCLEVEL_FATAL;
 		return;
 	}

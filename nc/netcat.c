@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.118 2014/03/12 10:19:40 jca Exp $ */
+/* $OpenBSD: netcat.c,v 1.121 2014/06/10 16:35:42 tedu Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  *
@@ -608,7 +608,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 			if (bind(s, (struct sockaddr *)ares->ai_addr,
 			    ares->ai_addrlen) < 0)
-				errx(1, "bind failed: %s", strerror(errno));
+				err(1, "bind failed");
 			freeaddrinfo(ares);
 		}
 
@@ -733,12 +733,12 @@ void
 readwrite(int nfd)
 {
 	struct pollfd pfd[2];
-	unsigned char buf[16384];
+	unsigned char buf[16 * 1024];
 	int n, wfd = fileno(stdin);
 	int lfd = fileno(stdout);
 	int plen;
 
-	plen = 2048;
+	plen = sizeof(buf);
 
 	/* Setup Network FD */
 	pfd[0].fd = nfd;

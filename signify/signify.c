@@ -1,4 +1,4 @@
-/* $OpenBSD: signify.c,v 1.84 2014/05/15 13:14:15 espie Exp $ */
+/* $OpenBSD: signify.c,v 1.90 2014/05/30 21:20:49 tedu Exp $ */
 /*
  * Copyright (c) 2013 Ted Unangst <tedu@openbsd.org>
  *
@@ -31,6 +31,11 @@
 #include <sha2.h>
 
 #include "crypto_api.h"
+#ifndef VERIFY_ONLY
+#include <stdint.h>
+#include <stddef.h>
+#include <ohash.h>
+#endif
 
 #define SIGBYTES crypto_sign_ed25519_BYTES
 #define SECRETBYTES crypto_sign_ed25519_SECRETKEYBYTES
@@ -115,8 +120,7 @@ xmalloc(size_t len)
 {
 	void *p;
 
-	p = malloc(len);
-	if (!p)
+	if (!(p = malloc(len)))
 		err(1, "malloc %zu", len);
 	return p;
 }
@@ -138,8 +142,7 @@ parseb64file(const char *filename, char *b64, void *buf, size_t buflen,
 		    COMMENTMAXLEN) >= COMMENTMAXLEN)
 			errx(1, "comment too long");
 	}
-	b64end = strchr(commentend + 1, '\n');
-	if (!b64end)
+	if (!(b64end = strchr(commentend + 1, '\n')))
 		errx(1, "missing new line after base64 in %s", filename);
 	*b64end = '\0';
 	if (b64_pton(commentend + 1, buf, buflen) != buflen)
@@ -156,8 +159,7 @@ readb64file(const char *filename, void *buf, size_t buflen, char *comment)
 	int rv, fd;
 
 	fd = xopen(filename, O_RDONLY | O_NOFOLLOW, 0);
-	rv = read(fd, b64, sizeof(b64) - 1);
-	if (rv == -1)
+	if ((rv = read(fd, b64, sizeof(b64) - 1)) == -1)
 		err(1, "read from %s", filename);
 	b64[rv] = '\0';
 	parseb64file(filename, b64, buf, buflen, comment);
@@ -214,8 +216,7 @@ writeall(int fd, const void *buf, size_t buflen, const char *filename)
 	ssize_t x;
 
 	while (buflen != 0) {
-		x = write(fd, buf, buflen);
-		if (x == -1)
+		if ((x = write(fd, buf, buflen)) == -1)
 			err(1, "write to %s", filename);
 		buflen -= x;
 		buf = (char *)buf + x;
@@ -379,7 +380,8 @@ sign(const char *seckeyfile, const char *msgfile, const char *sigfile,
 	explicit_bzero(&enckey, sizeof(enckey));
 
 	memcpy(sig.pkalg, PKALG, 2);
-	if ((secname = strstr(seckeyfile, ".sec")) && strlen(secname) == 4) {
+	secname = strstr(seckeyfile, ".sec");
+	if (secname && strlen(secname) == 4) {
 		if (snprintf(sigcomment, sizeof(sigcomment), VERIFYWITH "%.*s.pub",
 		    (int)strlen(seckeyfile) - 4, seckeyfile) >= sizeof(sigcomment))
 			errx(1, "comment too long");
@@ -455,7 +457,8 @@ readpubkey(const char *pubkeyfile, struct pubkey *pubkey,
 	const char *safepath = "/etc/signify/";
 
 	if (!pubkeyfile) {
-		if ((pubkeyfile = strstr(sigcomment, VERIFYWITH))) {
+		pubkeyfile = strstr(sigcomment, VERIFYWITH);
+		if (pubkeyfile) {
 			pubkeyfile += strlen(VERIFYWITH);
 			if (strncmp(pubkeyfile, safepath, strlen(safepath)) != 0 ||
 			    strstr(pubkeyfile, "/../") != NULL)
@@ -538,14 +541,29 @@ struct checksum {
 	char algo[32];
 };
 
+static void * 
+ecalloc(size_t s1, size_t s2, void *data)
+{
+	void *p;
+
+	if (!(p = calloc(s1, s2)))
+		err(1, "calloc");
+	return p;
+}
+
 static void
-recodehash(char *hash)
+efree(void *p, void *data)
+{
+	free(p);
+}
+
+static void
+recodehash(char *hash, size_t len)
 {
 	uint8_t data[HASHBUFSIZE / 2];
 	int i, rv;
 
-	if (strlen(hash)+1 == SHA256_DIGEST_STRING_LENGTH ||
-	    strlen(hash)+1 == SHA512_DIGEST_STRING_LENGTH)
+	if (strlen(hash) == len)
 		return;
 	if ((rv = b64_pton(hash, data, sizeof(data))) == -1)
 		errx(1, "invalid base64 encoding");
@@ -553,93 +571,90 @@ recodehash(char *hash)
 		snprintf(hash + i * 2, HASHBUFSIZE - i * 2, "%2.2x", data[i]);
 }
 
+static int
+verifychecksum(struct checksum *c, int quiet)
+{
+	char buf[HASHBUFSIZE];
+
+	if (strcmp(c->algo, "SHA256") == 0) {
+		recodehash(c->hash, SHA256_DIGEST_STRING_LENGTH-1);
+		if (!SHA256File(c->file, buf))
+			return 0;
+	} else if (strcmp(c->algo, "SHA512") == 0) {
+		recodehash(c->hash, SHA512_DIGEST_STRING_LENGTH-1);
+		if (!SHA512File(c->file, buf))
+			return 0;
+	} else {
+		errx(1, "can't handle algorithm %s", c->algo);
+	}
+	if (strcmp(c->hash, buf) != 0) {
+		return 0;
+	}
+	if (!quiet)
+		printf("%s: OK\n", c->file);
+	return 1;
+}
+
 static void
 verifychecksums(char *msg, int argc, char **argv, int quiet)
 {
-	char buf[1024];
-	char *line, *endline;
-	struct checksum *checksums = NULL, *c = NULL;
-	int nchecksums = 0, checksumspace = 0;
-	int i, j, rv, uselist, count, hasfailed;
-	int *failures;
+	struct ohash_info info = { 0, NULL, ecalloc, efree, NULL };
+	struct ohash myh;
+	struct checksum c;
+	char *e, *line, *endline;
+	int hasfailed = 0;
+	int i, rv;
+	unsigned int slot;
+
+	ohash_init(&myh, 6, &info);
+	if (argc) {
+		for (i = 0; i < argc; i++) {
+			slot = ohash_qlookup(&myh, argv[i]);
+			e = ohash_find(&myh, slot);
+			if (e == NULL)
+				ohash_insert(&myh, slot, argv[i]);
+		}
+	}
 
 	line = msg;
 	while (line && *line) {
-		if (nchecksums == checksumspace) {
-			checksumspace = 2 * (nchecksums + 1);
-			if (!(checksums = reallocarray(checksums,
-			    checksumspace, sizeof(*checksums))))
-				err(1, "realloc");
-		}
-		c = &checksums[nchecksums++];
 		if ((endline = strchr(line, '\n')))
 			*endline++ = '\0';
-		rv = sscanf(line, "%31s %1023s = %223s",
-		    c->algo, buf, c->hash);
-		if (rv != 3 || buf[0] != '(' || buf[strlen(buf) - 1] != ')')
+		rv = sscanf(line, "%31s (%1023s = %223s",
+		    c.algo, c.file, c.hash);
+		if (rv != 3 || c.file[0] == 0 || c.file[strlen(c.file)-1] != ')')
 			errx(1, "unable to parse checksum line %s", line);
-		recodehash(c->hash);
-		buf[strlen(buf) - 1] = 0;
-		strlcpy(c->file, buf + 1, sizeof(c->file));
+		c.file[strlen(c.file) - 1] = '\0';
 		line = endline;
-	}
-
-	if (argc) {
-		uselist = 0;
-		count = argc;
-	} else {
-		uselist = 1;
-		count = nchecksums;
-	}
-	if (!(failures = calloc(count, sizeof(*failures))))
-		err(1, "calloc");
-	for (i = 0; i < count; i++) {
-		if (uselist) {
-			c = &checksums[i];
-		} else {
-			for (j = 0; j < nchecksums; j++) {
-				c = &checksums[j];
-				if (strcmp(c->file, argv[i]) == 0)
-					break;
-			}
-			if (j == nchecksums) {
-				failures[i] = 1;
-				continue;
-			}
-		}
-
-		if (strcmp(c->algo, "SHA256") == 0) {
-			if (!SHA256File(c->file, buf)) {
-				failures[i] = 1;
-				continue;
-			}
-		} else if (strcmp(c->algo, "SHA512") == 0) {
-			if (!SHA512File(c->file, buf)) {
-				failures[i] = 1;
-				continue;
+		if (argc) {
+			slot = ohash_qlookup(&myh, c.file);
+			e = ohash_find(&myh, slot);
+			if (e != NULL) {
+				if (verifychecksum(&c, quiet) != 0)
+					ohash_remove(&myh, slot);
 			}
 		} else {
-			errx(1, "can't handle algorithm %s", c->algo);
-		}
-		if (strcmp(c->hash, buf) != 0) {
-			failures[i] = 1;
-			continue;
-		}
-		if (!quiet)
-			printf("%s: OK\n", c->file);
-	}
-	hasfailed = 0;
-	for (i = 0; i < count; i++) {
-		if (failures[i]) {
-			fprintf(stderr, "%s: FAIL\n",
-			    uselist ? checksums[i].file : argv[i]);
-			hasfailed = 1;
+			if (verifychecksum(&c, quiet) == 0) {
+				slot = ohash_qlookup(&myh, c.file);
+				e = ohash_find(&myh, slot);
+				if (e == NULL) {
+					if (!(e = strdup(c.file)))
+						err(1, "strdup");
+					ohash_insert(&myh, slot, e);
+				}
+			}
 		}
 	}
+
+	for (e = ohash_first(&myh, &slot); e != NULL; e = ohash_next(&myh, &slot)) {
+		fprintf(stderr, "%s: FAIL\n", e);
+		hasfailed = 1;
+		if (argc == 0)
+			free(e);
+	}
+	ohash_delete(&myh);
 	if (hasfailed)
 		exit(1);
-	free(checksums);
-	free(failures);
 }
 
 static void
@@ -741,8 +756,8 @@ main(int argc, char **argv)
 
 #ifndef VERIFYONLY
 	if (verb == CHECK) {
-		if (!pubkeyfile || !sigfile)
-			usage("must specify pubkey and sigfile");
+		if (!sigfile)
+			usage("must specify sigfile");
 		check(pubkeyfile, sigfile, quiet, argc, argv);
 		return 0;
 	}

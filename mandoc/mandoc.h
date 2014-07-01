@@ -1,4 +1,4 @@
-/*	$Id: mandoc.h,v 1.64 2014/04/20 16:44:44 schwarze Exp $ */
+/*	$Id: mandoc.h,v 1.68 2014/06/30 23:45:03 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -49,19 +49,21 @@ enum	mandocerr {
 	MANDOCERR_WARNING, /* ===== start of warnings ===== */
 
 	/* related to the prologue */
-	MANDOCERR_NOTITLE, /* no title in document */
-	MANDOCERR_UPPERCASE, /* document title should be all caps */
-	MANDOCERR_BADMSEC, /* unknown manual section */
-	MANDOCERR_BADVOLARCH, /* unknown manual volume or arch */
-	MANDOCERR_NODATE, /* date missing, using today's date */
-	MANDOCERR_BADDATE, /* cannot parse date, using it verbatim */
-	MANDOCERR_PROLOGOOO, /* prologue macros out of order */
-	MANDOCERR_PROLOGREP, /* duplicate prologue macro */
-	MANDOCERR_BADPROLOG, /* macro not allowed in prologue */
-	MANDOCERR_BADBODY, /* macro not allowed in body */
+	MANDOCERR_TH_MISSING, /* no TH macro in document */
+	MANDOCERR_TITLE_CASE, /* document title should be all caps */
+	MANDOCERR_MSEC_BAD, /* unknown manual section */
+	MANDOCERR_ARCH_BAD, /* unknown manual volume or arch */
+	MANDOCERR_DATE_MISSING, /* date missing, using today's date */
+	MANDOCERR_DATE_BAD, /* cannot parse date, using it verbatim */
+	MANDOCERR_PROLOG_ORDER, /* prologue macros out of order */
+	MANDOCERR_PROLOG_REP, /* duplicate prologue macro */
+	MANDOCERR_PROLOG_BAD, /* macro not allowed in prologue: macro */
+	MANDOCERR_PROLOG_ONLY, /* macro not allowed in body: macro */
 
 	/* related to document structure */
-	MANDOCERR_SO, /* .so is fragile, better use ln(1) */
+	MANDOCERR_SO, /* .so is fragile, better use ln(1): .so path */
+	MANDOCERR_DOC_EMPTY, /* no document body */
+	MANDOCERR_SEC_BEFORE, /* content before the first section header */
 	MANDOCERR_NAMESECFIRST, /* NAME section must come first */
 	MANDOCERR_BADNAMESEC, /* bad NAME section contents */
 	MANDOCERR_SECOOO, /* sections out of conventional order */
@@ -104,11 +106,8 @@ enum	mandocerr {
 	MANDOCERR_BADTAB, /* tab in non-literal context */
 	MANDOCERR_EOLNSPACE, /* end of line whitespace */
 	MANDOCERR_BADCOMMENT, /* bad comment style */
-	MANDOCERR_BADESCAPE, /* unknown escape sequence */
+	MANDOCERR_BADESCAPE, /* bad escape sequence */
 	MANDOCERR_BADQUOTE, /* unterminated quoted string */
-
-	/* related to equations */
-	MANDOCERR_EQNQUOTE, /* unexpected literal in equation */
 
 	MANDOCERR_ERROR, /* ===== start of errors ===== */
 
@@ -149,19 +148,18 @@ enum	mandocerr {
 	MANDOCERR_NUMERIC, /* request requires a numeric argument */
 	MANDOCERR_LISTTYPE, /* missing list type */
 	MANDOCERR_ARGSLOST, /* line argument(s) will be lost */
-	MANDOCERR_BODYLOST, /* body argument(s) will be lost */
 
 	MANDOCERR_FATAL, /* ===== start of fatal errors ===== */
 
 	MANDOCERR_TOOLARGE, /* input too large */
-	MANDOCERR_NOTMANUAL, /* manual isn't really a manual */
+	MANDOCERR_NOTMANUAL, /* not a manual */
 	MANDOCERR_COLUMNS, /* column syntax is inconsistent */
 	MANDOCERR_BADDISP, /* NOT IMPLEMENTED: .Bd -file */
 	MANDOCERR_SYNTARGVCOUNT, /* argument count wrong, violates syntax */
 	MANDOCERR_SYNTCHILD, /* child violates parent syntax */
 	MANDOCERR_SYNTARGCOUNT, /* argument count wrong, violates syntax */
-	MANDOCERR_SOPATH, /* NOT IMPLEMENTED: .so with absolute path or ".." */
-	MANDOCERR_NODOCBODY, /* no document body */
+	MANDOCERR_SO_PATH, /* NOT IMPLEMENTED: .so with absolute path or ".." */
+	MANDOCERR_SO_FAIL, /* .so request failed */
 	MANDOCERR_NODOCPROLOG, /* no document prologue */
 	MANDOCERR_MEM, /* static buffer exhausted */
 
