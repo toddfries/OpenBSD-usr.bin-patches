@@ -1,4 +1,4 @@
-/*	$Id: read.c,v 1.31 2014/06/30 23:45:03 schwarze Exp $ */
+/*	$Id: read.c,v 1.47 2014/07/09 11:30:07 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -57,7 +57,7 @@ struct	mparse {
 	mandocmsg	  mmsg; /* warning/error message handler */
 	const char	 *file;
 	struct buf	 *secondary;
-	char		 *defos; /* default operating system */
+	const char	 *defos; /* default operating system */
 };
 
 static	void	  resize_buf(struct buf *, size_t);
@@ -85,65 +85,73 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"generic warning",
 
 	/* related to the prologue */
-	"no TH macro in document",
-	"document title should be all caps",
+	"missing .TH macro, using \"unknown 1\"",
+	"lower case character in document title",
 	"unknown manual section",
 	"unknown manual volume or arch",
-	"date missing, using today's date",
+	"missing date, using today's date",
 	"cannot parse date, using it verbatim",
 	"prologue macros out of order",
 	"duplicate prologue macro",
-	"macro not allowed in prologue",
-	"macro not allowed in body",
+	"incomplete prologue, terminated by",
+	"skipping prologue macro in body",
 
 	/* related to document structure */
 	".so is fragile, better use ln(1)",
 	"no document body",
-	"content before the first section header",
-	"NAME section must come first",
+	"content before first section header",
+	"first section is not \"NAME\"",
 	"bad NAME section contents",
 	"sections out of conventional order",
-	"duplicate section name",
-	"section header suited to sections 2, 3, and 9 only",
+	"duplicate section title",
+	"unexpected section",
 
 	/* related to macros and nesting */
-	"skipping obsolete macro",
+	"obsolete macro",
 	"skipping paragraph macro",
 	"moving paragraph macro out of list",
 	"skipping no-space macro",
 	"blocks badly nested",
-	"child violates parent syntax",
 	"nested displays are not portable",
-	"already in literal mode",
+	"moving content out of list",
+	".Vt block has child macro",
+	"fill mode already enabled, skipping .fi",
+	"fill mode already disabled, skipping .nf",
 	"line scope broken",
 
 	/* related to missing macro arguments */
+	"skipping empty request",
+	"conditional request controls empty scope",
 	"skipping empty macro",
+	"empty argument, using 0n",
 	"argument count wrong",
-	"missing display type",
-	"list type must come first",
-	"tag lists require a width argument",
-	"missing font type",
-	"skipping end of block that is not open",
+	"missing display type, using -ragged",
+	"list type is not the first argument",
+	"missing -width in -tag list, using 8n",
+	"empty head in list item",
+	"empty list item",
+	"missing font type, using \\fR",
+	"unknown font type, using \\fR",
+	"missing -std argument, adding it",
 
 	/* related to bad macro arguments */
 	"skipping argument",
+	"unterminated quoted argument",
 	"duplicate argument",
-	"duplicate display type",
-	"duplicate list type",
+	"skipping duplicate display type",
+	"skipping duplicate list type",
 	"unknown AT&T UNIX version",
-	"bad Boolean value",
-	"unknown font",
-	"unknown standard specifier",
-	"bad width argument",
+	"invalid content in Rs block",
+	"invalid Boolean argument",
+	"unknown font, skipping request",
 
 	/* related to plain text */
-	"blank line in non-literal context",
-	"tab in non-literal context",
-	"end of line whitespace",
+	"blank line in fill mode, using .sp",
+	"tab in filled text",
+	"whitespace at end of input line",
 	"bad comment style",
-	"bad escape sequence",
-	"unterminated quoted string",
+	"invalid escape sequence",
+	"undefined string, using \"\"",
 
 	"generic error",
 
@@ -164,25 +172,25 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"data block still open",
 	"ignoring extra data cells",
 
+	/* related to document structure and macros */
 	"input stack limit exceeded, infinite loop?",
 	"skipping bad character",
-	"escaped character not allowed in a name",
-	"manual name not yet set",
-	"skipping text before the first section header",
 	"skipping unknown macro",
-	"NOT IMPLEMENTED, please use groff: skipping request",
-	"argument count wrong",
 	"skipping column outside column list",
 	"skipping end of block that is not open",
-	"missing end of block",
-	"scope open on exit",
+	"inserting missing end of block",
+	"appending missing end of block",
+
+	/* related to request and macro arguments */
+	"escaped character not allowed in a name",
+	"manual name not yet set",
+	"argument count wrong",
+	"unknown standard specifier",
 	"uname(3) system call failed",
-	"macro requires line argument(s)",
-	"macro requires body argument(s)",
-	"macro requires argument(s)",
 	"request requires a numeric argument",
-	"missing list type",
-	"line argument(s) will be lost",
+	"missing list type, using -item",
+	"skipping all arguments",
+	"skipping excess arguments",
 
 	"generic fatal error",
 
@@ -190,7 +198,6 @@ static	const char * const	mandocerrs[MANDOCERR_MAX] = {
 	"not a manual",
 	"column syntax is inconsistent",
 	"NOT IMPLEMENTED: .Bd -file",
-	"argument count wrong, violates syntax",
 	"child violates parent syntax",
 	"argument count wrong, violates syntax",
 	"NOT IMPLEMENTED: .so with absolute path or \"..\"",
@@ -749,7 +756,7 @@ out:
 
 struct mparse *
 mparse_alloc(int options, enum mandoclevel wlevel,
-		mandocmsg mmsg, char *defos)
+		mandocmsg mmsg, const char *defos)
 {
 	struct mparse	*curp;
 

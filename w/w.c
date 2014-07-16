@@ -1,4 +1,4 @@
-/*	$OpenBSD: w.c,v 1.54 2013/11/20 21:00:33 deraadt Exp $	*/
+/*	$OpenBSD: w.c,v 1.56 2014/07/08 23:24:28 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1980, 1991, 1993, 1994
@@ -44,7 +44,6 @@
 #include <sys/socket.h>
 #include <sys/tty.h>
 
-#include <machine/cpu.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -221,7 +220,7 @@ main(int argc, char *argv[])
 	if (kp == NULL)
 		errx(1, "%s", kvm_geterr(kd));
 	for (i = 0; i < nentries; i++, kp++) {
-		if (kp->p_stat == SIDL || kp->p_stat == SZOMB)
+		if (kp->p_psflags & (PS_EMBRYO | PS_ZOMBIE))
 			continue;
 		for (ep = ehead; ep != NULL; ep = ep->next) {
 			/* ftp is a special case. */

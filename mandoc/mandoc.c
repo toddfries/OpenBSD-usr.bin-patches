@@ -1,4 +1,4 @@
-/*	$Id: mandoc.c,v 1.49 2014/06/20 17:23:09 schwarze Exp $ */
+/*	$Id: mandoc.c,v 1.52 2014/07/06 19:08:56 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -196,8 +196,10 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	case 'v':
 		/* FALLTHROUGH */
 	case 'x':
-		if (strchr("\0 %&()*+-./0123456789:<=>", **start))
+		if (strchr(" %&()*+-./0123456789:<=>", **start)) {
+			++*end;
 			return(ESCAPE_ERROR);
+		}
 		gly = ESCAPE_IGNORE;
 		term = **start;
 		*start = ++*end;
@@ -423,7 +425,7 @@ mandoc_getarg(struct mparse *parse, char **cpp, int ln, int *pos)
 
 	/* Quoted argument without a closing quote. */
 	if (1 == quoted)
-		mandoc_msg(MANDOCERR_BADQUOTE, parse, ln, *pos, NULL);
+		mandoc_msg(MANDOCERR_ARG_QUOTE, parse, ln, *pos, NULL);
 
 	/* NUL-terminate this argument and move to the next one. */
 	if (pairs)
@@ -437,7 +439,7 @@ mandoc_getarg(struct mparse *parse, char **cpp, int ln, int *pos)
 	*cpp = cp;
 
 	if ('\0' == *cp && (white || ' ' == cp[-1]))
-		mandoc_msg(MANDOCERR_EOLNSPACE, parse, ln, *pos, NULL);
+		mandoc_msg(MANDOCERR_SPACE_EOL, parse, ln, *pos, NULL);
 
 	return(start);
 }
@@ -509,7 +511,7 @@ mandoc_normdate(struct mparse *parse, char *in, int ln, int pos)
 		t = 0;
 	else if (!a2time(&t, "$" "Mdocdate: %b %d %Y $", in) &&
 	    !a2time(&t, "%b %d, %Y", in)) {
-		mandoc_msg(MANDOCERR_DATE_BAD, parse, ln, pos, NULL);
+		mandoc_msg(MANDOCERR_DATE_BAD, parse, ln, pos, in);
 		t = 0;
 	}
 	out = t ? time2a(t) : NULL;

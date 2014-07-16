@@ -1,4 +1,4 @@
-/*	$OpenBSD: fetch.c,v 1.122 2014/05/20 01:25:23 guenther Exp $	*/
+/*	$OpenBSD: fetch.c,v 1.126 2014/07/14 09:26:27 jsing Exp $	*/
 /*	$NetBSD: fetch.c,v 1.14 1997/08/18 10:20:20 lukem Exp $	*/
 
 /*-
@@ -61,11 +61,9 @@
 #include <resolv.h>
 
 #ifndef SMALL
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#include <openssl/x509v3.h>
+#include <ressl.h>
 #else /* !SMALL */
-#define SSL void
+struct ressl;
 #endif /* !SMALL */
 
 #include "ftp_var.h"
@@ -76,18 +74,14 @@ void		aborthttp(int);
 void		abortfile(int);
 char		hextochar(const char *);
 char		*urldecode(const char *);
-int		ftp_printf(FILE *, SSL *, const char *, ...) __attribute__((format(printf, 3, 4)));
-char		*ftp_readline(FILE *, SSL *, size_t *);
-size_t		ftp_read(FILE *, SSL *, char *, size_t);
+char		*recode_credentials(const char *_userinfo);
+int		ftp_printf(FILE *, struct ressl *, const char *, ...) __attribute__((format(printf, 3, 4)));
+char		*ftp_readline(FILE *, struct ressl *, size_t *);
+size_t		ftp_read(FILE *, struct ressl *, char *, size_t);
 #ifndef SMALL
 int		proxy_connect(int, char *, char *);
-int		SSL_vprintf(SSL *, const char *, va_list);
-char		*SSL_readline(SSL *, size_t *);
-int		ssl_match_hostname(char *, char *);
-int		ssl_check_subject_altname(X509 *, char *);
-int		ssl_check_common_name(X509 *, char *);
-int		ssl_check_hostname(X509 *, char *);
-SSL_CTX		*ssl_get_ssl_ctx(void);
+int		SSL_vprintf(struct ressl *, const char *, va_list);
+char		*SSL_readline(struct ressl *, size_t *);
 #endif /* !SMALL */
 
 #define	FTP_URL		"ftp://"	/* ftp URL prefix */
@@ -96,8 +90,6 @@ SSL_CTX		*ssl_get_ssl_ctx(void);
 #define	FILE_URL	"file:"		/* file URL prefix */
 #define FTP_PROXY	"ftp_proxy"	/* env var with ftp proxy location */
 #define HTTP_PROXY	"http_proxy"	/* env var with http proxy location */
-
-#define COOKIE_MAX_LEN	42
 
 #define EMPTYSTRING(x)	((x) == NULL || (*(x) == '\0'))
 
@@ -173,211 +165,6 @@ url_encode(const char *path)
 	return (epath);
 }
 
-#ifndef SMALL
-int
-ssl_match_hostname(char *cert_hostname, char *hostname)
-{
-	if (strcasecmp(cert_hostname, hostname) == 0)
-			return 0;
-
-	/* wildcard match? */
-	if (cert_hostname[0] == '*') {
-		char	*cert_domain, *domain;
-
-		cert_domain = &cert_hostname[1];
-		if (cert_domain[0] != '.')
-			return -1;
-		if (strlen(cert_domain) == 1)
-			return -1;
-
-		domain = strchr(hostname, '.');
-		/* no wildcard match against a hostname with no domain part */
-		if (domain == NULL || strlen(domain) == 1)
-			return -1;
-
-		if (strcasecmp(cert_domain, domain) == 0)
-			return 0;
-	}
-
-	return -1;
-}
-
-int
-ssl_check_subject_altname(X509 *cert, char *host)
-{
-	STACK_OF(GENERAL_NAME)	*altname_stack = NULL;
-	union { struct in_addr ip4; struct in6_addr ip6; } addrbuf;
-	int	addrlen, type;
-	int	count, i;
-	int	rv = -1;
-
-	altname_stack =
-	    X509_get_ext_d2i(cert, NID_subject_alt_name, NULL, NULL);
-	if (altname_stack == NULL)
-		return -1;
-
-	if (inet_pton(AF_INET, host, &addrbuf) == 1) {
-		type = GEN_IPADD;
-		addrlen = 4;
-	} else if (inet_pton(AF_INET6, host, &addrbuf) == 1) {
-		type = GEN_IPADD;
-		addrlen = 16;
-	} else
-		type = GEN_DNS;
-
-	count = sk_GENERAL_NAME_num(altname_stack);
-	for (i = 0; i < count; i++) {
-		GENERAL_NAME	*altname;
-
-		altname = sk_GENERAL_NAME_value(altname_stack, i);
-
-		if (altname->type != type)
-			continue;
-
-		if (type == GEN_DNS) {
-			unsigned char	*data;
-			int		 format;
-
-			format = ASN1_STRING_type(altname->d.dNSName);
-			if (format == V_ASN1_IA5STRING) {
-				data = ASN1_STRING_data(altname->d.dNSName);
-
-				if (ASN1_STRING_length(altname->d.dNSName) !=
-				    (int)strlen(data)) {
-					fprintf(ttyout, "%s: NUL byte in "
-					    "subjectAltName, probably a "
-					    "malicious certificate.\n",
-					    getprogname());
-					rv = -2;
-					break;
-				}
-
-				if (ssl_match_hostname(data, host) == 0) {
-					rv = 0;
-					break;
-				}
-			} else
-				fprintf(ttyout, "%s: unhandled subjectAltName "
-				    "dNSName encoding (%d)\n", getprogname(),
-				    format);
-
-		} else if (type == GEN_IPADD) {
-			unsigned char	*data;
-			int		 datalen;
-
-			datalen = ASN1_STRING_length(altname->d.iPAddress);
-			data = ASN1_STRING_data(altname->d.iPAddress);
-
-			if (datalen == addrlen &&
-			    memcmp(data, &addrbuf, addrlen) == 0) {
-				rv = 0;
-				break;
-			}
-		}
-	}
-
-	sk_GENERAL_NAME_free(altname_stack);
-	return rv;
-}
-
-int
-ssl_check_common_name(X509 *cert, char *host)
-{
-	X509_NAME	*name;
-	char		*common_name = NULL;
-	int		 common_name_len;
-	int		 rv = -1;
-
-	name = X509_get_subject_name(cert);
-	if (name == NULL)
-		goto out;
-
-	common_name_len = X509_NAME_get_text_by_NID(name, NID_commonName,
-	    NULL, 0);
-	if (common_name_len < 0)
-		goto out;
-
-	common_name = calloc(common_name_len + 1, 1);
-	if (common_name == NULL)
-		goto out;
-
-	X509_NAME_get_text_by_NID(name, NID_commonName, common_name,
-	    common_name_len + 1);
-
-	/* NUL bytes in CN? */
-	if (common_name_len != (int)strlen(common_name)) {
-		fprintf(ttyout, "%s: NUL byte in Common Name field, "
-		    "probably a malicious certificate.\n", getprogname());
-		rv = -2;
-		goto out;
-	}
-
-	if (ssl_match_hostname(common_name, host) == 0)
-		rv = 0;
-out:
-	free(common_name);
-	return rv;
-}
-
-int
-ssl_check_hostname(X509 *cert, char *host)
-{
-	int	rv;
-
-	rv = ssl_check_subject_altname(cert, host);
-	if (rv == 0 || rv == -2)
-		return rv;
-
-	return ssl_check_common_name(cert, host);
-}
-
-SSL_CTX *
-ssl_get_ssl_ctx(void)
-{
-	static SSL_CTX	*ssl_ctx = NULL;
-	static int	 libssl_loaded = 0;
-
- 	if (ssl_ctx != NULL)
-		return ssl_ctx;
-
-	if (!libssl_loaded) {
-		SSL_library_init();
-		SSL_load_error_strings();
-		libssl_loaded = 1;
-	}
-
-	ssl_ctx = SSL_CTX_new(SSLv23_client_method());
-	if (ssl_ctx == NULL)
-		goto err;
-
-	if (ssl_verify) {
-		if (ssl_ca_file == NULL && ssl_ca_path == NULL)
-			ssl_ca_file = _PATH_SSL_CAFILE;
-
-		if (SSL_CTX_load_verify_locations(ssl_ctx,
-		    ssl_ca_file, ssl_ca_path) != 1)
-			goto err;
-
-		SSL_CTX_set_verify(ssl_ctx, SSL_VERIFY_PEER, NULL);
-		if (ssl_verify_depth != -1)
-			SSL_CTX_set_verify_depth(ssl_ctx,
-			    ssl_verify_depth);
-	}
-
-	if (ssl_ciphers != NULL &&
-	    SSL_CTX_set_cipher_list(ssl_ctx, ssl_ciphers) == -1)
-		goto err;
-
-	return ssl_ctx;
-err:
-	if (ssl_ctx != NULL) {
-		SSL_CTX_free(ssl_ctx);
-		ssl_ctx = NULL;
-	}
-	return NULL;
-}
-#endif
-
 /*
  * Retrieve URL, via the proxy in $proxyvar if necessary.
  * Modifies the string argument given.
@@ -393,7 +180,7 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 	struct addrinfo hints, *res0, *res, *ares = NULL;
 	const char * volatile savefile;
 	char * volatile proxyurl = NULL;
-	char *cookie = NULL;
+	char *credentials = NULL;
 	volatile int s = -1, out;
 	volatile sig_t oldintr, oldinti;
 	FILE *fin = NULL;
@@ -402,12 +189,11 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 	ssize_t len, wlen;
 #ifndef SMALL
 	char *sslpath = NULL, *sslhost = NULL;
-	char *locbase, *full_host = NULL, *auth = NULL;
+	char *locbase, *full_host = NULL;
 	const char *scheme;
-	int ishttpsurl = 0;
-	SSL_CTX *ssl_ctx = NULL;
+	int ishttpurl = 0, ishttpsurl = 0;
 #endif /* !SMALL */
-	SSL *ssl = NULL;
+	struct ressl *ssl = NULL;
 	int status;
 	int save_errno;
 	const size_t buflen = 128 * 1024;
@@ -420,6 +206,7 @@ url_get(const char *origline, const char *proxyenv, const char *outfile)
 	if (strncasecmp(newline, HTTP_URL, sizeof(HTTP_URL) - 1) == 0) {
 		host = newline + sizeof(HTTP_URL) - 1;
 #ifndef SMALL
+		ishttpurl = 1;
 		scheme = HTTP_URL;
 #endif /* !SMALL */
 	} else if (strncasecmp(newline, FTP_URL, sizeof(FTP_URL) - 1) == 0) {
@@ -472,17 +259,10 @@ noslash:
 	 * contain the path. Basic auth from RFC 2617, valid
 	 * characters for path are in RFC 3986 section 3.3.
 	 */
-	if (proxyenv == NULL &&
-	    (!strcmp(scheme, HTTP_URL) || !strcmp(scheme, HTTPS_URL))) {
+	if (proxyenv == NULL && (ishttpurl || ishttpsurl)) {
 		if ((p = strchr(host, '@')) != NULL) {
-			size_t authlen = (strlen(host) + 5) * 4 / 3;
-			*p = 0;	/* Kill @ */
-			if ((auth = malloc(authlen)) == NULL)
-				err(1, "Can't allocate memory for "
-				    "authorization");
-			if (b64_ntop(host, strlen(host),
-			    auth, authlen) == -1)
-				errx(1, "error in base64 encoding");
+			*p = '\0';
+			credentials = recode_credentials(host);
 			host = p + 1;
 		}
 	}
@@ -544,17 +324,13 @@ noslash:
 		path = strchr(host, '@');	/* look for credentials in proxy */
 		if (!EMPTYSTRING(path)) {
 			*path = '\0';
-			cookie = strchr(host, ':');
-			if (EMPTYSTRING(cookie)) {
+			if (strchr(host, ':') == NULL) {
 				warnx("Malformed proxy URL: %s", proxyenv);
 				goto cleanup_url_get;
 			}
-			cookie  = malloc(COOKIE_MAX_LEN);
-			if (cookie == NULL)
-				errx(1, "out of memory");
-			if (b64_ntop(host, strlen(host), cookie, COOKIE_MAX_LEN) == -1)
-				errx(1, "error in base64 encoding");
+			credentials = recode_credentials(host);
 			*path = '@'; /* restore @ in proxyurl */
+
 			/*
 			 * This removes the password from proxyurl,
 			 * filling with stars
@@ -565,6 +341,7 @@ noslash:
 
 			host = path + 1;
 		}
+
 		path = newline;
 	}
 
@@ -697,7 +474,7 @@ noslash:
 	if (debug)
 		fprintf(ttyout, "host %s, port %s, path %s, "
 		    "save as %s, auth %s.\n",
-		    host, portnum, path, savefile, auth);
+		    host, portnum, path, savefile, credentials);
 #endif /* !SMALL */
 
 	memset(&hints, 0, sizeof(hints));
@@ -793,7 +570,7 @@ again:
 
 #ifndef SMALL
 		if (proxyenv && sslhost)
-			proxy_connect(s, sslhost, cookie);
+			proxy_connect(s, sslhost, credentials);
 #endif /* !SMALL */
 		break;
 	}
@@ -809,61 +586,27 @@ again:
 
 #ifndef SMALL
 	if (ishttpsurl) {
-		union { struct in_addr ip4; struct in6_addr ip6; } addrbuf;
-
 		if (proxyenv && sslpath) {
 			ishttpsurl = 0;
 			proxyurl = NULL;
 			path = sslpath;
 		}
-		ssl_ctx = ssl_get_ssl_ctx();
-		if (ssl_ctx == NULL) {
-			ERR_print_errors_fp(ttyout);
+		if (ressl_init() != 0) {
+			fprintf(ttyout, "SSL initialisation failed\n");
 			goto cleanup_url_get;
 		}
-		ssl = SSL_new(ssl_ctx);
-		if (ssl == NULL) {
-			ERR_print_errors_fp(ttyout);
+		if ((ssl = ressl_client()) == NULL) {
+			fprintf(ttyout, "failed to create SSL client\n");
 			goto cleanup_url_get;
 		}
-		if (SSL_set_fd(ssl, s) == 0) {
-			ERR_print_errors_fp(ttyout);
+		if (ressl_configure(ssl, ressl_config) != 0) {
+			fprintf(ttyout, "SSL configuration failure: %s\n",
+			    ressl_error(ssl));
 			goto cleanup_url_get;
 		}
-		/*
-		 * RFC4366 (SNI): Literal IPv4 and IPv6 addresses are not
-		 * permitted in "HostName".
-		 */
-		if (inet_pton(AF_INET,  host, &addrbuf) != 1 &&
-		    inet_pton(AF_INET6, host, &addrbuf) != 1) {
-			if (SSL_set_tlsext_host_name(ssl, host) == 0) {
-				ERR_print_errors_fp(ttyout);
-				goto cleanup_url_get;
-			}
-		}
-		if (SSL_connect(ssl) <= 0) {
-			ERR_print_errors_fp(ttyout);
+		if (ressl_connect_socket(ssl, s, host) != 0) {
+			fprintf(ttyout, "SSL failure: %s\n", ressl_error(ssl));
 			goto cleanup_url_get;
-		}
-		if (ssl_verify) {
-			X509	*cert;
-
-			cert = SSL_get_peer_certificate(ssl);
-			if (cert == NULL) {
-				fprintf(ttyout, "%s: no server certificate\n",
-				    getprogname());
-				goto cleanup_url_get;
-			}
-
-			if (ssl_check_hostname(cert, host) != 0) {
-				X509_free(cert);
-				fprintf(ttyout, "%s: host `%s' not present in"
-				    " server certificate\n",
-				    getprogname(), host);
-				goto cleanup_url_get;
-			}
-
-			X509_free(cert);
 		}
 	} else {
 		fin = fdopen(s, "r+");
@@ -890,13 +633,14 @@ again:
 		 * Host: directive must use the destination host address for
 		 * the original URI (path).  We do not attach it at this moment.
 		 */
-		if (cookie)
+		if (credentials)
 			ftp_printf(fin, ssl, "GET %s HTTP/1.0\r\n"
 			    "Proxy-Authorization: Basic %s%s\r\n%s\r\n\r\n",
-			    epath, cookie, buf ? buf : "", HTTP_USER_AGENT);
+			    epath, credentials, buf ? buf : "",
+			    httpuseragent);
 		else
 			ftp_printf(fin, ssl, "GET %s HTTP/1.0\r\n%s%s\r\n\r\n",
-			    epath, buf ? buf : "", HTTP_USER_AGENT);
+			    epath, buf ? buf : "", httpuseragent);
 
 	} else {
 #ifndef SMALL
@@ -908,14 +652,14 @@ again:
 			else
 				restart_point = 0;
 		}
-		if (auth) {
+		if (credentials) {
 			ftp_printf(fin, ssl,
 			    "GET /%s %s\r\nAuthorization: Basic %s\r\nHost: ",
 			    epath, restart_point ?
 			    "HTTP/1.1\r\nConnection: close" : "HTTP/1.0",
-			    auth);
-			free(auth);
-			auth = NULL;
+			    credentials);
+			free(credentials);
+			credentials = NULL;
 		} else
 #endif	/* SMALL */
 			ftp_printf(fin, ssl, "GET /%s %s\r\nHost: ", epath,
@@ -954,7 +698,7 @@ again:
 			ftp_printf(fin, ssl, ":%s", port);
 #endif /* !SMALL */
 		ftp_printf(fin, ssl, "\r\n%s%s\r\n\r\n",
-		    buf ? buf : "", HTTP_USER_AGENT);
+		    buf ? buf : "", httpuseragent);
 		if (verbose)
 			fprintf(ttyout, "\n");
 	}
@@ -1226,12 +970,12 @@ improper:
 
 cleanup_url_get:
 #ifndef SMALL
-	if (ssl) {
-		SSL_shutdown(ssl);
-		SSL_free(ssl);
+	if (ssl != NULL) {
+		ressl_close(ssl);
+		ressl_free(ssl);
 	}
 	free(full_host);
-	free(auth);
+	free(credentials);
 #endif /* !SMALL */
 	if (fin != NULL)
 		fclose(fin);
@@ -1240,7 +984,7 @@ cleanup_url_get:
 	free(buf);
 	free(proxyurl);
 	free(newline);
-	free(cookie);
+	free(credentials);
 	return (rval);
 }
 
@@ -1316,9 +1060,13 @@ auto_fetch(int argc, char *argv[], char *outfile)
 	/*
 	 * Loop through as long as there's files to fetch.
 	 */
+	username = pass = NULL;
 	for (rval = 0; (rval == 0) && (argpos < argc); free(url), argpos++) {
 		if (strchr(argv[argpos], ':') == NULL)
 			break;
+
+		free(username);
+		free(pass);
 		host = dir = file = portnum = username = pass = NULL;
 
 		/*
@@ -1375,6 +1123,7 @@ auto_fetch(int argc, char *argv[], char *outfile)
 				if (strchr(pass, '@') != NULL ||
 				    (passagain != NULL && passagain < dir)) {
 					warnx(at_encoding_warning);
+					username = pass = NULL;
 					goto bad_ftp_url;
 				}
 
@@ -1382,6 +1131,7 @@ auto_fetch(int argc, char *argv[], char *outfile)
 bad_ftp_url:
 					warnx("Invalid URL: %s", argv[argpos]);
 					rval = argpos + 1;
+					username = pass = NULL;
 					continue;
 				}
 				username = urldecode(username);
@@ -1618,6 +1368,26 @@ urldecode(const char *str)
 	return ret-reallen;
 }
 
+char *
+recode_credentials(const char *userinfo)
+{
+	char *ui, *creds;
+	size_t ulen, credsize;
+
+	/* url-decode the user and pass */
+	ui = urldecode(userinfo);
+
+	ulen = strlen(ui);
+	credsize = (ulen + 2) / 3 * 4 + 1;
+	creds = malloc(credsize);
+	if (creds == NULL)
+		errx(1, "out of memory");
+	if (b64_ntop(ui, ulen, creds, credsize) == -1)
+		errx(1, "error in base64 encoding");
+	free(ui);
+	return (creds);
+}
+
 char
 hextochar(const char *str)
 {
@@ -1656,7 +1426,7 @@ isurl(const char *p)
 }
 
 char *
-ftp_readline(FILE *fp, SSL *ssl, size_t *lenp)
+ftp_readline(FILE *fp, struct ressl *ssl, size_t *lenp)
 {
 	if (fp != NULL)
 		return fparseln(fp, lenp, NULL, "\0\0\0", 0);
@@ -1669,18 +1439,16 @@ ftp_readline(FILE *fp, SSL *ssl, size_t *lenp)
 }
 
 size_t
-ftp_read(FILE *fp, SSL *ssl, char *buf, size_t len)
+ftp_read(FILE *fp, struct ressl *ssl, char *buf, size_t len)
 {
 	size_t ret;
 	if (fp != NULL)
 		ret = fread(buf, sizeof(char), len, fp);
 #ifndef SMALL
 	else if (ssl != NULL) {
-		int nr;
+		size_t nr;
 
-		if (len > INT_MAX)
-			len = INT_MAX;
-		if ((nr = SSL_read(ssl, buf, (int)len)) <= 0)
+		if ((ret = ressl_read(ssl, buf, len, &nr)) != 0)
 			ret = 0;
 		else
 			ret = nr;
@@ -1692,7 +1460,7 @@ ftp_read(FILE *fp, SSL *ssl, char *buf, size_t len)
 }
 
 int
-ftp_printf(FILE *fp, SSL *ssl, const char *fmt, ...)
+ftp_printf(FILE *fp, struct ressl *ssl, const char *fmt, ...)
 {
 	int ret;
 	va_list ap;
@@ -1703,7 +1471,7 @@ ftp_printf(FILE *fp, SSL *ssl, const char *fmt, ...)
 		ret = vfprintf(fp, fmt, ap);
 #ifndef SMALL
 	else if (ssl != NULL)
-		ret = SSL_vprintf((SSL*)ssl, fmt, ap);
+		ret = SSL_vprintf(ssl, fmt, ap);
 #endif /* !SMALL */
 	else
 		ret = 0;
@@ -1714,22 +1482,23 @@ ftp_printf(FILE *fp, SSL *ssl, const char *fmt, ...)
 
 #ifndef SMALL
 int
-SSL_vprintf(SSL *ssl, const char *fmt, va_list ap)
+SSL_vprintf(struct ressl *ssl, const char *fmt, va_list ap)
 {
-	int ret;
 	char *string;
+	size_t nw;
+	int ret;
 
 	if ((ret = vasprintf(&string, fmt, ap)) == -1)
 		return ret;
-	ret = SSL_write(ssl, string, ret);
+	ret = ressl_write(ssl, string, ret, &nw);
 	free(string);
 	return ret;
 }
 
 char *
-SSL_readline(SSL *ssl, size_t *lenp)
+SSL_readline(struct ressl *ssl, size_t *lenp)
 {
-	size_t i, len;
+	size_t i, len, nr;
 	char *buf, *q, c;
 	int ret;
 
@@ -1744,14 +1513,12 @@ SSL_readline(SSL *ssl, size_t *lenp)
 			len *= 2;
 		}
 again:
-		ret = SSL_read(ssl, &c, 1);
-		if (ret <= 0) {
-			if (SSL_get_error(ssl, ret) == SSL_ERROR_WANT_READ)
-				goto again;
-			else
-				errx(1, "SSL_read error: %u",
-				    SSL_get_error(ssl, ret));
-		}
+		ret = ressl_read(ssl, &c, 1, &nr);
+		if (ret == -2)
+			goto again;
+		if (ret != 0)
+			errx(1, "SSL read error: %u", ret);
+
 		buf[i] = c;
 		if (c == '\n')
 			break;

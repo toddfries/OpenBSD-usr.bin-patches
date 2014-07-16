@@ -1,4 +1,4 @@
-/*	$OpenBSD: defs.h,v 1.19 2013/12/21 06:29:17 guenther Exp $	*/
+/*	$OpenBSD: defs.h,v 1.31 2014/07/12 03:48:04 guenther Exp $	*/
 
 #ifndef __DEFS_H__
 #define __DEFS_H__
@@ -36,22 +36,25 @@
  * @(#)defs.h      5.2 (Berkeley) 3/20/86
  */
 
-#include <unistd.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <ctype.h>
-#include <errno.h>
-#include <pwd.h>
-#include <grp.h>
-#include <regex.h>
-#include <syslog.h>
-#include <setjmp.h>
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/file.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <ctype.h>
+#include <errno.h>
+#include <grp.h>
+#include <pwd.h>
+#include <paths.h>
+#include <regex.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <unistd.h>
 
 #ifndef __GNUC__
 # ifndef __attribute__
@@ -59,50 +62,18 @@
 # endif
 #endif
 
-#ifndef __STDC__
-# ifndef const
-#  define const
-# endif
-#endif
-
 #include "version.h"
-#include "config-def.h"
 #include "config.h"
-#include "config-data.h"
 #include "pathnames.h"
 #include "types.h"
 #include "filesys.h"
 
-#include <signal.h>
-
 /*
- * This belongs in os-svr4.h but many SVR4 OS's
- * define SVR4 externel to Rdist so we put this
- * check here.
+ * Define the read and write values for the file descriptor array
+ * used by pipe().
  */
-#if	defined(SVR4)
-#define NEED_FCNTL_H
-#define NEED_NETDB_H
-#endif	/* defined(SVR4) */
-
-#if	defined(NEED_NETDB_H)
-#include <netdb.h>
-#endif	/* NEED_NETDB_H */
-#if	defined(NEED_FCNTL_H)
-#include <fcntl.h>
-#endif	/* NEED_FCNTL_H */
-#if	defined(NEED_LIMITS_H)
-#include <limits.h>
-#endif	/* NEED_LIMITS_H */
-
-#if defined(ARG_TYPE)
-#if	ARG_TYPE == ARG_STDARG
-#include <stdarg.h>
-#endif
-#if	ARG_TYPE == ARG_VARARGS
-#include <varargs.h>
-#endif
-#endif	/* ARG_TYPE */
+#define PIPE_READ		0
+#define PIPE_WRITE		1
 
 	/* boolean truth */
 #ifndef TRUE
@@ -110,17 +81,6 @@
 #endif
 #ifndef FALSE
 #define FALSE		0
-#endif
-
-	/* file modes */
-#ifndef S_IXUSR
-#define S_IXUSR		0000100
-#endif
-#ifndef S_IXGRP
-#define S_IXGRP		0000010
-#endif
-#ifndef S_IXOTH
-#define S_IXOTH		0000001
 #endif
 
 	/* lexical definitions */
@@ -146,19 +106,6 @@
 #define IS_OFF(b,f)	!(IS_ON(b,f))
 #define FLAG_ON(b,f)	b |= f
 #define FLAG_OFF(b,f)	b &= ~(f)
-
-/*
- * POSIX systems should already have S_* defined.
- */
-#ifndef S_ISDIR
-#define S_ISDIR(m) 	(((m) & S_IFMT) == S_IFDIR)
-#endif
-#ifndef S_ISREG
-#define S_ISREG(m) 	(((m) & S_IFMT) == S_IFREG)
-#endif
-#ifndef S_ISLNK
-#define S_ISLNK(m) 	(((m) & S_IFMT) == S_IFLNK)
-#endif
 
 #define ALLOC(x) 	(struct x *) xmalloc(sizeof(struct x))
 #define A(s)		((s) ? s : "<null>")
@@ -209,8 +156,8 @@
 #define C_CMDSPECIAL	's'		/* Execute cmd special command */
 #define C_CHMOG		'M'		/* Chown,Chgrp,Chmod a file */
 
-#define	ack() 		(void) sendcmd(C_ACK, (char *)NULL)
-#define	err() 		(void) sendcmd(C_ERRMSG, (char *)NULL)
+#define	ack() 		(void) sendcmd(C_ACK, NULL)
+#define	err() 		(void) sendcmd(C_ERRMSG, NULL)
 
 /*
  * Session startup commands.
@@ -316,9 +263,6 @@ extern int		optind;		/* Option index into argv */
 extern int 		debug;		/* Debugging flag */
 extern opt_t 		defoptions;	/* Default install options */
 extern int 		do_fork;	/* Should we do fork()'ing */
-#ifndef __STDC__
-extern int 		errno;		/* System error number */
-#endif
 extern int 		isserver;	/* Acting as remote server */
 extern int 		nerrs;		/* Number of errors seen */
 extern int 		nflag;		/* NOP flag, don't execute commands */
@@ -329,18 +273,13 @@ extern int		rem_r;		/* Remote file descriptor, reading */
 extern int 		rem_w;		/* Remote file descriptor, writing */
 extern int 		rtimeout;	/* Response time out in seconds */
 extern int		setjmp_ok;	/* setjmp/longjmp flag */
-extern UID_T 		userid;		/* User ID of rdist user */
+extern uid_t 		userid;		/* User ID of rdist user */
 extern jmp_buf 		finish_jmpbuf;	/* Setjmp buffer for finish() */
-extern struct group    *gr;	/* pointer to static area used by getgrent */
 extern struct linkbuf  *ihead;	/* list of files with more than one link */
 extern struct passwd   *pw;	/* pointer to static area used by getpwent */
 extern char defowner[64];		/* Default owner */
 extern char defgroup[64];		/* Default group */
 extern volatile sig_atomic_t contimedout; /* Connection timed out */
-#ifdef USE_STATDB
-extern int 		dostatdb;
-extern int 		juststatdb;
-#endif /* USE_STATDB */
 
 /*
  * Our own declarations.
@@ -349,8 +288,6 @@ extern int 		juststatdb;
 /* child.c */
 void waitup(void);
 int spawn(struct cmd *, struct cmd *);
-int setnonblocking(int, int);
-int setnonblocking(int, int);
 
 /* client.c */
 char *remfilename(char *, char *, char *, char *, int);
@@ -362,17 +299,17 @@ void cleanup(int);
 int install(char *, char *, int, int , opt_t);
 
 /* common.c */
-WRITE_RETURN_T xwrite(int, void *, WRITE_AMT_T);
+ssize_t xwrite(int, void *, size_t);
 int init(int, char **, char **);
 void finish(void);
 void lostconn(void);
 void coredump(void);
 void sighandler(int);
-int sendcmd(char, char *, ...) __attribute__((__format__ (printf, 2, 3)));
+int sendcmd(char, const char *, ...) __attribute__((__format__ (printf, 2, 3)));
 int remline(u_char *, int, int);
 ssize_t readrem(char *, ssize_t);
-char *getusername(UID_T, char *, opt_t);
-char *getgroupname(GID_T, char *, opt_t);
+char *getusername(uid_t, char *, opt_t);
+char *getgroupname(gid_t, char *, opt_t);
 int response(void);
 char *exptilde(char *, char *, size_t);
 int becomeuser(void);
@@ -380,13 +317,12 @@ int becomeroot(void);
 int setfiletime(char *, time_t, time_t);
 char *getversion(void);
 void runcommand(char *);
-char *xmalloc(size_t);
-char *xrealloc(char *, size_t);
-char *xcalloc(size_t, size_t);
+void *xmalloc(size_t);
+void *xrealloc(void *, size_t);
+void *xcalloc(size_t, size_t);
 char *xstrdup(const char *);
 char *xbasename(char *);
 char *searchpath(char *);
-int mysetlinebuf(FILE *);
 
 /* distopt.c */
 DISTOPTINFO *getdistopt(char *, int *);
@@ -432,11 +368,6 @@ struct namelist *makenl(char *);
 struct subcmd *makesubcmd(int);
 int yyparse(void);
 
-/* hasmntopt.c */
-#ifdef NEED_HASMNTOPT
-char *hasmntopt(struct mntent *, char *);
-#endif
-
 /* isexec.c */
 int isexec(char *, struct stat *);
 
@@ -460,65 +391,8 @@ FILE *opendist(char *);
 void docmdargs(int, char *[]);
 char *getnlstr(struct namelist *);
 
-/* rshrcmd.c */
-int rshrcmd(char **, u_short, char *, char *, char *, int *);
-
 /* server.c */
 void server(void);
-
-/* setargs.c */
-void setargs_settup(int, char **, char **);
-void _setproctitle(char *);
-void setproctitle(const char *, ...);
-
-/* signal.c */
-#ifdef NEED_SIGBLOCK
-int sigblock(int);
-#endif
-#ifdef NEED_SIGMASK
-int sigsetmask(int);
-#endif
-
-/* strcasecmp.c */
-#ifdef NEED_STRCASECMP
-int strcasecmp(char *, char *);
-int strncasecmp(char *, char *, int);
-#endif
-
-/* strerror.c */
-#ifdef NEED_STRERROR
-char *strerror(int);
-#endif
-
-/* strtol.c */
-#ifdef NEED_STRTOL
-long strtol(char *, char **, int);
-#endif
-
-/* unvis.c */
-#ifdef NEED_VIS
-int unvis(char *, int, int *, int );
-int strunvis(char *, const char *);
-#endif
-
-/* vis.c */
-#ifdef NEED_VIS
-char *vis(char *, int, int, int );
-int strvis(char *, const char *, int);
-int strvisx(char *, const char *, size_t, int);
-#endif
-
-/* vsnprintf.c */
-#ifdef NEED_VSNPRINTF
-int vsnprintf(char *, size_t, const char *, va_list);
-int snprintf(char *, size_t, const char *, ...);
-#endif
-
-/* zopen.c */
-int zread(void *, char *, int);
-int zwrite(void *, const char *, int);
-int z_close(void *);
-void *z_open(int, char *, int);
 
 #include <vis.h>
 #define DECODE(a, b)	strunvis(a, b)

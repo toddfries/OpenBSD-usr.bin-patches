@@ -1,4 +1,4 @@
-/*	$OpenBSD: rdist.c,v 1.21 2011/04/21 02:44:15 krw Exp $	*/
+/*	$OpenBSD: rdist.c,v 1.28 2014/07/12 03:32:00 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -39,7 +39,6 @@
  * Remote distribution program.
  */
 
-char   	       *distfile = NULL;		/* Name of distfile to use */
 int     	maxchildren = MAXCHILDREN;	/* Max no of concurrent PIDs */
 int		nflag = 0;			/* Say without doing */
 int64_t		min_freespace = 0;		/* Min filesys free space */
@@ -66,7 +65,7 @@ addhostlist(char *name, struct namelist **hostlist)
 	if (!name || !hostlist)
 		return;
 
-	new = (struct namelist *) xmalloc(sizeof(struct namelist));
+	new = xmalloc(sizeof *new);
 	new->n_name = xstrdup(name);
 	new->n_regex = NULL;
 	new->n_next = NULL;
@@ -84,7 +83,7 @@ main(int argc, char **argv, char **envp)
 {
 	extern char *__progname;
 	struct namelist *hostlist = NULL;
-	int x;
+	char *distfile = NULL;
 	char *cp;
 	int cmdargs = 0;
 	int c;
@@ -109,36 +108,11 @@ main(int argc, char **argv, char **envp)
 		exit(1);
 
 	/*
-	 * Be backwards compatible.
-	 */
-	for (x = 1; x <= argc && argv[x]; x++) {
-		if (strcmp(argv[x], "-Server") != 0)
-			continue;
-#if	defined(_PATH_OLDRDIST)
-		message(MT_SYSLOG, 
-			"Old rdist (-Server) requested; running %s", 
-			_PATH_OLDRDIST);
-		(void) execl(_PATH_OLDRDIST, xbasename(_PATH_OLDRDIST), 
-			     "-Server", (char *)NULL);
-		fatalerr("Exec old rdist failed: %s: %s.", 
-			 _PATH_OLDRDIST, SYSERR);
-#else	/* !_PATH_OLDRDIST */
-		fatalerr("Old rdist not available.");
-#endif	/* _PATH_OLDRDIST */
-		exit(1);
-	}
-
-#if	defined(DIRECT_RCMD)
-	if (becomeuser() != 0)
-		exit(1);
-#else	/* !DIRECT_RCMD */
-	/*
 	 * Perform check to make sure we are not incorrectly installed
 	 * setuid to root or anybody else.
 	 */
 	if (getuid() != geteuid())
 		fatalerr("This version of rdist should not be installed setuid.");
-#endif	/* DIRECT_RCMD */
 
 	while ((c = getopt(argc, argv, optchars)) != -1)
 		switch (c) {
@@ -286,7 +260,7 @@ main(int argc, char **argv, char **envp)
 		if ((cp = getenv("RSH")) != NULL && *cp != '\0')
 			path_remsh = cp;
 		else
-			path_remsh = _PATH_REMSH;
+			path_remsh = _PATH_RSH;
 	}
 
 	/*
@@ -357,7 +331,7 @@ usage(void)
 	extern char *__progname;
 
 	(void) fprintf(stderr,
-		"usage: %s [-DFnV] [-Server] [-A num] [-a num] "
+		"usage: %s [-DFnV] [-A num] [-a num] "
 		"[-c mini_distfile]\n"
 		"\t[-d var=value] [-f distfile] [-L remote_logopts] "
 		"[-l local_logopts]\n"

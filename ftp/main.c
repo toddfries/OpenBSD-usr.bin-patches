@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.87 2014/01/23 00:39:15 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.92 2014/07/16 04:52:43 lteo Exp $	*/
 /*	$NetBSD: main.c,v 1.24 1997/08/18 10:20:26 lukem Exp $	*/
 
 /*
@@ -76,8 +76,10 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "ftp_var.h"
+#include <ressl.h>
+
 #include "cmds.h"
+#include "ftp_var.h"
 
 #ifndef SMALL
 char * const ssl_verify_opts[] = {
@@ -95,11 +97,8 @@ char * const ssl_verify_opts[] = {
 	"depth",
 	NULL
 };
-char	*ssl_ciphers;
-int	 ssl_verify = 1;
-int	 ssl_verify_depth = -1;
-char	*ssl_ca_file;
-char	*ssl_ca_path;
+
+struct ressl_config *ressl_config;
 #endif /* !SMALL */
 
 int family = PF_UNSPEC;
@@ -114,6 +113,9 @@ main(volatile int argc, char *argv[])
 	char *outfile = NULL;
 	const char *errstr;
 	int dumb_terminal = 0;
+#ifndef SMALL
+	long long depth;
+#endif
 
 	ftpport = "ftp";
 	httpport = "http";
@@ -198,9 +200,10 @@ main(volatile int argc, char *argv[])
 #ifndef SMALL
 	cookiefile = getenv("http_cookies");
 #endif /* !SMALL */
+	httpuseragent = NULL;
 
 	while ((ch = getopt(argc, argv,
-		    "46AaCc:dD:Eegik:mno:pP:r:S:s:tvV")) != -1) {
+		    "46AaCc:dD:Eegik:mno:pP:r:S:s:tU:vV")) != -1) {
 		switch (ch) {
 		case '4':
 			family = PF_INET;
@@ -306,6 +309,12 @@ main(volatile int argc, char *argv[])
 
 		case 'S':
 #ifndef SMALL
+			if (ressl_config == NULL) {
+				ressl_config = ressl_config_new();
+				if (ressl_config == NULL)
+					errx(1, "ressl config failed");
+			}
+
 			cp = optarg;
 			while (*cp) {
 				char	*str;
@@ -313,34 +322,40 @@ main(volatile int argc, char *argv[])
 				case SSL_CAFILE:
 					if (str == NULL)
 						errx(1, "missing CA file");
-					ssl_ca_file = str;
+					ressl_config_set_ca_file(ressl_config,
+					    str);
 					break;
 				case SSL_CAPATH:
 					if (str == NULL)
 						errx(1, "missing CA directory"
 						    " path");
-					ssl_ca_path = str;
+					ressl_config_set_ca_path(ressl_config,
+					    str);
 					break;
 				case SSL_CIPHERS:
 					if (str == NULL)
 						errx(1, "missing cipher list");
-					ssl_ciphers = str;
+					ressl_config_set_ciphers(ressl_config,
+					    str);
 					break;
 				case SSL_DONTVERIFY:
-					ssl_verify = 0;
+					ressl_config_insecure_no_verify(
+					    ressl_config);
 					break;
 				case SSL_DOVERIFY:
-					ssl_verify = 1;
+					ressl_config_verify(ressl_config);
 					break;
 				case SSL_VERIFYDEPTH:
 					if (str == NULL)
 						errx(1, "missing depth");
-					ssl_verify_depth = strtonum(str, 0,
-					    INT_MAX, &errstr);
+					depth = strtonum(str, 0, INT_MAX,
+					    &errstr);
 					if (errstr)
 						errx(1, "certificate "
 						    "validation depth is %s",
 						    errstr);
+					ressl_config_set_verify_depth(
+					    ressl_config, (int)depth);
 					break;
 				default:
 					errx(1, "unknown -S suboption `%s'",
@@ -361,6 +376,18 @@ main(volatile int argc, char *argv[])
 			trace = 1;
 			break;
 
+#ifndef SMALL
+		case 'U':
+			free (httpuseragent);
+			if (strcspn(optarg, "\r\n") != strlen(optarg))
+				errx(1, "Invalid User-Agent: %s.", optarg);
+			if (asprintf(&httpuseragent, "User-Agent: %s",
+			    optarg) == -1)
+				errx(1, "Can't allocate memory for HTTP(S) "
+				    "User-Agent");
+			break;
+#endif /* !SMALL */
+
 		case 'v':
 			verbose = 1;
 			break;
@@ -379,6 +406,8 @@ main(volatile int argc, char *argv[])
 #ifndef SMALL
 	cookie_load();
 #endif /* !SMALL */
+	if (httpuseragent == NULL)
+		httpuseragent = HTTP_USER_AGENT;
 
 	cpend = 0;	/* no pending replies */
 	proxy = 0;	/* proxy not active */
@@ -452,8 +481,12 @@ main(volatile int argc, char *argv[])
 void
 intr(void)
 {
+	int save_errno = errno;
 
+	write(fileno(ttyout), "\n\r", 2);
 	alarmtimer(0);
+
+	errno = save_errno;
 	longjmp(toplevel, 1);
 }
 
@@ -537,8 +570,11 @@ cmdscanner(int top)
 			const char *buf;
 			cursor_pos = NULL;
 
-			if ((buf = el_gets(el, &num)) == NULL || num == 0)
+			if ((buf = el_gets(el, &num)) == NULL || num == 0) {
+				putc('\n', ttyout);
+				fflush(ttyout);
 				quit(0, 0);
+			}
 			if (buf[--num] == '\n') {
 				if (num == 0)
 					break;
@@ -831,61 +867,25 @@ help(int argc, char *argv[])
 void
 usage(void)
 {
-	(void)fprintf(stderr, "usage: %s "
+	fprintf(stderr, "usage: "
 #ifndef SMALL
-	    "[-46AadEegimnptVv] [-D title] [-k seconds] [-P port] "
+	    "%1$s [-46AadEegimnptVv] [-D title] [-k seconds] [-P port] "
 	    "[-r seconds]\n"
 	    "           [-s srcaddr] [host [port]]\n"
-	    "       %s [-C] "
-#endif /* !SMALL */
-	    "[-o output] "
-#ifndef SMALL
+	    "       %1$s [-C] [-o output] [-s srcaddr]\n"
+	    "           ftp://[user:password@]host[:port]/file[/] ...\n"
+	    "       %1$s [-C] [-c cookie] [-o output] [-S ssl_options] "
 	    "[-s srcaddr]\n"
-	    "           "
-#endif /* !SMALL */
-	    "ftp://[user:password@]host[:port]/file[/] ...\n"
-	    "       %s "
-#ifndef SMALL
-	    "[-C] [-c cookie] "
-#endif /* !SMALL */
-	    "[-o output] "
-#ifndef SMALL
-	    "[-S ssl_options] "
-	    "[-s srcaddr]\n"
-	    "           "
-#endif /* !SMALL */
-	    "http"
-#ifndef SMALL
-	    "[s]"
-#endif
-	    "://"
-#ifndef SMALL
-	    "[user:password@]"
-#endif
-	    "host[:port]/file ...\n"
-	    "       %s "
-#ifndef SMALL
-	    "[-C] "
-#endif /* !SMALL */
-	    "[-o output] "
-#ifndef SMALL
-	    "[-s srcaddr] "
-#endif /* !SMALL */
-	    "file:file ...\n"
-	    "       %s "
-#ifndef SMALL
-	    "[-C] "
-#endif /* !SMALL */
-	    "[-o output] "
-#ifndef SMALL
-	    "[-s srcaddr] "
-#endif /* !SMALL */
-	    "host:/file[/] ...\n",
-#ifndef SMALL
-	    __progname, __progname, __progname, __progname, __progname);
+	    "           [-U useragent] "
+	    "http[s]://[user:password@]host[:port]/file ...\n"
+	    "       %1$s [-C] [-o output] [-s srcaddr] file:file ...\n"
+	    "       %1$s [-C] [-o output] [-s srcaddr] host:/file[/] ...\n",
 #else /* !SMALL */
-	    __progname, __progname, __progname, __progname);
+	    "%1$s [-o output] ftp://[user:password@]host[:port]/file[/] ...\n"
+	    "       %1$s [-o output] http://host[:port]/file ...\n"
+	    "       %1$s [-o output] file:file ...\n"
+	    "       %1$s [-o output] host:/file[/] ...\n",
 #endif /* !SMALL */
+	    __progname);
 	exit(1);
 }
-

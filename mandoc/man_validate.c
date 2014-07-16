@@ -1,4 +1,4 @@
-/*	$Id: man_validate.c,v 1.65 2014/06/20 22:58:41 schwarze Exp $ */
+/*	$Id: man_validate.c,v 1.72 2014/07/07 21:35:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -186,10 +186,9 @@ static int
 check_root(CHKARGS)
 {
 
-	if (MAN_BLINE & man->flags)
-		man_nmsg(man, n, MANDOCERR_SCOPEEXIT);
-	else if (MAN_ELINE & man->flags)
-		man_nmsg(man, n, MANDOCERR_SCOPEEXIT);
+	if ((MAN_BLINE | MAN_ELINE) & man->flags)
+		mandoc_msg(MANDOCERR_BLK_LINE, man->parse,
+		    0, 0, "at end of file");
 
 	man->flags &= ~MAN_BLINE;
 	man->flags &= ~MAN_ELINE;
@@ -226,7 +225,8 @@ check_text(CHKARGS)
 
 	cp = n->string;
 	for (p = cp; NULL != (p = strchr(p, '\t')); p++)
-		man_pmsg(man, n->line, (int)(p - cp), MANDOCERR_BADTAB);
+		mandoc_msg(MANDOCERR_FI_TAB, man->parse,
+		    n->line, n->pos + (p - cp), NULL);
 }
 
 #define	INEQ_DEFINE(x, ineq, name) \
@@ -299,8 +299,8 @@ post_ft(CHKARGS)
 	}
 
 	if (0 == ok) {
-		mandoc_vmsg(MANDOCERR_BADFONT, man->parse, n->line,
-		    n->pos, "%s", cp);
+		mandoc_vmsg(MANDOCERR_FT_BAD, man->parse,
+		    n->line, n->pos, "ft %s", cp);
 		*cp = '\0';
 	}
 
@@ -353,11 +353,17 @@ check_par(CHKARGS)
 		break;
 	case MAN_BODY:
 		if (0 == n->nchild)
-			man_nmsg(man, n, MANDOCERR_IGNPAR);
+			mandoc_vmsg(MANDOCERR_PAR_SKIP,
+			    man->parse, n->line, n->pos,
+			    "%s empty", man_macronames[n->tok]);
 		break;
 	case MAN_HEAD:
 		if (n->nchild)
-			man_nmsg(man, n, MANDOCERR_ARGSLOST);
+			mandoc_vmsg(MANDOCERR_ARG_SKIP,
+			    man->parse, n->line, n->pos,
+			    "%s %s%s", man_macronames[n->tok],
+			    n->child->string,
+			    n->nchild > 1 ? " ..." : "");
 		break;
 	default:
 		break;
@@ -377,7 +383,9 @@ post_IP(CHKARGS)
 		break;
 	case MAN_BODY:
 		if (0 == n->parent->head->nchild && 0 == n->nchild)
-			man_nmsg(man, n, MANDOCERR_IGNPAR);
+			mandoc_vmsg(MANDOCERR_PAR_SKIP,
+			    man->parse, n->line, n->pos,
+			    "%s empty", man_macronames[n->tok]);
 		break;
 	default:
 		break;
@@ -410,7 +418,10 @@ post_TH(CHKARGS)
 			/* Only warn about this once... */
 			if (isalpha((unsigned char)*p) &&
 			    ! isupper((unsigned char)*p)) {
-				man_nmsg(man, n, MANDOCERR_TITLE_CASE);
+				mandoc_msg(MANDOCERR_TITLE_CASE,
+				    man->parse, n->line,
+				    n->pos + (p - n->string),
+				    n->string);
 				break;
 			}
 		}
@@ -468,7 +479,7 @@ post_nf(CHKARGS)
 {
 
 	if (MAN_LITERAL & man->flags)
-		man_nmsg(man, n, MANDOCERR_SCOPEREP);
+		man_nmsg(man, n, MANDOCERR_NF_SKIP);
 
 	man->flags |= MAN_LITERAL;
 	return(1);
@@ -479,7 +490,7 @@ post_fi(CHKARGS)
 {
 
 	if ( ! (MAN_LITERAL & man->flags))
-		man_nmsg(man, n, MANDOCERR_WNOSCOPE);
+		man_nmsg(man, n, MANDOCERR_FI_SKIP);
 
 	man->flags &= ~MAN_LITERAL;
 	return(1);
@@ -572,7 +583,9 @@ post_vs(CHKARGS)
 	case MAN_SH:
 		/* FALLTHROUGH */
 	case MAN_SS:
-		man_nmsg(man, n, MANDOCERR_IGNPAR);
+		mandoc_vmsg(MANDOCERR_PAR_SKIP, man->parse, n->line, n->pos,
+		    "%s after %s", man_macronames[n->tok],
+		    man_macronames[n->parent->tok]);
 		/* FALLTHROUGH */
 	case MAN_MAX:
 		/*

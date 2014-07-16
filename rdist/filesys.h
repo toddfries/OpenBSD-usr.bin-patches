@@ -1,4 +1,4 @@
-/*	$OpenBSD: filesys.h,v 1.2 2003/06/03 02:56:14 millert Exp $	*/
+/*	$OpenBSD: filesys.h,v 1.4 2014/07/05 10:21:24 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -42,79 +42,6 @@
  */
 
 /*
- * Mount information
- */
-#if FSI_TYPE == FSI_GETMNT
-#	include <sys/types.h>
-#	include <sys/param.h>
-#	include <sys/mount.h>
-#	define MOUNTED_FILE		"<none>"
-#endif
-
-#if FSI_TYPE == FSI_GETFSSTAT
-#	include <sys/types.h>
-#	include <sys/mount.h>
-#	define MOUNTED_FILE		"<none>"
-#endif
-
-#if FSI_TYPE == FSI_MNTCTL
-#	include <sys/mntctl.h>
-#	define MOUNTED_FILE		"<none>"
-#endif
-
-#if FSI_TYPE == FSI_GETMNTENT
-#	include <mntent.h>
-#	define	MOUNTED_FILE		MOUNTED
-#endif
-
-#if FSI_TYPE == FSI_GETMNTENT2
-#if     defined(MNTTAB_H)
-#       include MNTTAB_H
-#endif	/* MNTTAB_H */
-#if     defined(MNTENT_H)
-#       include MNTENT_H
-#endif	/* MNTENT_H */
-#	define	MOUNTED_FILE		MNTTAB
-#endif	/* FSI_GETMNTENT2 */
-
-#if	!defined(MOUNTED_FILE) && defined(MNT_MNTTAB)	/* HPUX */
-#	define MOUNTED_FILE		MNT_MNTTAB
-#endif	/* MNT_MNTTAB */
-
-/*
- * NCR OS defines bcopy and bzero
- */
-#if defined(NCR)
-#undef bcopy
-#undef bzero
-#endif	/* NCR */
-
-/*
- * Stat Filesystem
- */
-#if 	defined(STATFS_TYPE)
-#  if defined(ultrix)
-	typedef struct fs_data		statfs_t;
-#	define f_bavail			fd_req.bfreen
-#	define f_bsize			fd_req.bsize
-#	define f_ffree			fd_req.gfree
-#  elif defined(_AIX) || STATFS_TYPE == STATFS_SYSV
-#	include <sys/statfs.h>
-	typedef struct statfs		statfs_t;
-#	define f_bavail			f_bfree
-#  elif defined(SVR4)
-#	include <sys/statvfs.h>
-	typedef struct statvfs		statfs_t;
-#	define statfs(mp,sb)		statvfs(mp,sb)
-#  elif STATFS_TYPE == STATFS_44BSD || STATFS_TYPE == STATFS_OSF1
-	typedef struct statfs		statfs_t;
-#  else
-#	include <sys/vfs.h>
-	typedef struct statfs 		statfs_t;
-#  endif
-#endif	/* STATFS_TYPE */
-
-/*
  * Mount Entry definetions
  */
 #ifndef METYPE_OTHER
@@ -152,9 +79,9 @@ struct mntinfo {
 /*
  * Declarations
  */
-FILE	       *setmountent(const char *, const char *);
-mntent_t       *getmountent(FILE *);
+int	        setmountent(void);
+mntent_t       *getmountent(void);
 mntent_t       *newmountent(const mntent_t *);
-void		endmountent(FILE *);
+void		endmountent(void);
 
 #endif	/* __filesys_h__ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: common.c,v 1.26 2011/04/24 02:23:57 deraadt Exp $	*/
+/*	$OpenBSD: common.c,v 1.33 2014/07/12 03:32:00 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -45,8 +45,8 @@
  * Variables common to both client and server
  */
 char			host[MAXHOSTNAMELEN];	/* Name of this host */
-UID_T			userid = (UID_T)-1;	/* User's UID */
-GID_T			groupid = (GID_T)-1;	/* User's GID */
+uid_t			userid = (uid_t)-1;	/* User's UID */
+gid_t			groupid = (gid_t)-1;	/* User's GID */
 char		       *homedir = NULL;		/* User's $HOME */
 char		       *locuser = NULL;		/* Local User's name */
 int			isserver = FALSE;	/* We're the server */
@@ -75,11 +75,11 @@ static int remmore(void);
 /* 
  * Front end to write() that handles partial write() requests.
  */
-WRITE_RETURN_T
-xwrite(int fd, void *buf, WRITE_AMT_T len)
+ssize_t
+xwrite(int fd, void *buf, size_t len)
 {
-    	WRITE_AMT_T nleft = len;
-	WRITE_RETURN_T nwritten;
+    	size_t nleft = len;
+	ssize_t nwritten;
 	char *ptr = buf;
          
 	while (nleft > 0) {
@@ -108,10 +108,6 @@ init(int argc, char **argv, char **envp)
 	realargv = (char **) xmalloc(sizeof(char *) * (argc+1));
 	for (i = 0; i < argc; i++)
 		realargv[i] = xstrdup(argv[i]);
-
-#if	defined(SETARGS)
-	setargs_settup(argc, argv, envp);
-#endif	/* SETARGS */
 
 	pw = getpwuid(userid = getuid());
 	if (pw == NULL) {
@@ -275,14 +271,10 @@ sendcmdmsg(int cmd, char *msg, size_t msgsize)
 /*
  * Send a command message to the remote host.
  * Called as sendcmd(char cmdchar, char *fmt, arg1, arg2, ...)
- * The fmt and arg? arguments are optional.
- */
-#if	defined(ARG_TYPE) && ARG_TYPE == ARG_STDARG
-/*
- * Stdarg frontend to sendcmdmsg()
+ * The fmt may be NULL, in which case there are no args.
  */
 int
-sendcmd(char cmd, char *fmt, ...)
+sendcmd(char cmd, const char *fmt, ...)
 {
 	static char buf[BUFSIZ];
 	va_list args;
@@ -297,35 +289,6 @@ sendcmd(char cmd, char *fmt, ...)
 
 	return(sendcmdmsg(cmd, buf, sizeof(buf)));
 }
-#endif	/* ARG_TYPE == ARG_STDARG */
-
-#if	defined(ARG_TYPE) && ARG_TYPE == ARG_VARARGS
-/*
- * Varargs frontend to sendcmdmsg()
- */
-int
-sendcmd(va_alist)
-	va_dcl
-{
-	static char buf[BUFSIZ];
-	va_list args;
-	char cmd;
-	char *fmt;
-
-	va_start(args);
-	/* XXX The "int" is necessary as a workaround for broken varargs */
-	cmd = (char) va_arg(args, int);
-	fmt = va_arg(args, char *);
-	if (fmt)
-		(void) vsnprintf(buf + (cmd != C_NONE),
-				 sizeof(buf) - (cmd != C_NONE), fmt, args);
-	else
-		buf[1] = CNULL;
-	va_end(args);
-
-	return(sendcmdmsg(cmd, buf, sizeof(buf)));
-}
-#endif	/* ARG_TYPE == ARG_VARARGS */
 
 /*
  * Internal variables and routines for reading lines from the remote.
@@ -463,10 +426,10 @@ readrem(char *p, ssize_t space)
  * Get the user name for the uid.
  */
 char *
-getusername(UID_T uid, char *file, opt_t opts)
+getusername(uid_t uid, char *file, opt_t opts)
 {
 	static char buf[100];
-	static UID_T lastuid = (UID_T)-1;
+	static uid_t lastuid = (uid_t)-1;
 	struct passwd *pwd = NULL;
 
 	/*
@@ -505,10 +468,10 @@ getusername(UID_T uid, char *file, opt_t opts)
  * Get the group name for the gid.
  */
 char *
-getgroupname(GID_T gid, char *file, opt_t opts)
+getgroupname(gid_t gid, char *file, opt_t opts)
 {
 	static char buf[100];
-	static GID_T lastgid = (GID_T)-1;
+	static gid_t lastgid = (gid_t)-1;
 	struct group *grp = NULL;
 
 	/*
@@ -649,52 +612,7 @@ notilde:
 	return(pw_dir);
 }
 
-#if	defined(DIRECT_RCMD)
-/*
- * Set our effective user id to the user running us.
- * This should be the uid we do most of our work as.
- */
-int
-becomeuser(void)
-{
-	int r = 0;
 
-#if	defined(HAVE_SAVED_IDS)
-	r = seteuid(userid);
-#else
-	r = setreuid(0, userid);
-#endif	/* HAVE_SAVED_IDS */
-
-	if (r < 0)
-		error("becomeuser %u failed: %s (ruid = %u euid = %u)",
-		      userid, SYSERR, getuid(), geteuid());
-
-	return(r);
-}
-#endif	/* DIRECT_RCMD */
-
-#if	defined(DIRECT_RCMD)
-/*
- * Set our effective user id to "root" (uid = 0)
- */
-int
-becomeroot(void)
-{
-	int r = 0;
-
-#if	defined(HAVE_SAVED_IDS)
-	r = seteuid(0);
-#else
-	r = setreuid(userid, 0);
-#endif	/* HAVE_SAVED_IDS */
-
-	if (r < 0)
-		error("becomeroot failed: %s (ruid = %u euid = %u)",
-		      SYSERR, getuid(), geteuid());
-
-	return(r);
-}
-#endif	/* DIRECT_RCMD */
 
 /*
  * Set access and modify times of a given file
@@ -702,33 +620,15 @@ becomeroot(void)
 int
 setfiletime(char *file, time_t atime, time_t mtime)
 {
-#if	SETFTIME_TYPE == SETFTIME_UTIMES
 	struct timeval tv[2];
 
 	if (atime != 0 && mtime != 0) {
 		tv[0].tv_sec = atime;
 		tv[1].tv_sec = mtime;
-		tv[0].tv_usec = tv[1].tv_usec = (time_t) 0;
-		return(utimes(file, tv));
+		tv[0].tv_usec = tv[1].tv_usec = 0;
+		return (utimes(file, tv));
 	} else	/* Set to current time */
-		return(utimes(file, NULL));
-
-#endif	/* SETFTIME_UTIMES */
-
-#if	SETFTIME_TYPE == SETFTIME_UTIME
-	struct utimbuf utbuf;
-
-	if (atime != 0 && mtime != 0) {
-		utbuf.actime = atime;
-		utbuf.modtime = mtime;
-		return(utime(file, &utbuf));
-	} else	/* Set to current time */
-		return(utime(file, NULL));
-#endif	/* SETFTIME_UTIME */
-
-#if	!defined(SETFTIME_TYPE)
-	There is no "SETFTIME_TYPE" defined!
-#endif	/* SETFTIME_TYPE */
+		return (utimes(file, NULL));
 }
 
 /*
@@ -831,44 +731,44 @@ runcommand(char *cmd)
 /*
  * Malloc with error checking
  */
-char *
+void *
 xmalloc(size_t amt)
 {
-	char *ptr;
+	void *ptr;
 
-	if ((ptr = (char *)malloc(amt)) == NULL)
+	if ((ptr = malloc(amt)) == NULL)
 		fatalerr("Cannot malloc %zu bytes of memory.", amt);
 
-	return(ptr);
+	return (ptr);
 }
 
 /*
  * realloc with error checking
  */
-char *
-xrealloc(char *baseptr, size_t amt)
+void *
+xrealloc(void *baseptr, size_t amt)
 {
-	char *new;
+	void *new;
 
-	if ((new = (char *)realloc(baseptr, amt)) == NULL)
+	if ((new = realloc(baseptr, amt)) == NULL)
 		fatalerr("Cannot realloc %zu bytes of memory.", amt);
 
-	return(new);
+	return (new);
 }
 
 /*
  * calloc with error checking
  */
-char *
+void *
 xcalloc(size_t num, size_t esize)
 {
-	char *ptr;
+	void *ptr;
 
-	if ((ptr = (char *)calloc(num, esize)) == NULL)
+	if ((ptr = calloc(num, esize)) == NULL)
 		fatalerr("Cannot calloc %zu * %zu = %zu bytes of memory.",
 		      num, esize, num * esize);
 
-	return(ptr);
+	return (ptr);
 }
 
 /*
@@ -878,12 +778,9 @@ char *
 xstrdup(const char *str)
 {
 	size_t len = strlen(str) + 1;
-	char *nstr = (char *) malloc(len);
+	char *nstr = xmalloc(len);
 
-	if (nstr == NULL)
-		fatalerr("Cannot malloc %zu bytes of memory.", len);
-
-	return(memcpy(nstr, str, len));
+	return (memcpy(nstr, str, len));
 }
 
 /*
@@ -921,21 +818,4 @@ searchpath(char *path)
 			*space = ' ';		/* Put back what we zapped */
 	}
 	return (file);
-}
-
-/*
- * Set line buffering.
- */
-int
-mysetlinebuf(FILE *fp)
-{
-#if	SETBUF_TYPE == SETBUF_SETLINEBUF
-	return(setlinebuf(fp));
-#endif	/* SETBUF_SETLINEBUF */
-#if	SETBUF_TYPE == SETBUF_SETVBUF
-	return(setvbuf(stdout, NULL, _IOLBF, BUFSIZ));
-#endif	/* SETBUF_SETVBUF */
-#if	!defined(SETBUF_TYPE)
-	No SETBUF_TYPE is defined!
-#endif	/* SETBUF_TYPE */
 }

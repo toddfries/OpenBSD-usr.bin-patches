@@ -1,4 +1,4 @@
-/*	$OpenBSD: ftp_var.h,v 1.33 2013/12/24 13:00:59 jca Exp $	*/
+/*	$OpenBSD: ftp_var.h,v 1.35 2014/07/14 09:26:27 jsing Exp $	*/
 /*	$NetBSD: ftp_var.h,v 1.18 1997/08/18 10:20:25 lukem Exp $	*/
 
 /*
@@ -76,6 +76,8 @@
 #include <socks.h>
 int fclose(FILE *);
 #endif
+
+#include <ressl.h>
 
 #include "stringlist.h"
 #include "extern.h"
@@ -181,6 +183,7 @@ char *httpport;			/* port number to use for http connections */
 #ifndef SMALL
 char *httpsport;		/* port number to use for https connections */
 #endif /* !SMALL */
+char *httpuseragent;		/* user agent for http(s) connections */
 char *gateport;			/* port number to use for gateftp connections */
 
 jmp_buf	toplevel;		/* non-local goto stuff for cmd scanner */
@@ -231,12 +234,5 @@ FILE	*ttyout;		/* stdout or stderr, depending on interactive */
 extern struct cmd cmdtab[];
 
 #ifndef SMALL
-extern char	*ssl_ciphers;
-extern char	*ssl_ca_file;
-extern char	*ssl_ca_path;
-extern int	 ssl_verify;
-extern int	 ssl_verify_depth;
-# ifndef	_PATH_SSL_CAFILE
-#  define	_PATH_SSL_CAFILE "/etc/ssl/cert.pem"
-# endif
+extern struct ressl_config *ressl_config;
 #endif /* !SMALL */

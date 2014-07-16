@@ -1,4 +1,4 @@
-/*	$Id: mdoc.c,v 1.105 2014/06/20 17:23:09 schwarze Exp $ */
+/*	$Id: mdoc.c,v 1.110 2014/07/09 11:30:07 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -31,7 +31,7 @@
 #include "libmdoc.h"
 #include "libmandoc.h"
 
-const	char *const __mdoc_macronames[MDOC_MAX] = {
+const	char *const __mdoc_macronames[MDOC_MAX + 1] = {
 	"Ap",		"Dd",		"Dt",		"Os",
 	"Sh",		"Ss",		"Pp",		"D1",
 	"Dl",		"Bd",		"Ed",		"Bl",
@@ -62,7 +62,7 @@ const	char *const __mdoc_macronames[MDOC_MAX] = {
 	"Lk",		"Mt",		"Brq",		"Bro",
 	"Brc",		"%C",		"Es",		"En",
 	"Dx",		"%Q",		"br",		"sp",
-	"%U",		"Ta",		"ll",
+	"%U",		"Ta",		"ll",		"text",
 	};
 
 const	char *const __mdoc_argnames[MDOC_ARG_MAX] = {
@@ -185,7 +185,7 @@ mdoc_free(struct mdoc *mdoc)
  */
 struct mdoc *
 mdoc_alloc(struct roff *roff, struct mparse *parse,
-	char *defos, int quick)
+	const char *defos, int quick)
 {
 	struct mdoc	*p;
 
@@ -223,13 +223,6 @@ mdoc_addeqn(struct mdoc *mdoc, const struct eqn *ep)
 
 	assert( ! (MDOC_HALT & mdoc->flags));
 
-	/* No text before an initial macro. */
-
-	if (SEC_NONE == mdoc->lastnamed) {
-		mdoc_pmsg(mdoc, ep->ln, ep->pos, MANDOCERR_NOTEXT);
-		return(1);
-	}
-
 	n = node_alloc(mdoc, ep->ln, ep->pos, MDOC_MAX, MDOC_EQN);
 	n->eqn = ep;
 
@@ -246,13 +239,6 @@ mdoc_addspan(struct mdoc *mdoc, const struct tbl_span *sp)
 	struct mdoc_node *n;
 
 	assert( ! (MDOC_HALT & mdoc->flags));
-
-	/* No text before an initial macro. */
-
-	if (SEC_NONE == mdoc->lastnamed) {
-		mdoc_pmsg(mdoc, sp->line, 0, MANDOCERR_NOTEXT);
-		return(1);
-	}
 
 	n = node_alloc(mdoc, sp->line, 0, MDOC_MAX, MDOC_TBL);
 	n->span = sp;
@@ -512,6 +498,8 @@ mdoc_block_alloc(struct mdoc *mdoc, int line, int pos,
 		/* FALLTHROUGH */
 	case MDOC_Bl:
 		/* FALLTHROUGH */
+	case MDOC_En:
+		/* FALLTHROUGH */
 	case MDOC_Rs:
 		p->norm = mandoc_calloc(1, sizeof(union mdoc_data));
 		break;
@@ -716,13 +704,6 @@ mdoc_ptext(struct mdoc *mdoc, int line, char *buf, int offs)
 	char		 *c, *ws, *end;
 	struct mdoc_node *n;
 
-	/* No text before an initial macro. */
-
-	if (SEC_NONE == mdoc->lastnamed) {
-		mdoc_pmsg(mdoc, line, offs, MANDOCERR_NOTEXT);
-		return(1);
-	}
-
 	assert(mdoc->last);
 	n = mdoc->last;
 
@@ -791,10 +772,12 @@ mdoc_ptext(struct mdoc *mdoc, int line, char *buf, int offs)
 	*end = '\0';
 
 	if (ws)
-		mdoc_pmsg(mdoc, line, (int)(ws-buf), MANDOCERR_EOLNSPACE);
+		mandoc_msg(MANDOCERR_SPACE_EOL, mdoc->parse,
+		    line, (int)(ws-buf), NULL);
 
 	if ('\0' == buf[offs] && ! (MDOC_LITERAL & mdoc->flags)) {
-		mdoc_pmsg(mdoc, line, (int)(c-buf), MANDOCERR_NOBLANKLN);
+		mandoc_msg(MANDOCERR_FI_BLANK, mdoc->parse,
+		    line, (int)(c - buf), NULL);
 
 		/*
 		 * Insert a `sp' in the case of a blank line.  Technically,
@@ -844,7 +827,8 @@ mdoc_pmacro(struct mdoc *mdoc, int ln, char *buf, int offs)
 	/* Empty post-control lines are ignored. */
 
 	if ('"' == buf[offs]) {
-		mdoc_pmsg(mdoc, ln, offs, MANDOCERR_BADCOMMENT);
+		mandoc_msg(MANDOCERR_COMMENT_BAD, mdoc->parse,
+		    ln, offs, NULL);
 		return(1);
 	} else if ('\0' == buf[offs])
 		return(1);
@@ -887,7 +871,8 @@ mdoc_pmacro(struct mdoc *mdoc, int ln, char *buf, int offs)
 	 */
 
 	if ('\0' == buf[offs] && ' ' == buf[offs - 1])
-		mdoc_pmsg(mdoc, ln, offs - 1, MANDOCERR_EOLNSPACE);
+		mandoc_msg(MANDOCERR_SPACE_EOL, mdoc->parse,
+		    ln, offs - 1, NULL);
 
 	/*
 	 * If an initial macro or a list invocation, divert directly

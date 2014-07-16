@@ -1,4 +1,4 @@
-/* $OpenBSD: auth.c,v 1.104 2014/04/29 18:01:49 markus Exp $ */
+/* $OpenBSD: auth.c,v 1.106 2014/07/15 15:54:14 millert Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -43,6 +43,7 @@
 #include "groupaccess.h"
 #include "log.h"
 #include "buffer.h"
+#include "misc.h"
 #include "servconf.h"
 #include "key.h"
 #include "hostfile.h"
@@ -50,7 +51,6 @@
 #include "auth-options.h"
 #include "canohost.h"
 #include "uidswap.h"
-#include "misc.h"
 #include "packet.h"
 #ifdef GSSAPI
 #include "ssh-gss.h"
@@ -234,6 +234,19 @@ auth_log(Authctxt *authctxt, int authenticated, int partial,
 	    authctxt->info != NULL ? authctxt->info : "");
 	free(authctxt->info);
 	authctxt->info = NULL;
+}
+
+void
+auth_maxtries_exceeded(Authctxt *authctxt)
+{
+	packet_disconnect("Too many authentication failures for "
+	    "%s%.100s from %.200s port %d %s",
+	    authctxt->valid ? "" : "invalid user ",
+	    authctxt->user,
+	    get_remote_ipaddr(),
+	    get_remote_port(),
+	    compat20 ? "ssh2" : "ssh1");
+	/* NOTREACHED */
 }
 
 /*

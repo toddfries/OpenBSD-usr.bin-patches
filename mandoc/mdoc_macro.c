@@ -1,4 +1,4 @@
-/*	$Id: mdoc_macro.c,v 1.88 2014/04/20 16:44:44 schwarze Exp $ */
+/*	$Id: mdoc_macro.c,v 1.94 2014/07/07 21:35:42 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013 Ingo Schwarze <schwarze@openbsd.org>
@@ -44,7 +44,6 @@ static	int		ctx_synopsis(MACRO_PROT_ARGS);
 static	int		in_line_eoln(MACRO_PROT_ARGS);
 static	int		in_line_argn(MACRO_PROT_ARGS);
 static	int		in_line(MACRO_PROT_ARGS);
-static	int		obsolete(MACRO_PROT_ARGS);
 static	int		phrase_ta(MACRO_PROT_ARGS);
 
 static	int		dword(struct mdoc *, int, int, const char *,
@@ -100,7 +99,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ blk_full, MDOC_JOIN }, /* Nd */
 	{ ctx_synopsis, MDOC_CALLABLE | MDOC_PARSED }, /* Nm */
 	{ blk_part_imp, MDOC_CALLABLE | MDOC_PARSED }, /* Op */
-	{ obsolete, 0 }, /* Ot */
+	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Ot */
 	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Pa */
 	{ in_line_eoln, 0 }, /* Rv */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* St */
@@ -187,7 +186,7 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ blk_exp_close, MDOC_EXPLICIT | MDOC_JOIN }, /* Ek */
 	{ in_line_eoln, 0 }, /* Bt */
 	{ in_line_eoln, 0 }, /* Hf */
-	{ obsolete, 0 }, /* Fr */
+	{ in_line, MDOC_CALLABLE | MDOC_PARSED }, /* Fr */
 	{ in_line_eoln, 0 }, /* Ud */
 	{ in_line, 0 }, /* Lb */
 	{ in_line_eoln, 0 }, /* Lp */
@@ -199,8 +198,8 @@ const	struct mdoc_macro __mdoc_macros[MDOC_MAX] = {
 	{ blk_exp_close, MDOC_CALLABLE | MDOC_PARSED |
 			 MDOC_EXPLICIT | MDOC_JOIN }, /* Brc */
 	{ in_line_eoln, MDOC_JOIN }, /* %C */
-	{ obsolete, 0 }, /* Es */
-	{ obsolete, 0 }, /* En */
+	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Es */
+	{ blk_part_imp, MDOC_CALLABLE | MDOC_PARSED | MDOC_JOIN }, /* En */
 	{ in_line_argn, MDOC_CALLABLE | MDOC_PARSED }, /* Dx */
 	{ in_line_eoln, MDOC_JOIN }, /* %Q */
 	{ in_line_eoln, 0 }, /* br */
@@ -231,7 +230,8 @@ mdoc_macroend(struct mdoc *mdoc)
 	for ( ; n; n = n->parent)
 		if (MDOC_BLOCK == n->type &&
 		    MDOC_EXPLICIT & mdoc_macros[n->tok].flags)
-			mdoc_nmsg(mdoc, n, MANDOCERR_SCOPEEXIT);
+			mandoc_msg(MANDOCERR_BLK_NOEND, mdoc->parse,
+			    n->line, n->pos, mdoc_macronames[n->tok]);
 
 	/* Rewind to the first. */
 
@@ -525,7 +525,7 @@ make_pending(struct mdoc_node *broken, enum mdoct tok,
 			taker->pending = broken->pending;
 		}
 		broken->pending = breaker;
-		mandoc_vmsg(MANDOCERR_SCOPENEST, mdoc->parse, line, ppos,
+		mandoc_vmsg(MANDOCERR_BLK_NEST, mdoc->parse, line, ppos,
 		    "%s breaks %s", mdoc_macronames[tok],
 		    mdoc_macronames[broken->tok]);
 		return(1);
@@ -555,7 +555,7 @@ rew_sub(enum mdoc_type t, struct mdoc *mdoc,
 			     ! (MDOC_EXPLICIT & mdoc_macros[tok].flags));
 			break;
 		case REWIND_FORCE:
-			mandoc_vmsg(MANDOCERR_SCOPEBROKEN, mdoc->parse,
+			mandoc_vmsg(MANDOCERR_BLK_BROKEN, mdoc->parse,
 			    line, ppos, "%s breaks %s",
 			    mdoc_macronames[tok],
 			    mdoc_macronames[n->tok]);
@@ -571,7 +571,9 @@ rew_sub(enum mdoc_type t, struct mdoc *mdoc,
 				return(1);
 			/* FALLTHROUGH */
 		case REWIND_ERROR:
-			mdoc_pmsg(mdoc, line, ppos, MANDOCERR_NOSCOPE);
+			mandoc_msg(MANDOCERR_BLK_NOTOPEN,
+			    mdoc->parse, line, ppos,
+			    mdoc_macronames[tok]);
 			return(1);
 		}
 		break;
@@ -766,11 +768,12 @@ blk_exp_close(MACRO_PROT_ARGS)
 			later = n;
 	}
 
-	if ( ! (MDOC_CALLABLE & mdoc_macros[tok].flags)) {
-		/* FIXME: do this in validate */
-		if (buf[*pos])
-			mdoc_pmsg(mdoc, line, ppos, MANDOCERR_ARGSLOST);
-
+	if ( ! (MDOC_PARSED & mdoc_macros[tok].flags)) {
+		if ('\0' != buf[*pos])
+			mandoc_vmsg(MANDOCERR_ARG_SKIP,
+			    mdoc->parse, line, ppos,
+			    "%s %s", mdoc_macronames[tok],
+			    buf + *pos);
 		if ( ! rew_sub(MDOC_BODY, mdoc, tok, line, ppos))
 			return(0);
 		return(rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos));
@@ -916,8 +919,9 @@ in_line(MACRO_PROT_ARGS)
 					return(0);
 			} else if ( ! nc && 0 == cnt) {
 				mdoc_argv_free(arg);
-				mdoc_pmsg(mdoc, line, ppos,
-				    MANDOCERR_MACROEMPTY);
+				mandoc_msg(MANDOCERR_MACRO_EMPTY,
+				    mdoc->parse, line, ppos,
+				    mdoc_macronames[tok]);
 			}
 
 			if ( ! mdoc_macro(mdoc, ntok, line, la, pos, buf))
@@ -1002,7 +1006,8 @@ in_line(MACRO_PROT_ARGS)
 			return(0);
 	} else if ( ! nc && 0 == cnt) {
 		mdoc_argv_free(arg);
-		mdoc_pmsg(mdoc, line, ppos, MANDOCERR_MACROEMPTY);
+		mandoc_msg(MANDOCERR_MACRO_EMPTY, mdoc->parse,
+		    line, ppos, mdoc_macronames[tok]);
 	}
 
 	if ( ! nl)
@@ -1351,18 +1356,9 @@ blk_part_imp(MACRO_PROT_ARGS)
 			return(1);
 		}
 	}
+	assert(n == body);
 
-	/*
-	 * If we can't rewind to our body, then our scope has already
-	 * been closed by another macro (like `Oc' closing `Op').  This
-	 * is ugly behaviour nodding its head to OpenBSD's overwhelming
-	 * crufty use of `Op' breakage.
-	 */
-	if (n != body)
-		mandoc_vmsg(MANDOCERR_SCOPENEST, mdoc->parse, line,
-		    ppos, "%s broken", mdoc_macronames[tok]);
-
-	if (n && ! rew_sub(MDOC_BODY, mdoc, tok, line, ppos))
+	if ( ! rew_sub(MDOC_BODY, mdoc, tok, line, ppos))
 		return(0);
 
 	/* Standard appending of delimiters. */
@@ -1372,7 +1368,7 @@ blk_part_imp(MACRO_PROT_ARGS)
 
 	/* Rewind scope, if applicable. */
 
-	if (n && ! rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos))
+	if ( ! rew_sub(MDOC_BLOCK, mdoc, tok, line, ppos))
 		return(0);
 
 	/* Move trailing .Ns out of scope. */
@@ -1524,6 +1520,8 @@ in_line_argn(MACRO_PROT_ARGS)
 		break;
 	case MDOC_Bx:
 		/* FALLTHROUGH */
+	case MDOC_Es:
+		/* FALLTHROUGH */
 	case MDOC_Xr:
 		maxargs = 2;
 		break;
@@ -1568,7 +1566,7 @@ in_line_argn(MACRO_PROT_ARGS)
 				return(0);
 			continue;
 		} else if (0 == j)
-		       if ( ! mdoc_elem_alloc(mdoc, line, la, tok, arg))
+		       if ( ! mdoc_elem_alloc(mdoc, line, ppos, tok, arg))
 			       return(0);
 
 		if (j == maxargs && ! flushed) {
@@ -1604,7 +1602,7 @@ in_line_argn(MACRO_PROT_ARGS)
 		j++;
 	}
 
-	if (0 == j && ! mdoc_elem_alloc(mdoc, line, la, tok, arg))
+	if (0 == j && ! mdoc_elem_alloc(mdoc, line, ppos, tok, arg))
 	       return(0);
 
 	/* Close out in a consistent state. */
@@ -1711,14 +1709,6 @@ ctx_synopsis(MACRO_PROT_ARGS)
 	return(blk_part_imp(mdoc, tok, line, ppos, pos, buf));
 }
 
-static int
-obsolete(MACRO_PROT_ARGS)
-{
-
-	mdoc_pmsg(mdoc, line, ppos, MANDOCERR_MACROOBS);
-	return(1);
-}
-
 /*
  * Phrases occur within `Bl -column' entries, separated by `Ta' or tabs.
  * They're unusual because they're basically free-form text until a
@@ -1772,7 +1762,8 @@ phrase_ta(MACRO_PROT_ARGS)
 	while (NULL != n && MDOC_Bl != n->tok)
 		n = n->parent;
 	if (NULL == n || LIST_column != n->norm->Bl.type) {
-		mdoc_pmsg(mdoc, line, ppos, MANDOCERR_STRAYTA);
+		mandoc_msg(MANDOCERR_TA_STRAY, mdoc->parse,
+		    line, ppos, NULL);
 		return(1);
 	}
 

@@ -1,4 +1,4 @@
-/* $OpenBSD: auth2.c,v 1.130 2014/01/29 06:18:35 djm Exp $ */
+/* $OpenBSD: auth2.c,v 1.132 2014/07/15 15:54:14 millert Exp $ */
 /*
  * Copyright (c) 2000 Markus Friedl.  All rights reserved.
  *
@@ -40,6 +40,7 @@
 #include "packet.h"
 #include "log.h"
 #include "buffer.h"
+#include "misc.h"
 #include "servconf.h"
 #include "compat.h"
 #include "key.h"
@@ -312,7 +313,7 @@ userauth_finish(Authctxt *authctxt, int authenticated, const char *method,
 		    (authctxt->attempt > 1 || strcmp(method, "none") != 0))
 			authctxt->failures++;
 		if (authctxt->failures >= options.max_authtries)
-			packet_disconnect(AUTH_FAIL_MSG, authctxt->user);
+			auth_maxtries_exceeded(authctxt);
 		methods = authmethods_get(authctxt);
 		debug3("%s: failure partial=%d next methods=\"%s\"", __func__,
 		    partial, methods);

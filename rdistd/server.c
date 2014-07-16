@@ -1,4 +1,4 @@
-/*	$OpenBSD: server.c,v 1.25 2013/10/27 18:31:24 guenther Exp $	*/
+/*	$OpenBSD: server.c,v 1.33 2014/07/12 03:10:03 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -28,6 +28,9 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <dirent.h>
+
 #include "defs.h"
 
 /*
@@ -46,7 +49,7 @@ static int64_t min_freefiles = 0; /* Minimium free # files on a filesystem */
 int	oumask;			/* Old umask */
 
 static int cattarget(char *);
-static int setownership(char *, int, UID_T, GID_T, int);
+static int setownership(char *, int, uid_t, gid_t, int);
 static int setfilemode(char *, int, int, int);
 static int fchog(int, char *, char *, char *, int);
 static int removefile(struct stat *, int);
@@ -91,7 +94,7 @@ cattarget(char *string)
  * Set uid and gid ownership of a file.
  */
 static int
-setownership(char *file, int fd, UID_T uid, GID_T gid, int link)
+setownership(char *file, int fd, uid_t uid, gid_t gid, int islink)
 {
 	int status = -1;
 
@@ -101,30 +104,17 @@ setownership(char *file, int fd, UID_T uid, GID_T gid, int link)
 	if (getuid() != 0) 
 		uid = -1;
 
-	/*
-	 * If we are dealing with a symlink, only try to change it if
-	 * we have lchown, if we don't leave it alone.
-	 */
-#if	defined(HAVE_LCHOWN)
-	if (link)
-		status = lchown(file, (CHOWN_UID_T) uid, 
-				(CHOWN_GID_T) gid);
-#else
-	if (link)
-		return 0;
-#endif
+	if (islink)
+		status = lchown(file, uid, gid);
 
-#if	defined(HAVE_FCHOWN)
-	if (fd != -1 && !link)
-		status = fchown(fd, (CHOWN_UID_T) uid, 
-				(CHOWN_GID_T) gid);
-#endif
-	if (status < 0 && !link)
-		status = chown(file, (CHOWN_UID_T) uid, 
-			       (CHOWN_GID_T) gid);
+	if (fd != -1 && !islink)
+		status = fchown(fd, uid, gid);
+
+	if (status < 0 && !islink)
+		status = chown(file, uid, gid);
 
 	if (status < 0) {
-		if (uid == (UID_T) -1)
+		if (uid == (uid_t)-1)
 			message(MT_NOTICE, "%s: chgrp %d failed: %s",
 				target, gid, SYSERR);
 		else
@@ -140,31 +130,20 @@ setownership(char *file, int fd, UID_T uid, GID_T gid, int link)
  * Set mode of a file
  */
 static int
-setfilemode(char *file, int fd, int mode, int link)
+setfilemode(char *file, int fd, int mode, int islink)
 {
 	int status = -1;
 
 	if (mode == -1)
 		return(0);
 
-	/*
-	 * If we are dealing with a symlink, only try to change it if
-	 * we have lchown, if we don't leave it alone.
-	 */
-#if	defined(HAVE_LCHMOD)
-	if (link)
-		status = lchmod(file, mode);
-#else
-	if (link)
-		return 0;
-#endif
+	if (islink)
+		status = fchmodat(AT_FDCWD, file, mode, AT_SYMLINK_NOFOLLOW);
 
-#if	defined(HAVE_FCHMOD)
-	if (fd != -1 && !link)
+	if (fd != -1 && !islink)
 		status = fchmod(fd, mode);
-#endif
 
-	if (status < 0 && !link)
+	if (status < 0 && !islink)
 		status = chmod(file, mode);
 
 	if (status < 0) {
@@ -184,14 +163,14 @@ fchog(int fd, char *file, char *owner, char *group, int mode)
 	extern char *locuser;
 	int i;
 	struct stat st;
-	UID_T uid;
-	GID_T gid;
-	GID_T primegid = (GID_T)-2;
+	uid_t uid;
+	gid_t gid;
+	gid_t primegid = (gid_t)-2;
 
 	uid = userid;
 	if (userid == 0) {	/* running as root; take anything */
 		if (*owner == ':') {
-			uid = (UID_T) atoi(owner + 1);
+			uid = (uid_t) atoi(owner + 1);
 		} else if (pw == NULL || strcmp(owner, pw->pw_name) != 0) {
 			if ((pw = getpwnam(owner)) == NULL) {
 				if (mode != -1 && IS_ON(mode, S_ISUID)) {
@@ -211,7 +190,7 @@ fchog(int fd, char *file, char *owner, char *group, int mode)
 			primegid = pw->pw_gid;
 		}
 		if (*group == ':') {
-			gid = (GID_T) atoi(group + 1);
+			gid = (gid_t)atoi(group + 1);
 			goto ok;
 		}
 	} else {	/* not root, setuid only if user==owner */
@@ -229,7 +208,7 @@ fchog(int fd, char *file, char *owner, char *group, int mode)
 			primegid = lupw->pw_gid;
 	}
 
-	gid = (GID_T) -1;
+	gid = (gid_t)-1;
 	if (gr == NULL || strcmp(group, gr->gr_name) != 0) {
 		if ((*group == ':' && 
 		     (getgrgid(gid = atoi(group + 1)) == NULL))
@@ -259,7 +238,7 @@ fchog(int fd, char *file, char *owner, char *group, int mode)
 				target, locuser, group);
 			mode &= ~S_ISGID;
 		}
-		gid = (GID_T) -1;
+		gid = (gid_t)-1;
 	}
 ok:
 	if (stat(file, &st) == -1) {
@@ -297,7 +276,7 @@ static int
 removefile(struct stat *statb, int silent)
 {
 	DIR *d;
-	static DIRENTRY *dp;
+	static struct dirent *dp;
 	char *cp;
 	struct stat stb;
 	char *optarget;
@@ -308,12 +287,8 @@ removefile(struct stat *statb, int silent)
 	case S_IFLNK:
 	case S_IFCHR:
 	case S_IFBLK:
-#ifdef S_IFSOCK
 	case S_IFSOCK:
-#endif
-#ifdef S_IFIFO
 	case S_IFIFO:
-#endif
 		if (unlink(target) < 0) {
 			if (errno == ETXTBSY) {
 				if (!silent)
@@ -345,9 +320,8 @@ removefile(struct stat *statb, int silent)
 	optarget = ptarget;
 	len = ptarget - target;
 	while ((dp = readdir(d)) != NULL) {
-		if ((D_NAMLEN(dp) == 1 && dp->d_name[0] == '.') ||
-		    (D_NAMLEN(dp) == 2 && dp->d_name[0] == '.' &&
-		     dp->d_name[1] == '.'))
+		if (dp->d_name[0] == '.' && (dp->d_name[1] == '\0' ||
+		    (dp->d_name[1] == '.' && dp->d_name[2] == '\0')))
 			continue;
 
 		if (len + 1 + (int)strlen(dp->d_name) >= MAXPATHLEN - 1) {
@@ -408,7 +382,7 @@ static void
 doclean(char *cp)
 {
 	DIR *d;
-	DIRENTRY *dp;
+	struct dirent *dp;
 	struct stat stb;
 	char *optarget, *ep;
 	int len;
@@ -429,9 +403,8 @@ doclean(char *cp)
 	optarget = ptarget;
 	len = ptarget - target;
 	while ((dp = readdir(d)) != NULL) {
-		if ((D_NAMLEN(dp) == 1 && dp->d_name[0] == '.') ||
-		    (D_NAMLEN(dp) == 2 && dp->d_name[0] == '.' &&
-		     dp->d_name[1] == '.'))
+		if (dp->d_name[0] == '.' && (dp->d_name[1] == '\0' ||
+		    (dp->d_name[1] == '.' && dp->d_name[2] == '\0')))
 			continue;
 
 		if (len + 1 + (int)strlen(dp->d_name) >= MAXPATHLEN - 1) {
@@ -646,16 +619,6 @@ query(char *xname)
 	case S_IFLNK:
 	case S_IFDIR:
 	case S_IFREG:
-#ifdef notyet
-	case S_IFCHR:
-	case S_IFBLK:
-#ifdef S_IFSOCK
-	case S_IFSOCK:
-#endif
-#ifdef S_IFIFO
-	case S_IFIFO:
-#endif
-#endif
 		(void) sendcmd(QC_YES, "%lld %lld %o %s %s",
 			       (long long) stb.st_size,
 			       (long long) stb.st_mtime,
@@ -1341,9 +1304,7 @@ setconfig(char *cmd)
 		if (!fromhost) {
 			fromhost = xstrdup(cp);
 			message(MT_SYSLOG, "startup for %s", fromhost);
-#if defined(SETARGS) || defined(HAVE_SETPROCTITLE)
 			setproctitle("serving %s", cp);
-#endif /* SETARGS || HAVE_SETPROCTITLE */
 		}
 		break;
 

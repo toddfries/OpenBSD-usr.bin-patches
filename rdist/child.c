@@ -1,4 +1,4 @@
-/*	$OpenBSD: child.c,v 1.16 2011/04/18 12:29:59 krw Exp $	*/
+/*	$OpenBSD: child.c,v 1.23 2014/07/05 07:57:43 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -36,10 +36,8 @@
  */
 
 #include <sys/types.h>
-#include <sys/wait.h>
-#if	defined(NEED_SYS_SELECT_H)
 #include <sys/select.h>
-#endif	/* NEED_SYS_SELECT_H */
+#include <sys/wait.h>
 
 typedef enum _PROCSTATE {
     PSrunning,
@@ -98,28 +96,18 @@ removechild(CHILD *child)
 		/*
 		 * Remove the child
 		 */
-#if	defined(POSIX_SIGNALS)
-		sigset_t set;
+		sigset_t set, oset;
 
 		sigemptyset(&set);
 		sigaddset(&set, SIGCHLD);
-		sigprocmask(SIG_BLOCK, &set, NULL);
-#else	/* !POSIX_SIGNALS */
-		int oldmask;
-
-		oldmask = sigblock(sigmask(SIGCHLD));
-#endif	/* POSIX_SIGNALS */
+		sigprocmask(SIG_BLOCK, &set, &oset);
 
 		if (prevpc != NULL)
 			prevpc->c_next = pc->c_next;
 		else
 			childlist = pc->c_next;
 
-#if	defined(POSIX_SIGNALS)
-		sigprocmask(SIG_UNBLOCK, &set, NULL);
-#else
-		sigsetmask(oldmask);
-#endif	/* POSIX_SIGNALS */
+		sigprocmask(SIG_SETMASK, &oset, NULL);
 
 		(void) free(child->c_name);
 		--activechildren;
@@ -138,7 +126,7 @@ copychild(CHILD *child)
 {
 	CHILD *newc;
 
-	newc = (CHILD *) xmalloc(sizeof(CHILD));
+	newc = xmalloc(sizeof *newc);
 
 	newc->c_name = xstrdup(child->c_name);
 	newc->c_readfd = child->c_readfd;
@@ -225,26 +213,16 @@ readchild(CHILD *child)
 static pid_t
 waitproc(int *statval, int block)
 {
-	WAIT_ARG_TYPE status;
+	int status;
 	pid_t pid;
 	int exitval;
 
 	debugmsg(DM_CALL, "waitproc() %s, active children = %d...\n", 
 		 (block) ? "blocking" : "nonblocking", activechildren);
 
-#if	WAIT_TYPE == WAIT_WAITPID
 	pid = waitpid(-1, &status, (block) ? 0 : WNOHANG);
-#else
-#if	WAIT_TYPE == WAIT_WAIT3
-	pid = wait3(&status, (block) ? 0 : WNOHANG, NULL);
-#endif	/* WAIT_WAIT3 */
-#endif	/* WAIT_WAITPID */
 
-#if	defined(WEXITSTATUS)
 	exitval = WEXITSTATUS(status);
-#else
-	exitval = status.w_retcode;
-#endif	/* defined(WEXITSTATUS) */
 
 	if (pid > 0 && exitval != 0) {
 		nerrs++;
@@ -345,25 +323,17 @@ childscan(void)
 }
 
 /*
-#if	defined HAVE_SELECT
  *
  * Wait for children to send output for us to read.
  *
-#else	!HAVE_SELECT
- *
- * Wait up for children to exit.
- *
-#endif
  */
 void
 waitup(void)
 {
-#if	defined(HAVE_SELECT)
 	int count;
 	CHILD *pc;
 	fd_set *rchildfdsp = NULL;
 	int rchildfdsn = 0;
-	size_t bytes;
 
 	debugmsg(DM_CALL, "waitup() start\n");
 
@@ -374,16 +344,13 @@ waitup(void)
 		return;
 
 	/*
-	 * Settup which children we want to select() on.
+	 * Set up which children we want to select() on.
 	 */
 	for (pc = childlist; pc; pc = pc->c_next)
 		if (pc->c_readfd > rchildfdsn)
 			rchildfdsn = pc->c_readfd;
-	bytes = howmany(rchildfdsn+1, NFDBITS) * sizeof(fd_mask);
-	if ((rchildfdsp = (fd_set *)malloc(bytes)) == NULL)
-		return;
+	rchildfdsp = xcalloc(howmany(rchildfdsn+1, NFDBITS), sizeof(fd_mask));
 
-	memset(rchildfdsp, 0, bytes);
 	for (pc = childlist; pc; pc = pc->c_next)
 		if (pc->c_readfd > 0) {
 			debugmsg(DM_MISC, "waitup() select on %d (%s)\n",
@@ -451,18 +418,22 @@ waitup(void)
 	}
 	free(rchildfdsp);
 
-#else	/* !defined(HAVE_SELECT) */
-
-	/*
-	 * The non-select() version of waitproc()
-	 */
-	debugmsg(DM_CALL, "waitup() start\n");
-
-	if (waitproc(NULL, TRUE) > 0)
-		--activechildren;
-
-#endif	/* defined(HAVE_SELECT) */
 	debugmsg(DM_CALL, "waitup() end\n");
+}
+
+/*
+ * Enable non-blocking I/O mode.
+ */
+static int
+setnonblocking(int fd)
+{
+	int	mode;
+
+	if ((mode = fcntl(fd, F_GETFL)) < 0)
+		return (-1);
+	if (mode & O_NONBLOCK)
+		return (0);
+	return (fcntl(fd, F_SETFL, mode | O_NONBLOCK));
 }
 
 /*
@@ -491,15 +462,6 @@ spawn(struct cmd *cmd, struct cmd *cmdlist)
 		 */
 		static CHILD newchild;
 
-#if	defined(FORK_MISSES)
-		/*
-		 * XXX Some OS's have a bug where fork does not
-		 * always return properly to the parent
-		 * when a number of forks are done very quicky.
-		 */
-		sleep(2);
-#endif	/* FORK_MISSES */
-
 		/* Receive notification when the child exits */
 		(void) signal(SIGCHLD, reap);
 
@@ -514,7 +476,7 @@ spawn(struct cmd *cmd, struct cmd *cmdlist)
 		(void) close(fildes[PIPE_WRITE]);
 
 		/* Set non-blocking I/O */
-		if (setnonblocking(newchild.c_readfd, TRUE) < 0) {
+		if (setnonblocking(newchild.c_readfd) < 0) {
 			error("Set nonblocking I/O failed: %s", SYSERR);
 			return(-1);
 		}
@@ -552,40 +514,3 @@ spawn(struct cmd *cmd, struct cmd *cmdlist)
 		return(0);
 	}
 }
-
-
-/*
- * Enable or disable non-blocking I/O mode.
- *
- * Code is from INN by Rich Salz.
- */
-#if	NBIO_TYPE == NBIO_IOCTL
-#include <sys/ioctl.h>
-
-int
-setnonblocking(int fd, int flag)
-{
-	int state;
-
-	state = flag ? 1 : 0;
-	return(ioctl(fd, FIONBIO, (char *)&state));
-}
-
-#endif	/* NBIO_IOCTL */
-
-
-#if	NBIO_TYPE == NBIO_FCNTL
-int
-setnonblocking(int fd, int flag)
-{
-	int	mode;
-
-	if ((mode = fcntl(fd, F_GETFL, 0)) < 0)
-		return(-1);
-	if (flag)
-		mode |= FNDELAY;
-	else
-		mode &= ~FNDELAY;
-	return(fcntl(fd, F_SETFL, mode));
-}
-#endif	/* NBIO_FCNTL */

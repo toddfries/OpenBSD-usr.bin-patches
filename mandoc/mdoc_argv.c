@@ -1,4 +1,4 @@
-/*	$Id: mdoc_argv.c,v 1.50 2014/04/23 21:06:33 schwarze Exp $ */
+/*	$Id: mdoc_argv.c,v 1.52 2014/07/06 19:08:56 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2012 Ingo Schwarze <schwarze@openbsd.org>
@@ -175,7 +175,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_NONE, NULL }, /* Nd */
 	{ ARGSFL_DELIM, NULL }, /* Nm */
 	{ ARGSFL_DELIM, NULL }, /* Op */
-	{ ARGSFL_NONE, NULL }, /* Ot */
+	{ ARGSFL_DELIM, NULL }, /* Ot */
 	{ ARGSFL_DELIM, NULL }, /* Pa */
 	{ ARGSFL_NONE, args_Ex }, /* Rv */
 	{ ARGSFL_DELIM, NULL }, /* St */
@@ -245,7 +245,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_NONE, NULL }, /* Ek */
 	{ ARGSFL_NONE, NULL }, /* Bt */
 	{ ARGSFL_NONE, NULL }, /* Hf */
-	{ ARGSFL_NONE, NULL }, /* Fr */
+	{ ARGSFL_DELIM, NULL }, /* Fr */
 	{ ARGSFL_NONE, NULL }, /* Ud */
 	{ ARGSFL_DELIM, NULL }, /* Lb */
 	{ ARGSFL_NONE, NULL }, /* Lp */
@@ -256,7 +256,7 @@ static	const struct mdocarg mdocargs[MDOC_MAX] = {
 	{ ARGSFL_DELIM, NULL }, /* Brc */
 	{ ARGSFL_NONE, NULL }, /* %C */
 	{ ARGSFL_NONE, NULL }, /* Es */
-	{ ARGSFL_NONE, NULL }, /* En */
+	{ ARGSFL_DELIM, NULL }, /* En */
 	{ ARGSFL_DELIM, NULL }, /* Dx */
 	{ ARGSFL_NONE, NULL }, /* %Q */
 	{ ARGSFL_NONE, NULL }, /* br */
@@ -457,7 +457,8 @@ args(struct mdoc *mdoc, int line, int *pos,
 		 * is unterminated.
 		 */
 		if (MDOC_PHRASELIT & mdoc->flags)
-			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_BADQUOTE);
+			mandoc_msg(MANDOCERR_ARG_QUOTE,
+			    mdoc->parse, line, *pos, NULL);
 
 		mdoc->flags &= ~MDOC_PHRASELIT;
 		return(ARGS_EOLN);
@@ -516,7 +517,8 @@ args(struct mdoc *mdoc, int line, int *pos,
 
 		/* Whitespace check for eoln case... */
 		if ('\0' == *p && ' ' == *(p - 1))
-			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_EOLNSPACE);
+			mandoc_msg(MANDOCERR_SPACE_EOL, mdoc->parse,
+			    line, *pos, NULL);
 
 		*pos += (int)(p - *v);
 
@@ -571,7 +573,8 @@ args(struct mdoc *mdoc, int line, int *pos,
 		if ('\0' == buf[*pos]) {
 			if (MDOC_PPHRASE & mdoc->flags)
 				return(ARGS_QWORD);
-			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_BADQUOTE);
+			mandoc_msg(MANDOCERR_ARG_QUOTE,
+			    mdoc->parse, line, *pos, NULL);
 			return(ARGS_QWORD);
 		}
 
@@ -585,7 +588,8 @@ args(struct mdoc *mdoc, int line, int *pos,
 			(*pos)++;
 
 		if ('\0' == buf[*pos])
-			mdoc_pmsg(mdoc, line, *pos, MANDOCERR_EOLNSPACE);
+			mandoc_msg(MANDOCERR_SPACE_EOL, mdoc->parse,
+			    line, *pos, NULL);
 
 		return(ARGS_QWORD);
 	}

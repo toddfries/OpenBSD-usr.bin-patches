@@ -1,4 +1,4 @@
-/*	$OpenBSD: docmd.c,v 1.25 2012/11/12 01:14:41 guenther Exp $	*/
+/*	$OpenBSD: docmd.c,v 1.31 2014/07/12 03:48:04 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -29,15 +29,16 @@
  * SUCH DAMAGE.
  */
 
+#include <sys/socket.h>
+#include <dirent.h>
+#include <netdb.h>
+
 #include "defs.h"
 #include "y.tab.h"
 
 /*
  * Functions for rdist that do command (cmd) related activities.
  */
-
-#include <sys/socket.h>
-#include <netdb.h>
 
 struct subcmd	       *subcmds;		/* list of sub-commands for 
 						   current cmd */
@@ -256,9 +257,6 @@ static int
 remotecmd(char *rhost, char *luser, char *ruser, char *cmd)
 {
 	int desc;
-#if	defined(DIRECT_RCMD)
-	static int port = -1;
-#endif	/* DIRECT_RCMD */
 
 	debugmsg(DM_MISC, "local user = %s remote user = %s\n", luser, ruser);
 	debugmsg(DM_MISC, "Remote command = '%s'\n", cmd);
@@ -268,30 +266,12 @@ remotecmd(char *rhost, char *luser, char *ruser, char *cmd)
 	(void) signal(SIGALRM, sighandler);
 	(void) alarm(RTIMEOUT);
 
-#if	defined(DIRECT_RCMD)
-	(void) signal(SIGPIPE, sighandler);
-
-	if (port < 0) {
-		struct servent *sp;
-		
-		if ((sp = getservbyname("shell", "tcp")) == NULL)
-				fatalerr("shell/tcp: unknown service");
-		port = sp->s_port;
-	}
-
-	if (becomeroot() != 0)
-		exit(1);
-	desc = rcmd(&rhost, port, luser, ruser, cmd, 0);
-	if (becomeuser() != 0)
-		exit(1);
-#else	/* !DIRECT_RCMD */
 	debugmsg(DM_MISC, "Remote shell command = '%s'\n",
 	    path_remsh ? path_remsh : "default");
 	(void) signal(SIGPIPE, SIG_IGN);
 	desc = rcmdsh(&rhost, -1, luser, ruser, cmd, path_remsh);
 	if (desc > 0)
 		(void) signal(SIGPIPE, sighandler);
-#endif	/* DIRECT_RCMD */
 
 	(void) alarm(0);
 
@@ -636,7 +616,7 @@ static void
 rcmptime(struct stat *st, struct subcmd *sbcmds, char **env)
 {
 	DIR *d;
-	DIRENTRY *dp;
+	struct dirent *dp;
 	char *cp;
 	char *optarget;
 	int len;
@@ -724,7 +704,7 @@ cmptime(char *name, struct subcmd *sbcmds, char **env)
 			message(MT_CHANGE, "special \"%s\"", buf);
 			if (*env) {
 				size_t len = strlen(*env) + strlen(name) + 2;
-				*env = (char *) xrealloc(*env, len);
+				*env = xrealloc(*env, len);
 				(void) strlcat(*env, name, len);
 				(void) strlcat(*env, ":", len);
 			}
@@ -767,7 +747,7 @@ dodcolon(struct cmd *cmd, char **filev)
 	env = NULL;
 	for (sc = sbcmds; sc != NULL; sc = sc->sc_next) {
 		if (sc->sc_type == CMDSPECIAL) {
-			env = (char *) xmalloc(sizeof(E_FILES) + 3);
+			env = xmalloc(sizeof(E_FILES) + 3);
 			(void) snprintf(env, sizeof(E_FILES) + 3,
 					"%s='", E_FILES);
 			break;
@@ -843,8 +823,7 @@ except(char *file)
 
 				/* allocate and compile n_regex as needed */
 				if (nl->n_regex == NULL) {
-					nl->n_regex = (regex_t *)
-					    xmalloc(sizeof(regex_t));
+					nl->n_regex = xmalloc(sizeof(regex_t));
 					ecode = regcomp(nl->n_regex, nl->n_name,
 							REG_NOSUB);
 				}
@@ -909,9 +888,7 @@ docmdhost(struct cmd *cmd, char **filev)
 
 	if (!nflag) {
 		currenthost = (cmd->c_name) ? cmd->c_name : "<unknown>";
-#if	defined(SETARGS) || defined(HAVE_SETPROCTITLE)
 		setproctitle("update %s", currenthost);
-#endif 	/* SETARGS || HAVE_SETPROCTITLE */
 	}
 
 	switch (cmd->c_type) {
@@ -984,22 +961,7 @@ docmds(struct namelist *hostlist, int argc, char **argv)
 	(void) signal(SIGTERM, sighandler);
 
 	if (!nflag)
-		mysetlinebuf(stdout);	/* Make output (mostly) clean */
-
-#if	defined(USE_STATDB)
-	if (!nflag && (dostatdb || juststatdb)) {
-		extern long reccount;
-		message(MT_INFO, "Making stat database [%s] ... \n", 
-			       gettimestr());
-		if (mkstatdb() < 0)
-			error("Warning: Make stat database failed.");
-		message(MT_INFO,
-			      "Stat database created: %d files stored [%s].\n",
-			       reccount, gettimestr());
-		if (juststatdb)
-			return;
-	}
-#endif	/* USE_STATDB */
+		setvbuf(stdout, NULL, _IOLBF, 0);
 
 	/*
 	 * Print errors for any command line targets we didn't find.

@@ -1,4 +1,4 @@
-/*	$Id: roff.c,v 1.88 2014/07/01 00:32:02 schwarze Exp $ */
+/*	$Id: roff.c,v 1.94 2014/07/07 21:35:42 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -496,7 +496,7 @@ roff_res(struct roff *r, char **bufp, size_t *szp, int ln, int pos)
 	size_t		 naml;	/* actual length of the escape name */
 	int		 expand_count;	/* to avoid infinite loops */
 	int		 npos;	/* position in numeric expression */
-	int		 irc;	/* return code from roff_evalnum() */
+	int		 arg_complete; /* argument not interrupted by eol */
 	char		 term;	/* character terminating the escape */
 
 	expand_count = 0;
@@ -538,8 +538,9 @@ roff_res(struct roff *r, char **bufp, size_t *szp, int ln, int pos)
 			break;
 		default:
 			if (ESCAPE_ERROR == mandoc_escape(&cp, NULL, NULL))
-				mandoc_msg(MANDOCERR_BADESCAPE, r->parse,
-				    ln, (int)(stesc - *bufp), NULL);
+				mandoc_vmsg(MANDOCERR_ESC_BAD,
+				    r->parse, ln, (int)(stesc - *bufp),
+				    "%.*s", (int)(cp - stesc), stesc);
 			continue;
 		}
 
@@ -581,10 +582,12 @@ roff_res(struct roff *r, char **bufp, size_t *szp, int ln, int pos)
 
 		/* Advance to the end of the name. */
 
+		arg_complete = 1;
 		for (naml = 0; 0 == maxl || naml < maxl; naml++, cp++) {
 			if ('\0' == *cp) {
-				mandoc_msg(MANDOCERR_BADESCAPE, r->parse,
-				    ln, (int)(stesc - *bufp), NULL);
+				mandoc_msg(MANDOCERR_ESC_BAD, r->parse,
+				    ln, (int)(stesc - *bufp), stesc);
+				arg_complete = 0;
 				break;
 			}
 			if (0 == maxl && *cp == term) {
@@ -600,28 +603,34 @@ roff_res(struct roff *r, char **bufp, size_t *szp, int ln, int pos)
 
 		switch (stesc[1]) {
 		case '*':
-			res = roff_getstrn(r, stnam, naml);
+			if (arg_complete)
+				res = roff_getstrn(r, stnam, naml);
 			break;
 		case 'B':
 			npos = 0;
-			irc = roff_evalnum(stnam, &npos, NULL, 0);
-			ubuf[0] = irc && stnam + npos + 1 == cp
-			    ? '1' : '0';
+			ubuf[0] = arg_complete &&
+			    roff_evalnum(stnam, &npos, NULL, 0) &&
+			    stnam + npos + 1 == cp ? '1' : '0';
 			ubuf[1] = '\0';
 			break;
 		case 'n':
-			(void)snprintf(ubuf, sizeof(ubuf), "%d",
-			    roff_getregn(r, stnam, naml));
+			if (arg_complete)
+				(void)snprintf(ubuf, sizeof(ubuf), "%d",
+				    roff_getregn(r, stnam, naml));
+			else
+				ubuf[0] = '\0';
 			break;
 		case 'w':
+			/* use even incomplete args */
 			(void)snprintf(ubuf, sizeof(ubuf), "%d",
 			    24 * (int)naml);
 			break;
 		}
 
 		if (NULL == res) {
-			mandoc_msg(MANDOCERR_BADESCAPE, r->parse,
-			    ln, (int)(stesc - *bufp), NULL);
+			mandoc_vmsg(MANDOCERR_STR_UNDEF,
+			    r->parse, ln, (int)(stesc - *bufp),
+			    "%.*s", (int)naml, stnam);
 			res = "";
 		}
 
@@ -773,18 +782,19 @@ roff_endparse(struct roff *r)
 {
 
 	if (r->last)
-		mandoc_msg(MANDOCERR_SCOPEEXIT, r->parse,
-		    r->last->line, r->last->col, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOEND, r->parse,
+		    r->last->line, r->last->col,
+		    roffs[r->last->tok].name);
 
 	if (r->eqn) {
-		mandoc_msg(MANDOCERR_SCOPEEXIT, r->parse,
-		    r->eqn->eqn.ln, r->eqn->eqn.pos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOEND, r->parse,
+		    r->eqn->eqn.ln, r->eqn->eqn.pos, "EQ");
 		eqn_end(&r->eqn);
 	}
 
 	if (r->tbl) {
-		mandoc_msg(MANDOCERR_SCOPEEXIT, r->parse,
-		    r->tbl->line, r->tbl->pos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOEND, r->parse,
+		    r->tbl->line, r->tbl->pos, "TS");
 		tbl_end(&r->tbl);
 	}
 }
@@ -828,16 +838,16 @@ roff_cblock(ROFF_ARGS)
 	 */
 
 	if (NULL == r->last) {
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "..");
 		return(ROFF_IGN);
 	}
 
 	switch (r->last->tok) {
 	case ROFF_am:
+		/* ROFF_am1 is remapped to ROFF_am in roff_block(). */
 		/* FALLTHROUGH */
 	case ROFF_ami:
-		/* FALLTHROUGH */
-	case ROFF_am1:
 		/* FALLTHROUGH */
 	case ROFF_de:
 		/* ROFF_de1 is remapped to ROFF_de in roff_block(). */
@@ -847,12 +857,14 @@ roff_cblock(ROFF_ARGS)
 	case ROFF_ig:
 		break;
 	default:
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "..");
 		return(ROFF_IGN);
 	}
 
 	if ((*bufp)[pos])
-		mandoc_msg(MANDOCERR_ARGSLOST, r->parse, ln, pos, NULL);
+		mandoc_vmsg(MANDOCERR_ARG_SKIP, r->parse, ln, pos,
+		    ".. %s", *bufp + pos);
 
 	roffnode_pop(r);
 	roffnode_cleanscope(r);
@@ -876,7 +888,8 @@ roff_ccond(struct roff *r, int ln, int ppos)
 {
 
 	if (NULL == r->last) {
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "\\}");
 		return;
 	}
 
@@ -888,12 +901,14 @@ roff_ccond(struct roff *r, int ln, int ppos)
 	case ROFF_if:
 		break;
 	default:
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "\\}");
 		return;
 	}
 
 	if (r->last->endspan > -1) {
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "\\}");
 		return;
 	}
 
@@ -905,33 +920,47 @@ roff_ccond(struct roff *r, int ln, int ppos)
 static enum rofferr
 roff_block(ROFF_ARGS)
 {
-	char		*name, *cp;
+	const char	*name;
+	char		*iname, *cp;
 	size_t		 namesz;
 
-	name = cp = *bufp + pos;
-	namesz = 0;
+	/* Ignore groff compatibility mode for now. */
 
-	if (ROFF_ig != tok) {
-		if ('\0' == *cp) {
-			mandoc_msg(MANDOCERR_NOARGS, r->parse, ln, ppos, NULL);
-			return(ROFF_IGN);
-		}
+	if (ROFF_de1 == tok)
+		tok = ROFF_de;
+	else if (ROFF_am1 == tok)
+		tok = ROFF_am;
 
-		/*
-		 * Re-write `de1', since we don't really care about
-		 * groff's strange compatibility mode, into `de'.
-		 */
+	/* Parse the macro name argument. */
 
-		if (ROFF_de1 == tok)
-			tok = ROFF_de;
-		else if (ROFF_de != tok)
-			mandoc_msg(MANDOCERR_REQUEST, r->parse, ln, ppos,
-			    roffs[tok].name);
-
+	cp = *bufp + pos;
+	if (ROFF_ig == tok) {
+		iname = NULL;
+		namesz = 0;
+	} else {
+		iname = cp;
 		namesz = roff_getname(r, &cp, ln, ppos);
-		name[namesz] = '\0';
+		iname[namesz] = '\0';
+	}
+
+	/* Resolve the macro name argument if it is indirect. */
+
+	if (namesz && (ROFF_dei == tok || ROFF_ami == tok)) {
+		if (NULL == (name = roff_getstrn(r, iname, namesz))) {
+			mandoc_vmsg(MANDOCERR_STR_UNDEF,
+			    r->parse, ln, (int)(iname - *bufp),
+			    "%.*s", (int)namesz, iname);
+			namesz = 0;
+		} else
+			namesz = strlen(name);
 	} else
-		name = NULL;
+		name = iname;
+
+	if (0 == namesz && ROFF_ig != tok) {
+		mandoc_msg(MANDOCERR_REQ_EMPTY, r->parse,
+		    ln, ppos, roffs[tok].name);
+		return(ROFF_IGN);
+	}
 
 	roffnode_push(r, tok, name, ln, ppos);
 
@@ -941,21 +970,36 @@ roff_block(ROFF_ARGS)
 	 * appended from roff_block_text() in multiline mode.
 	 */
 
-	if (namesz && ROFF_de == tok)
+	if (ROFF_de == tok || ROFF_dei == tok)
 		roff_setstrn(&r->strtab, name, namesz, "", 0, 0);
 
 	if ('\0' == *cp)
 		return(ROFF_IGN);
 
-	/* If present, process the custom end-of-line marker. */
+	/* Get the custom end marker. */
 
-	name = cp;
+	iname = cp;
 	namesz = roff_getname(r, &cp, ln, ppos);
+
+	/* Resolve the end marker if it is indirect. */
+
+	if (namesz && (ROFF_dei == tok || ROFF_ami == tok)) {
+		if (NULL == (name = roff_getstrn(r, iname, namesz))) {
+			mandoc_vmsg(MANDOCERR_STR_UNDEF,
+			    r->parse, ln, (int)(iname - *bufp),
+			    "%.*s", (int)namesz, iname);
+			namesz = 0;
+		} else
+			namesz = strlen(name);
+	} else
+		name = iname;
+
 	if (namesz)
 		r->last->end = mandoc_strndup(name, namesz);
 
 	if ('\0' != *cp)
-		mandoc_msg(MANDOCERR_ARGSLOST, r->parse, ln, pos, NULL);
+		mandoc_vmsg(MANDOCERR_ARG_EXCESS, r->parse,
+		    ln, pos, ".%s ... %s", roffs[tok].name, cp);
 
 	return(ROFF_IGN);
 }
@@ -1004,12 +1048,8 @@ roff_block_sub(ROFF_ARGS)
 
 	t = roff_parse(r, *bufp, &pos, ln, ppos);
 
-	/*
-	 * Macros other than block-end are only significant
-	 * in `de' blocks; elsewhere, simply throw them away.
-	 */
 	if (ROFF_cblock != t) {
-		if (ROFF_de == tok)
+		if (ROFF_ig != tok)
 			roff_setstr(r, r->last->name, *bufp + ppos, 2);
 		return(ROFF_IGN);
 	}
@@ -1022,7 +1062,7 @@ static enum rofferr
 roff_block_text(ROFF_ARGS)
 {
 
-	if (ROFF_de == tok)
+	if (ROFF_ig != tok)
 		roff_setstr(r, r->last->name, *bufp + pos, 2);
 
 	return(ROFF_IGN);
@@ -1281,7 +1321,8 @@ roff_cond(ROFF_ARGS)
 	 */
 
 	if ('\0' == (*bufp)[pos])
-		mandoc_msg(MANDOCERR_NOARGS, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_COND_EMPTY, r->parse,
+		    ln, ppos, roffs[tok].name);
 
 	r->last->endspan = 1;
 
@@ -1754,7 +1795,8 @@ roff_TE(ROFF_ARGS)
 {
 
 	if (NULL == r->tbl)
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "TE");
 	else
 		tbl_end(&r->tbl);
 
@@ -1766,7 +1808,8 @@ roff_T_(ROFF_ARGS)
 {
 
 	if (NULL == r->tbl)
-		mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse,
+		    ln, ppos, "T&");
 	else
 		tbl_restart(ppos, ln, r->tbl);
 
@@ -1817,7 +1860,7 @@ static enum rofferr
 roff_EN(ROFF_ARGS)
 {
 
-	mandoc_msg(MANDOCERR_NOSCOPE, r->parse, ln, ppos, NULL);
+	mandoc_msg(MANDOCERR_BLK_NOTOPEN, r->parse, ln, ppos, "EN");
 	return(ROFF_IGN);
 }
 
@@ -1827,7 +1870,8 @@ roff_TS(ROFF_ARGS)
 	struct tbl_node	*tbl;
 
 	if (r->tbl) {
-		mandoc_msg(MANDOCERR_SCOPEBROKEN, r->parse, ln, ppos, NULL);
+		mandoc_msg(MANDOCERR_BLK_BROKEN, r->parse,
+		    ln, ppos, "TS breaks TS");
 		tbl_end(&r->tbl);
 	}
 
@@ -1879,9 +1923,8 @@ roff_tr(ROFF_ARGS)
 		if ('\\' == *first) {
 			esc = mandoc_escape(&p, NULL, NULL);
 			if (ESCAPE_ERROR == esc) {
-				mandoc_msg(MANDOCERR_BADESCAPE,
-				    r->parse, ln,
-				    (int)(p - *bufp), NULL);
+				mandoc_msg(MANDOCERR_ESC_BAD, r->parse,
+				    ln, (int)(p - *bufp), first);
 				return(ROFF_IGN);
 			}
 			fsz = (size_t)(p - first);
@@ -1891,9 +1934,8 @@ roff_tr(ROFF_ARGS)
 		if ('\\' == *second) {
 			esc = mandoc_escape(&p, NULL, NULL);
 			if (ESCAPE_ERROR == esc) {
-				mandoc_msg(MANDOCERR_BADESCAPE,
-				    r->parse, ln,
-				    (int)(p - *bufp), NULL);
+				mandoc_msg(MANDOCERR_ESC_BAD, r->parse,
+				    ln, (int)(p - *bufp), second);
 				return(ROFF_IGN);
 			}
 			ssz = (size_t)(p - second);

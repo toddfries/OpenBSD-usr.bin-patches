@@ -1,4 +1,4 @@
-/*	$OpenBSD: filesys.c,v 1.12 2011/04/10 15:47:28 krw Exp $	*/
+/*	$OpenBSD: filesys.c,v 1.15 2014/07/05 10:21:24 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -28,6 +28,9 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <sys/param.h>
+#include <sys/mount.h>
 
 #include "defs.h"
 
@@ -152,7 +155,7 @@ find_file(char *pathname, struct stat *statbuf, int *isvalid)
 	if (strcmp(pathname, file) == 0)
 		*isvalid = 1;
 
-	return((file && *file) ? file : NULL);
+	return(*file ? file : NULL);
 }
 
 #if defined(NFS_CHECK) || defined(RO_CHECK)
@@ -207,16 +210,14 @@ wakeup(int dummy)
 struct mntinfo *
 makemntinfo(struct mntinfo *mi)
 {
-	FILE *mfp;
 	static struct mntinfo *mntinfo;
 	struct mntinfo *newmi, *m;
 	struct stat mntstat;
 	mntent_t *mnt;
 	int timeo = 310;
 
-	if (!(mfp = setmountent(MOUNTED_FILE, "r"))) {
-		message(MT_NERROR, "%s: setmntent failed: %s", 
-			MOUNTED_FILE, SYSERR);
+	if (setmountent()) {
+		message(MT_NERROR, "setmntent failed: %s", SYSERR);
 		return(NULL);
 	}
 
@@ -228,7 +229,7 @@ makemntinfo(struct mntinfo *mi)
 	}
 
 	mntinfo = mi;
-	while ((mnt = getmountent(mfp)) != NULL) {
+	while ((mnt = getmountent()) != NULL) {
 		debugmsg(DM_MISC, "mountent = '%s' (%s)", 
 			 mnt->me_path, mnt->me_type);
 
@@ -268,8 +269,8 @@ makemntinfo(struct mntinfo *mi)
 			mntinfo = newmi;
 	}
 
-	(void) alarm(0);
-	(void) endmountent(mfp);
+	alarm(0);
+	endmountent();
 
 	return(mntinfo);
 }
@@ -404,9 +405,9 @@ is_symlinked(char *path, struct stat *statbuf, int *isvalid)
 int
 getfilesysinfo(char *file, int64_t *freespace, int64_t *freefiles)
 {
-#if	defined(STATFS_TYPE)
-	static statfs_t statfsbuf;
+	struct statfs statfsbuf;
 	char *mntpt;
+	int64_t val;
 	int t, r;
 
 	/*
@@ -418,19 +419,7 @@ getfilesysinfo(char *file, int64_t *freespace, int64_t *freefiles)
 		return(-1);
 	}
 
-	/*
-	 * Stat the filesystem (system specific)
-	 */
-#if	STATFS_TYPE == STATFS_SYSV
-	r = statfs(mntpt, &statfsbuf, sizeof(statfs_t), 0);
-#endif
-#if	STATFS_TYPE == STATFS_BSD || STATFS_TYPE == STATFS_44BSD
 	r = statfs(mntpt, &statfsbuf);
-#endif
-#if	STATFS_TYPE == STATFS_OSF1
-	r = statfs(mntpt, &statfsbuf, sizeof(statfs_t));
-#endif
-
 	if (r < 0) {
 		error("%s: Cannot statfs filesystem: %s.", mntpt, SYSERR);
 		return(-1);
@@ -440,26 +429,15 @@ getfilesysinfo(char *file, int64_t *freespace, int64_t *freefiles)
 	 * If values are < 0, then assume the value is unsupported
 	 * or unavailable for that filesystem type.
 	 */
+	val = -1;
 	if (statfsbuf.f_bavail >= 0)
-		*freespace = (statfsbuf.f_bavail * (statfsbuf.f_bsize / 512))
-			      / 2;
+		val = (statfsbuf.f_bavail * (statfsbuf.f_bsize / 512)) / 2;
+	*freespace = val;
 
-	/*
-	 * BROKEN_STATFS means that statfs() does not set fields
-	 * to < 0 if the field is unsupported for the filesystem type.
-	 */
-#if	defined(BROKEN_STATFS)
-	if (statfsbuf.f_favail > 0)
-#else
+	val = -1;
 	if (statfsbuf.f_favail >= 0)
-#endif 	/* BROKEN_STATFS */
-		*freefiles = statfsbuf.f_favail;
-
-#else	/* !STATFS_TYPE */
-
-    	*freespace = *freefiles = -1;
-
-#endif	/* STATFS_TYPE */
+		val = statfsbuf.f_favail;
+	*freefiles = val;
 
 	return(0);
 }

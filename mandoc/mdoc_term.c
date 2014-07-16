@@ -1,4 +1,4 @@
-/*	$Id: mdoc_term.c,v 1.169 2014/04/23 16:07:06 schwarze Exp $ */
+/*	$Id: mdoc_term.c,v 1.173 2014/07/07 15:03:24 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012, 2013, 2014 Ingo Schwarze <schwarze@openbsd.org>
@@ -91,6 +91,7 @@ static	int	  termp_bt_pre(DECL_ARGS);
 static	int	  termp_bx_pre(DECL_ARGS);
 static	int	  termp_cd_pre(DECL_ARGS);
 static	int	  termp_d1_pre(DECL_ARGS);
+static	int	  termp_es_pre(DECL_ARGS);
 static	int	  termp_ex_pre(DECL_ARGS);
 static	int	  termp_fa_pre(DECL_ARGS);
 static	int	  termp_fd_pre(DECL_ARGS);
@@ -154,7 +155,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_nd_pre, NULL }, /* Nd */
 	{ termp_nm_pre, termp_nm_post }, /* Nm */
 	{ termp_quote_pre, termp_quote_post }, /* Op */
-	{ NULL, NULL }, /* Ot */
+	{ termp_ft_pre, NULL }, /* Ot */
 	{ termp_under_pre, NULL }, /* Pa */
 	{ termp_rv_pre, NULL }, /* Rv */
 	{ NULL, NULL }, /* St */
@@ -224,7 +225,7 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ NULL, NULL }, /* Ek */
 	{ termp_bt_pre, NULL }, /* Bt */
 	{ NULL, NULL }, /* Hf */
-	{ NULL, NULL }, /* Fr */
+	{ termp_under_pre, NULL }, /* Fr */
 	{ termp_ud_pre, NULL }, /* Ud */
 	{ NULL, termp_lb_post }, /* Lb */
 	{ termp_sp_pre, NULL }, /* Lp */
@@ -234,8 +235,8 @@ static	const struct termact termacts[MDOC_MAX] = {
 	{ termp_quote_pre, termp_quote_post }, /* Bro */
 	{ NULL, NULL }, /* Brc */
 	{ NULL, termp____post }, /* %C */
-	{ NULL, NULL }, /* Es */ /* TODO */
-	{ NULL, NULL }, /* En */ /* TODO */
+	{ termp_es_pre, NULL }, /* Es */
+	{ termp_quote_pre, termp_quote_post }, /* En */
 	{ termp_xx_pre, NULL }, /* Dx */
 	{ NULL, termp____post }, /* %Q */
 	{ termp_sp_pre, NULL }, /* br */
@@ -270,8 +271,11 @@ terminal_mdoc(void *arg, const struct mdoc *mdoc)
 
 	term_begin(p, print_mdoc_head, print_mdoc_foot, meta);
 
-	if (n->child)
+	if (n->child) {
+		if (MDOC_Sh != n->child->tok)
+			term_vspace(p);
 		print_mdoc_nodelist(p, NULL, meta, n->child);
+	}
 
 	term_end(p);
 }
@@ -742,7 +746,7 @@ termp_it_pre(DECL_ARGS)
 			term_word(p, "\\ \\ ");
 		break;
 	case LIST_inset:
-		if (MDOC_BODY == n->type)
+		if (MDOC_BODY == n->type && n->parent->head->nchild)
 			term_word(p, "\\ ");
 		break;
 	default:
@@ -1825,6 +1829,13 @@ termp_sp_pre(DECL_ARGS)
 }
 
 static int
+termp_es_pre(DECL_ARGS)
+{
+
+	return(0);
+}
+
+static int
 termp_quote_pre(DECL_ARGS)
 {
 
@@ -1855,6 +1866,12 @@ termp_quote_pre(DECL_ARGS)
 		/* FALLTHROUGH */
 	case MDOC_Dq:
 		term_word(p, "\\(lq");
+		break;
+	case MDOC_En:
+		if (NULL == n->norm->Es ||
+		    NULL == n->norm->Es->child)
+			return(1);
+		term_word(p, n->norm->Es->child->string);
 		break;
 	case MDOC_Eo:
 		break;
@@ -1893,7 +1910,8 @@ termp_quote_post(DECL_ARGS)
 	if (MDOC_BODY != n->type && MDOC_ELEM != n->type)
 		return;
 
-	p->flags |= TERMP_NOSPACE;
+	if (MDOC_En != n->tok)
+		p->flags |= TERMP_NOSPACE;
 
 	switch (n->tok) {
 	case MDOC_Ao:
@@ -1919,6 +1937,14 @@ termp_quote_post(DECL_ARGS)
 		/* FALLTHROUGH */
 	case MDOC_Dq:
 		term_word(p, "\\(rq");
+		break;
+	case MDOC_En:
+		if (NULL != n->norm->Es &&
+		    NULL != n->norm->Es->child &&
+		    NULL != n->norm->Es->child->next) {
+			p->flags |= TERMP_NOSPACE;
+			term_word(p, n->norm->Es->child->next->string);
+		}
 		break;
 	case MDOC_Eo:
 		break;
@@ -2029,13 +2055,15 @@ static int
 termp_sm_pre(DECL_ARGS)
 {
 
-	assert(n->child && MDOC_TEXT == n->child->type);
-	if (0 == strcmp("on", n->child->string)) {
-		if (p->col)
-			p->flags &= ~TERMP_NOSPACE;
+	if (NULL == n->child)
+		p->flags ^= TERMP_NONOSPACE;
+	else if (0 == strcmp("on", n->child->string))
 		p->flags &= ~TERMP_NONOSPACE;
-	} else
+	else
 		p->flags |= TERMP_NONOSPACE;
+
+	if (p->col && ! (TERMP_NONOSPACE & p->flags))
+		p->flags &= ~TERMP_NOSPACE;
 
 	return(0);
 }

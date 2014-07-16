@@ -1,4 +1,4 @@
-/*	$OpenBSD: client.c,v 1.26 2013/08/18 16:32:24 guenther Exp $	*/
+/*	$OpenBSD: client.c,v 1.31 2014/07/12 03:48:04 guenther Exp $	*/
 
 /*
  * Copyright (c) 1983 Regents of the University of California.
@@ -28,6 +28,8 @@
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE.
  */
+
+#include <dirent.h>
 
 #include "defs.h"
 #include "y.tab.h"
@@ -204,7 +206,7 @@ addcmdspecialfile(char *starget, char *rname, int destdir)
 	}
 
 	if (isokay) {
-		new = (struct namelist *) xmalloc(sizeof(struct namelist));
+		new = xmalloc(sizeof *new);
 		new->n_name = xstrdup(rfile);
 		new->n_regex = NULL;
 		new->n_next = updfilelist;
@@ -323,7 +325,7 @@ linkinfo(struct stat *statp)
 			return(lp);
 		}
 
-	lp = (struct linkbuf *) xmalloc(sizeof(*lp));
+	lp = xmalloc(sizeof(*lp));
 	lp->nextp = ihead;
 	ihead = lp;
 	lp->inum = statp->st_ino;
@@ -577,7 +579,7 @@ static int
 senddir(char *rname, opt_t opts, struct stat *stb, char *user,
 	char *group, int destdir)
 {
-	DIRENTRY *dp;
+	struct dirent *dp;
 	DIR *d;
 	char *optarget, *cp;
 	int len;
@@ -974,7 +976,7 @@ update(char *rname, opt_t opts, struct stat *statp)
 			while (*owner && !isdigit((unsigned char)*owner) &&
 			    (*owner != '-'))
 				++owner;
-			if (owner && (UID_T) atoi(owner) != statp->st_uid) {
+			if (owner && (uid_t)atoi(owner) != statp->st_uid) {
 				debugmsg(DM_MISC, 
 					 "owner does not match (%d != %s).\n",
 					 statp->st_uid, owner);
@@ -1000,7 +1002,7 @@ update(char *rname, opt_t opts, struct stat *statp)
 			while (*group && !isdigit((unsigned char) *group) &&
 			    (*group != '-'))
 				++group;
-			if (group && (UID_T) atoi(group) != statp->st_gid) {
+			if (group && (gid_t)atoi(group) != statp->st_gid) {
 				debugmsg(DM_MISC,
 					 "group does not match (%d != %s).\n",
 					 statp->st_gid, group);
@@ -1035,7 +1037,7 @@ dostat(char *file, struct stat *statbuf, opt_t opts)
  * We need to just change file info.
  */
 static int
-statupdate(int u, char *target, opt_t opts, char *rname, int destdir,
+statupdate(int u, char *starget, opt_t opts, char *rname, int destdir,
 	   struct stat *st, char *user, char *group)
 {
 	int rv = 0;
@@ -1046,12 +1048,12 @@ statupdate(int u, char *target, opt_t opts, char *rname, int destdir,
 		if (IS_ON(opts, DO_VERIFY)) {
 			message(MT_INFO,
 				"%s: need to change to perm %04o, owner %s, group %s",
-				target, lmode, user, group);
-			runspecial(target, opts, rname, destdir);
+				starget, lmode, user, group);
+			runspecial(starget, opts, rname, destdir);
 		}
 		else {
 			message(MT_CHANGE, "%s: change to perm %04o, owner %s, group %s", 
-				target, lmode, user, group);
+				starget, lmode, user, group);
 			ENCODE(ername, rname);
 			(void) sendcmd(C_CHMOG, "%lo %04o %s %s %s",
 				       opts, lmode, user, group, ername);
@@ -1067,7 +1069,7 @@ statupdate(int u, char *target, opt_t opts, char *rname, int destdir,
  * We need to install/update:
  */
 static int
-fullupdate(int u, char *target, opt_t opts, char *rname, int destdir,
+fullupdate(int u, char *starget, opt_t opts, char *rname, int destdir,
 	   struct stat *st, char *user, char *group)
 {
 	/*
@@ -1075,12 +1077,12 @@ fullupdate(int u, char *target, opt_t opts, char *rname, int destdir,
 	 */
 	if (u == US_NOENT) {
 		if (IS_ON(opts, DO_VERIFY)) {
-			message(MT_INFO, "%s: need to install", target);
-			runspecial(target, opts, rname, destdir);
+			message(MT_INFO, "%s: need to install", starget);
+			runspecial(starget, opts, rname, destdir);
 			return(1);
 		}
 		if (!IS_ON(opts, DO_QUIET))
-			message(MT_CHANGE, "%s: installing", target);
+			message(MT_CHANGE, "%s: installing", starget);
 		FLAG_OFF(opts, (DO_COMPARE|DO_REMOVE));
 	}
 
@@ -1106,16 +1108,16 @@ fullupdate(int u, char *target, opt_t opts, char *rname, int destdir,
 	} else if (S_ISREG(st->st_mode)) {		
 		if (u == US_OUTDATE) {
 			if (IS_ON(opts, DO_VERIFY)) {
-				message(MT_INFO, "%s: need to update", target);
-				runspecial(target, opts, rname, destdir);
+				message(MT_INFO, "%s: need to update", starget);
+				runspecial(starget, opts, rname, destdir);
 				return(1);
 			}
 			if (!IS_ON(opts, DO_QUIET))
-				message(MT_CHANGE, "%s: updating", target);
+				message(MT_CHANGE, "%s: updating", starget);
 		}
 		return (sendfile(rname, opts, st, user, group, destdir) == 0);
 	} else {
-		message(MT_INFO, "%s: unknown file type 0%o", target,
+		message(MT_INFO, "%s: unknown file type 0%o", starget,
 			st->st_mode);
 		return(0);
 	}
@@ -1195,11 +1197,6 @@ void
 cleanup(int dummy)
 {
 	char *file;
-#ifdef USE_STATDB
-	extern char statfile[];
-
-	(void) unlink(statfile);
-#endif
 
 	if ((file = getnotifyfile()) != NULL)
 		(void) unlink(file);
